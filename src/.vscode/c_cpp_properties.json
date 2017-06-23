@@ -34,18 +34,16 @@
             "name": "Win32",
             "includePath": [
                 "C:/Program Files (x86)/Microsoft Visual Studio 14.0/VC/include",
-                "C:/Program Files/MATLAB/R2016b/extern/include",
-                "D:/Users/Kesh/Documents/Programming/ffmpeg-3.2.4/include",
-                "D:/Users/Kesh/Documents/Programming/msinttypes-r26"
+                "C:/Program Files/MATLAB/R2017a/extern/include",
+                "C:/Users/TakeshiIkuma/Documents/Programming/ffmpeg-3.2.4/include"
             ],
             "browse": {
                 "limitSymbolsToIncludedHeaders": true,
                 "databaseFilename": "",
                 "path": [
                     "C:/Program Files (x86)/Microsoft Visual Studio 14.0/VC/include",
-                    "C:/Program Files/MATLAB/R2016b/extern/include",
-                    "D:/Users/Kesh/Documents/Programming/ffmpeg-3.2.4/include",
-                    "D:/Users/Kesh/Documents/Programming/msinttypes-r26"
+                    "C:/Program Files/MATLAB/R2017a/extern/include",
+                    "C:/Users/TakeshiIkuma/Documents/Programming/ffmpeg-3.2.4/include"
                 ]
             }
         }

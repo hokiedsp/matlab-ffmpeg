@@ -9,14 +9,19 @@ extern "C" {
 #include <libavutil/avutil.h>
 #include <libavutil/pixdesc.h>
 #include <libavutil/error.h>
+#include <libavutil/display.h>
+#include <libavfilter/buffersrc.h>
 }
 
+#include "ffmpegAvRedefine.h"
 #include "ffmpegInputFile.h"
 #include "ffmpegUtil.h"
 
 using namespace ffmpeg;
 
 int64_t InputStream::decode_error_stat[2] = {0, 0};
+float InputStream::dts_delta_threshold   = 10;
+float InputStream::dts_error_threshold   = 3600*30;
 
 // av_frame_free(&ist->decoded_frame);
 // av_frame_free(&ist->filter_frame);
@@ -64,7 +69,8 @@ int InputStream::get_stream_buffer(AVCodecContext *s, AVFrame *frame, int flags)
 InputStream::InputStream(InputFile &f, const int i, const InputOptionsContext &o)
     : file(f), dec(NULL), dec_ctx(NULL, delete_codec_ctx), decoded_frame(NULL), filter_frame(NULL), st(f.ctx->streams[i]), 
       decoder_opts(NULL, delete_dict), discard(true), user_set_discard(AVDISCARD_NONE),
-      nb_samples(0), min_pts(INT64_MAX), max_pts(INT64_MIN), ts_scale(1.0)
+      nb_samples(0), min_pts(INT64_MAX), max_pts(INT64_MIN), ts_scale(1.0),saw_first_ts(false),
+      decoding_needed(0),wrap_correction_done(false)
 {
    std::ostringstream msg; // for exception message
    const Option *opt = NULL;
@@ -190,7 +196,7 @@ int InputStream::init_stream(std::string &error)
       if ((ret = avcodec_open2(dec_ctx.get(), dec, &opts)) < 0)
       {
          error.reserve(AV_ERROR_MAX_STRING_SIZE);
-         av_make_error_string(error.data(), AV_ERROR_MAX_STRING_SIZE, ret);
+         av_make_error_string((char*)error.data(), AV_ERROR_MAX_STRING_SIZE, ret);
          std::ostringstream msg;
          msg << "Error while opening decoder for input stream #" << file.index << ":" << st->index << " : " << error.c_str();
          error = msg.str();
@@ -210,7 +216,7 @@ int InputStream::init_stream(std::string &error)
 /* pkt = NULL means EOF (needed to flush decoder buffers) */
 int InputStream::prepare_packet(const AVPacket *pkt, bool no_eof)
 {
-   int ret = 0, i;
+   int ret = 0;
    bool repeating = false;
    bool eof_reached = false;
 
@@ -306,7 +312,7 @@ int InputStream::send_filter_eof()
 {
    for (auto f = filters.begin(); f < filters.end(); f++)
    {
-      int ret = av_buffersrc_add_frame(f->filter, NULL);
+      int ret = av_buffersrc_add_frame((*f)->filter, NULL);
       if (ret < 0)
          return ret;
    }
@@ -362,11 +368,7 @@ void InputStream::check_decode_result(const bool got_output, const int ret)
 void InputStream::close()
 {
    if (decoding_needed)
-   {
-      avcodec_close(dec_ctx);
-      if (hwaccel_uninit)
-         hwaccel_uninit(ist->dec_ctx);
-   }
+      avcodec_close(dec_ctx.get());
 }
 
 bool InputStream::process_packet_time(AVPacket &pkt, int64_t &ts_offset, int64_t &last_ts)
@@ -424,7 +426,7 @@ bool InputStream::process_packet_time(AVPacket &pkt, int64_t &ts_offset, int64_t
 
          if (av_packet_get_side_data(&pkt, src_sd->type, NULL))
             continue;
-         if (autorotate && src_sd->type == AV_PKT_DATA_DISPLAYMATRIX)
+         if (auto_rotate() && src_sd->type == AV_PKT_DATA_DISPLAYMATRIX)
             continue;
 
          dst_data = av_packet_new_side_data(&pkt, src_sd->type, src_sd->size);
@@ -441,11 +443,11 @@ bool InputStream::process_packet_time(AVPacket &pkt, int64_t &ts_offset, int64_t
       pkt.pts += av_rescale_q(ts_offset, AV_TIME_BASE_Q, st->time_base);
 
    if (pkt.pts != AV_NOPTS_VALUE)
-      pkt.pts *= ts_scale;
+      pkt.pts *= (int64_t)ts_scale;
    if (pkt.dts != AV_NOPTS_VALUE)
-      pkt.dts *= ts_scale;
+      pkt.dts *= (int64_t)ts_scale;
 
-   int64_t pkt_dts = av_rescale_q_rnd(pkt.dts, st->time_base, AV_TIME_BASE_Q, AV_ROUND_NEAR_INF | AV_ROUND_PASS_MINMAX);
+   int64_t pkt_dts = av_rescale_q_rnd(pkt.dts, st->time_base, AV_TIME_BASE_Q, AVRounding(AV_ROUND_NEAR_INF | AV_ROUND_PASS_MINMAX));
    if ((dec_ctx->codec_type == AVMEDIA_TYPE_VIDEO || dec_ctx->codec_type == AVMEDIA_TYPE_AUDIO) &&
        pkt_dts != AV_NOPTS_VALUE && next_dts == AV_NOPTS_VALUE && !copy_ts && (file.ctx->iformat->flags & AVFMT_TS_DISCONT) && last_ts != AV_NOPTS_VALUE)
    {
@@ -455,13 +457,13 @@ bool InputStream::process_packet_time(AVPacket &pkt, int64_t &ts_offset, int64_t
       {
          ts_offset -= delta;
          // av_log(NULL, AV_LOG_DEBUG, "Inter stream timestamp discontinuity %" PRId64 ", new offset= %" PRId64 "\n", delta, ifile->ts_offset);
-         pkt.dts -= av_rescale_q(delta, AV_TIME_BASE_Q, ist->st->time_base);
+         pkt.dts -= av_rescale_q(delta, AV_TIME_BASE_Q, st->time_base);
          if (pkt.pts != AV_NOPTS_VALUE)
-            pkt.pts -= av_rescale_q(delta, AV_TIME_BASE_Q, ist->st->time_base);
+            pkt.pts -= av_rescale_q(delta, AV_TIME_BASE_Q, st->time_base);
       }
    }
 
-   int64_t duration = av_rescale_q(file.duration, file.time_base, st->time_base);
+   int64_t duration = av_rescale_q(file.get_duration(), file.get_time_base(), st->time_base);
    if (pkt.pts != AV_NOPTS_VALUE)
    {
       pkt.pts += duration;
@@ -472,7 +474,7 @@ bool InputStream::process_packet_time(AVPacket &pkt, int64_t &ts_offset, int64_t
    if (pkt.dts != AV_NOPTS_VALUE)
       pkt.dts += duration;
 
-   pkt_dts = av_rescale_q_rnd(pkt.dts, st->time_base, AV_TIME_BASE_Q, AV_ROUND_NEAR_INF | AV_ROUND_PASS_MINMAX);
+   pkt_dts = av_rescale_q_rnd(pkt.dts, st->time_base, AV_TIME_BASE_Q, (AVRounding)(AV_ROUND_NEAR_INF | AV_ROUND_PASS_MINMAX));
    if ((dec_ctx->codec_type == AVMEDIA_TYPE_VIDEO || dec_ctx->codec_type == AVMEDIA_TYPE_AUDIO) &&
        pkt_dts != AV_NOPTS_VALUE && next_dts != AV_NOPTS_VALUE && !copy_ts)
    {
@@ -539,15 +541,15 @@ int InputStream::flush(bool no_eof) // flush decoder
          return 0;
    }
 
-   if (!no_eof) // if EOF, finish the related output streams
-   {
-      /* mark all outputs that don't go through lavfi as finished */
-      for (auto ost = osts.begin(); ost < osts.end(); ost++)
-      {
-         if (dec_ctx->codec_type == AVMEDIA_TYPE_SUBTITLE || ost->stream_copy)
-            (*ost)->finish();
-      }
-   }
+//    if (!no_eof) // if EOF, finish the related output streams
+//    {
+//       /* mark all outputs that don't go through lavfi as finished */
+//       for (auto ost = osts.begin(); ost < osts.end(); ost++)
+//       {
+//          if (dec_ctx->codec_type == AVMEDIA_TYPE_SUBTITLE || ost->stream_copy)
+//             (*ost)->finish();
+//       }
+//    }
 
    return ret;
 }
@@ -567,12 +569,12 @@ int InputStream::flush(bool no_eof) // flush decoder
       discard = false;
       st->discard = AVDISCARD_NONE;
 
-      filters.push_back(new_filter);
+      filters.push_back(&new_filter);
    }
 
 AVRational InputStream::get_framerate() const
 {
-    return av_guess_frame_rate(file->ctx, st, NULL);
+    return av_guess_frame_rate(file.ctx.get(), st, NULL);
 }
 
 double InputStream::get_rotation()

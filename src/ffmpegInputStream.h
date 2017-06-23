@@ -51,31 +51,33 @@ struct InputFile; // concretely defined in ffmpegInputFile.h
 
 struct InputStream : public ffmpegBase
 {
-   InputStream(InputFile &infile, const int i, const InputOptionsContext &o);
-   // ~InputStream();
+  static float dts_delta_threshold;
+  static float dts_error_threshold;
+  InputStream(InputFile &infile, const int i, const InputOptionsContext &o);
+  // ~InputStream();
 
-   virtual void init();
+  virtual void init();
 
-   virtual void set_option(const InputOptionsContext &o);
+  virtual void set_option(const InputOptionsContext &o);
 
-   // compare given dictionary to decoder_opts and remove duplicates from the given
-   void remove_used_opts(AVDictionary *&opts);
+  // compare given dictionary to decoder_opts and remove duplicates from the given
+  void remove_used_opts(AVDictionary *&opts);
 
-   int init_stream(std::string &error);
-   virtual int prepare_packet(const AVPacket *pkt, bool no_eof);
+  int init_stream(std::string &error);
+  virtual int prepare_packet(const AVPacket *pkt, bool no_eof);
 
-   virtual int64_t get_duration(const bool has_audio, AVRational *&tb) const
-   {
-      // for non-audio streams, AudioInputStream && VideoInputStream overload this function
+  virtual int64_t get_duration(const bool has_audio, AVRational *&tb) const
+  {
+    // for non-audio streams, AudioInputStream && VideoInputStream overload this function
 
-      // return the pointer to the stream's time base
-      tb = &(st->time_base);
+    // return the pointer to the stream's time base
+    tb = &(st->time_base);
 
-      // grab the duration only if specified in the stream object
-      if (!has_audio && st->avg_frame_rate.num)
-         return av_rescale_q(1, st->avg_frame_rate, st->time_base) + max_pts - min_pts;
-      else
-         return 1;
+    // grab the duration only if specified in the stream object
+    if (!has_audio && st->avg_frame_rate.num)
+      return av_rescale_q(1, st->avg_frame_rate, st->time_base) + max_pts - min_pts;
+    else
+      return 1;
    }
 
    void assert_emu_dts() const
@@ -135,6 +137,8 @@ struct InputStream : public ffmpegBase
 #define DECODING_FOR_OST 1
 #define DECODING_FOR_FILTER 2
 
+   bool wrap_correction_done;
+
    //OutputStreamRefs osts; // direct destination output streams
 
    /* predicted dts of the next packet read for this stream or (when there are
@@ -158,6 +162,7 @@ struct InputStream : public ffmpegBase
    int reinit_filters;
 
    int64_t       start;     /* time when read started */
+   uint64_t frames_decoded;
 
    static AVPixelFormat get_format(AVCodecContext *s, const enum AVPixelFormat *pix_fmts);
    static int get_buffer(AVCodecContext *s, AVFrame *frame, int flags);
@@ -256,7 +261,11 @@ struct VideoInputStream : public InputStream
    AVPixelFormat hwaccel_retrieved_pix_fmt;
    AVBufferRef *hw_frames_ctx;
 
+   int64_t *dts_buffer;
+   int nb_dts_buffer;
+
    static const HWAccels hwaccels;
+  static const HWAccel *get_hwaccel(AVPixelFormat pix_fmt);
 };
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
@@ -295,9 +304,12 @@ virtual int prepare_packet(const AVPacket *pkt, bool no_eof);
    int resample_channels;
    uint64_t resample_channel_layout;
 
+   uint64_t samples_decoded;
+
+   int64_t filter_in_rescale_delta_last;
+
    bool guess_input_channel_layout(); // returns true if audio channel layout is given or guessed
 };
-
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -335,23 +347,6 @@ struct SubtitleInputStream : public DataInputStream
 
    virtual bool auto_rotate() const { return autorotate; }
 
-   struct prev_sub
-   { /* previous decoded subtitle and related variables */
-      int got_output;
-      int ret;
-      AVSubtitle subtitle;
-      prev_sub() : got_output(0), ret(0) {}
-   } prev_sub;
-
-   struct sub2video
-   {
-      int64_t last_pts;
-      int64_t end_pts;
-      AVFrame *frame;
-      int w, h;
-      sub2video() : last_pts(0), end_pts(0), frame(NULL), w(0), h(0) {}
-   } sub2video;
-
    int dr1;
 
    //   ~SubtitleInputStream();
@@ -378,15 +373,34 @@ struct SubtitleInputStream : public DataInputStream
    void sub2video_push_ref(int64_t pts);
 
    static void sub2video_copy_rect(AVFrame *frame, AVSubtitleRect *r);
+   static void sub2video_copy_rect(uint8_t *dst, int dst_linesize, int w, int h, AVSubtitleRect *r);
 
    void sub2video_update(AVSubtitle *sub);
 
    void sub2video_heartbeat(int64_t pts);
 
+   void sub2video_flush();
+
    /* end of sub2video hack */
 
-   int transcode_subtitles(AVPacket *pkt, int &got_output);
+   int transcode_subtitles(AVPacket *pkt, bool &got_output);
 
  private:
+   struct prev_sub_s
+   { /* previous decoded subtitle and related variables */
+      bool got_output;
+      int ret;
+      AVSubtitle subtitle;
+      prev_sub_s() : got_output(false), ret(0) {}
+   } prev_sub;
+
+   struct sub2video_s
+   {
+      int64_t last_pts;
+      int64_t end_pts;
+      AVFrame *frame;
+      int w, h;
+      sub2video_s() : last_pts(0), end_pts(0), frame(NULL), w(0), h(0) {}
+   } sub2video;
 };
 }

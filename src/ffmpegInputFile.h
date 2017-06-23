@@ -32,12 +32,11 @@ struct InputFile : public ffmpegBase
    void init_thread(void);
    void free_thread(void);
 
-#ifdef AV_TIME_BASE_Q
-#undef AV_TIME_BASE_Q
-#define AV_TIME_BASE_Q AVRational({1,AV_TIME_BASE})
-#endif
+   int64_t get_duration() const { return duration; }
+   const AVRational &get_time_base() const { return time_base; }
 
-   int64_t get_tsoffset(const bool start_at_zero = false) const
+       int64_t
+       get_tsoffset(const bool start_at_zero = false) const
    {
       if ((start_time == AV_NOPTS_VALUE) || !accurate_seek)
          return AV_NOPTS_VALUE;
@@ -49,28 +48,7 @@ struct InputFile : public ffmpegBase
       return tsoffset;
    }
 
-   void update_start_time()
-   {
-      // Correcting starttime based on the enabled streams
-      // FIXME this ideally should be done before the first use of starttime but we do not know which are the enabled streams at that point.
-      //       so we instead do it here as part of discontinuity handling
-      if (ts_offset == -ctx->start_time && (ctx->iformat->flags & AVFMT_TS_DISCONT))
-      {
-         int64_t new_start_time = INT64_MAX;
-         for (unsigned int i = 0; i < ctx->nb_streams; i++)
-         {
-            AVStream *st = ctx->streams[i];
-            if (st->discard == AVDISCARD_ALL || st->start_time == AV_NOPTS_VALUE)
-               continue;
-            new_start_time = FFMIN(new_start_time, av_rescale_q(st->start_time, st->time_base, AV_TIME_BASE_Q));
-         }
-         if (new_start_time > ctx->start_time)
-         {
-            //av_log(ctx, AV_LOG_VERBOSE, "Correcting start time by %" PRId64 "\n", new_start_time - is->start_time);
-            ts_offset = -new_start_time;
-         }
-      }
-   }
+   void update_start_time();
 
    int64_t start_time; /* user-specified start time in AV_TIME_BASE or AV_NOPTS_VALUE */
    int64_t recording_time;

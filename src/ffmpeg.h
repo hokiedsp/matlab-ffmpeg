@@ -50,32 +50,13 @@ extern "C" {
 
 typedef struct InputStream {
 
-    int           wrap_correction_done;
 
-    int64_t filter_in_rescale_delta_last;
-
-    struct { /* previous decoded subtitle and related variables */
-        int got_output;
-        int ret;
-        AVSubtitle subtitle;
-    } prev_sub;
-
-    struct sub2video {
-        int64_t last_pts;
-        int64_t end_pts;
-        AVFrame *frame;
-        int w, h;
-    } sub2video;
 
     int dr1;
 
     /* stats */
     // number of frames/samples retrieved from the decoder
-    uint64_t frames_decoded;
-    uint64_t samples_decoded;
 
-    int64_t *dts_buffer;
-    int nb_dts_buffer;
 } InputStream;
 
 typedef struct InputFile {

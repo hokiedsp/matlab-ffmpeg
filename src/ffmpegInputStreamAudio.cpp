@@ -1,4 +1,11 @@
+extern "C" {
+#include <libavfilter/buffersrc.h>
+}
+
 #include "ffmpegInputStream.h"
+#include "ffmpegInputFile.h"
+
+using namespace ffmpeg;
 
 AudioInputStream::AudioInputStream(InputFile &f, const int i, const InputOptionsContext &o)
     : InputStream(f, i, o), guess_layout_max(INT_MAX), resample_sample_fmt(dec_ctx->sample_fmt), resample_sample_rate(dec_ctx->sample_rate),
@@ -66,16 +73,16 @@ int AudioInputStream::decode_packet(const AVPacket *inpkt, bool repeating, bool 
    if (!filter_frame && !(filter_frame = av_frame_alloc()))
       return AVERROR(ENOMEM);
 
-   ret = decode(dec_ctx, decoded_frame, got_output, pkt);
+   ret = decode(dec_ctx.get(), decoded_frame, got_output, pkt);
 
    if (ret >= 0 && dec_ctx->sample_rate <= 0)
    {
-      av_log(dec_ctx, AV_LOG_ERROR, "Sample rate %d invalid\n", dec_ctx->sample_rate);
+      av_log(dec_ctx.get(), AV_LOG_ERROR, "Sample rate %d invalid\n", dec_ctx->sample_rate);
       ret = AVERROR_INVALIDDATA;
    }
 
    if (ret != AVERROR_EOF)
-      check_decode_result(ist, got_output, ret);
+      check_decode_result(got_output, ret);
 
    if (!got_output || ret < 0)
       return ret;
@@ -100,7 +107,7 @@ int AudioInputStream::decode_packet(const AVPacket *inpkt, bool repeating, bool 
       if (!guess_input_channel_layout())
       {
          std::ostringstream msg;
-         msg << "Unable to find default channel layout for Input Stream #" << file.idnex << "." << st->index;
+         msg << "Unable to find default channel layout for Input Stream #" << file.index << "." << st->index;
          throw ffmpegException(msg.str());
       }
       decoded_frame->channel_layout = dec_ctx->channel_layout;
@@ -123,11 +130,10 @@ int AudioInputStream::decode_packet(const AVPacket *inpkt, bool repeating, bool 
       resample_channel_layout = decoded_frame->channel_layout;
       resample_channels = dec_ctx->channels;
 
-      for (int i = 0; i < nb_filtergraphs; i++)
-         if (ist_in_filtergraph(filtergraphs[i], this))
+      for (auto fg = filtergraphs.begin(); fg<filtergraphs.end(); fg++)
+         if (fg->ist_in_filtergraph(*this))
          {
-            FilterGraph *fg = filtergraphs[i];
-            if (configure_filtergraph(fg) < 0)
+            if (fg->configure_filtergraph() < 0)
                throw ffmpegException("Error reinitializing filters!");
          }
    }
@@ -141,7 +147,7 @@ int AudioInputStream::decode_packet(const AVPacket *inpkt, bool repeating, bool 
    else if (pkt && pkt->pts != AV_NOPTS_VALUE)
    {
       decoded_frame->pts = pkt->pts;
-      decoded_frame_tb = time_base;
+      decoded_frame_tb = st->time_base;
    }
    else
    {
@@ -150,16 +156,18 @@ int AudioInputStream::decode_packet(const AVPacket *inpkt, bool repeating, bool 
    }
    if (decoded_frame->pts != AV_NOPTS_VALUE)
       decoded_frame->pts = av_rescale_delta(decoded_frame_tb, decoded_frame->pts,
-                                            (AVRational){1, dec_ctx->sample_rate}, decoded_frame->nb_samples, &filter_in_rescale_delta_last,
-                                            (AVRational){1, dec_ctx->sample_rate});
+                                            AVRational({1, dec_ctx->sample_rate}), 
+                                            decoded_frame->nb_samples,
+                                            &filter_in_rescale_delta_last,
+                                            AVRational({1, dec_ctx->sample_rate}));
 
    nb_samples = decoded_frame->nb_samples;
 
    int err = 0;
-   for (int i = 0; i < nb_filters; i++)
+   for (auto filt = filters.begin(); filt < filters.end(); filt++) // for each filter chain originating from the stream
    {
       AVFrame *f;
-      if (i < nb_filters - 1)
+      if (*filt != filters.back())
       {
          f = filter_frame;
          err = av_frame_ref(f, decoded_frame);
@@ -168,7 +176,7 @@ int AudioInputStream::decode_packet(const AVPacket *inpkt, bool repeating, bool 
       }
       else
          f = decoded_frame;
-      err = av_buffersrc_add_frame_flags(filters[i]->filter, f, AV_BUFFERSRC_FLAG_PUSH);
+      err = av_buffersrc_add_frame_flags((*filt)->filter, f, AV_BUFFERSRC_FLAG_PUSH);
       if (err == AVERROR_EOF)
          err = 0; /* ignore */
       if (err < 0)
