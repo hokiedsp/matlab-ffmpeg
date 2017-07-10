@@ -63,13 +63,6 @@
       "ctime": "cpp",
       "locale": "cpp",
       "xlocbuf": "cpp",
-      "fstream": "cpp",
-      "ffplay.c": "cpp",
-      "avcodec.h": "c",
-      "cmdutils_opencl.c": "cpp",
-      "cmdutils.c": "cpp",
-      "mutex": "cpp",
-      "condition_variable": "cpp",
-      "ffmpeg.c": "cpp"
+      "fstream": "cpp"
    }
 }

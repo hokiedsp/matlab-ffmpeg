@@ -13,8 +13,7 @@
                     "/usr/include",
                     "/usr/local/include"
                 ]
-            },
-            "intelliSenseMode": "clang-x64"
+            }
         },
         {
             "name": "Linux",
@@ -29,26 +28,26 @@
                     "/usr/include",
                     "/usr/local/include"
                 ]
-            },
-            "intelliSenseMode": "clang-x64"
+            }
         },
         {
             "name": "Win32",
             "includePath": [
                 "C:/Program Files (x86)/Microsoft Visual Studio 14.0/VC/include",
-                "C:/Program Files/MATLAB/R2017a/extern/include",
-                "D:/Users/Kesh/Documents/Programming/ffmpeg-3.2.4/include"
+                "C:/Program Files/MATLAB/R2016b/extern/include",
+                "D:/Users/Kesh/Documents/Programming/ffmpeg-3.2.4/include",
+                "D:/Users/Kesh/Documents/Programming/msinttypes-r26"
             ],
             "browse": {
                 "limitSymbolsToIncludedHeaders": true,
                 "databaseFilename": "",
                 "path": [
                     "C:/Program Files (x86)/Microsoft Visual Studio 14.0/VC/include",
-                    "C:/Program Files/MATLAB/R2017a/extern/include",
-                    "D:/Users/Kesh/Documents/Programming/ffmpeg-3.2.4/include"
+                    "C:/Program Files/MATLAB/R2016b/extern/include",
+                    "D:/Users/Kesh/Documents/Programming/ffmpeg-3.2.4/include",
+                    "D:/Users/Kesh/Documents/Programming/msinttypes-r26"
                 ]
-            },
-            "intelliSenseMode": "msvc-x64"
+            }
         }
     ]
 }

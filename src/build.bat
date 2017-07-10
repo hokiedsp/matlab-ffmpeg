@@ -8,8 +8,9 @@ REM ffmpegOptionDefs.cpp
 REM cmdutils.c
 
 set MEX_NAME=ffmpegaudioread
-set MEX_SRC_FILES=ffmpegInputStreamSubtitle.cpp
-REM main.cpp ffmpegOption.cpp ffmpegOptionsContext.cpp ffmpegOptionsContextInput.cpp ffmpegBase.cpp ffmpegInputFile.cpp ffmpegFilterGraph.cpp ffmpegInputStream.cpp ffmpegInputStreamAudio.cpp ffmpegInputStreamVideo.cpp
+set MEX_SRC_FILES=cmdutils.cpp
+REM ffplay.cpp
+REM set MEX_SRC_FILES=ffmpegInputStreamSubtitle.cpp main.cpp ffmpegOption.cpp ffmpegOptionsContext.cpp ffmpegOptionsContextInput.cpp ffmpegBase.cpp ffmpegInputFile.cpp ffmpegFilterGraph.cpp ffmpegInputStream.cpp ffmpegInputStreamAudio.cpp ffmpegInputStreamVideo.cpp
 
 set MEX_EXT=.mexw64
 set MATLAB_ROOT_DIR=C:\Program Files\MATLAB\R2017a
@@ -18,8 +19,8 @@ set MATLAB_INCLUDE_DIR=%MATLAB_EXTERN_DIR%\include
 set MATLAB_LIB_DIR=%MATLAB_EXTERN_DIR%\lib\win64\microsoft
 set MATLAB_LIB_FILES=libmx.lib libmex.lib libmat.lib
 
-REM set FFMPEG_ROOT_DIR=D:\Users\Kesh\Documents\Programming\ffmpeg-3.2.4
-set FFMPEG_ROOT_DIR=C:\Users\TakeshiIkuma\Documents\Programming\ffmpeg-3.2.4
+set FFMPEG_ROOT_DIR=D:\Users\Kesh\Documents\Programming\ffmpeg-3.2.4
+REM set FFMPEG_ROOT_DIR=C:\Users\TakeshiIkuma\Documents\Programming\ffmpeg-3.2.4
 set FFMPEG_INCLUDE_DIR=%FFMPEG_ROOT_DIR%\include
 set FFMPEG_LIB_DIR=%FFMPEG_ROOT_DIR%\lib
 set FFMPEG_BIN_DIR=%FFMPEG_ROOT_DIR%\bin
