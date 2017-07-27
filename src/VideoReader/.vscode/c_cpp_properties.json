@@ -40,7 +40,11 @@
                 "C:/Program Files (x86)/Microsoft Visual Studio/2017/BuildTools/VC/Tools/MSVC/14.10.25017/include",
                 "C:/Program Files (x86)/Windows Kits/10/Include/10.0.15063.0/ucrt",
                 "C:/Program Files/MATLAB/R2017a/extern/include",
+<<<<<<< HEAD:src/VideoReader/.vscode/c_cpp_properties.json
                 "C:/Users/TakeshiIkuma/Documents/Programming/ffmpeg-3.3.2/include"
+=======
+                "D:/Users/Kesh/Documents/Programming/ffmpeg-3.2.4/include"
+>>>>>>> ba30e97815748b44bd428321c221eca0a58c6360:src/.vscode/c_cpp_properties.json
             ],
             "browse": {
                 "limitSymbolsToIncludedHeaders": true,
@@ -49,8 +53,12 @@
                     "C:/Program Files (x86)/Microsoft Visual Studio/2017/BuildTools/VC/Tools/MSVC/14.10.25017/lib/x64",
                     "C:/Program Files (x86)/Windows Kits/10/Lib/10.0.15063.0/ucrt/x64",
                     "C:/Program Files/MATLAB/R2017a/extern/include",
+<<<<<<< HEAD:src/VideoReader/.vscode/c_cpp_properties.json
                     "C:/Users/TakeshiIkuma/Documents/Programming/ffmpeg-3.3.2/include",
                     "${workspaceRoot}"
+=======
+                    "D:/Users/Kesh/Documents/Programming/ffmpeg-3.2.4/include"
+>>>>>>> ba30e97815748b44bd428321c221eca0a58c6360:src/.vscode/c_cpp_properties.json
                 ]
             },
             "intelliSenseMode": "msvc-x64"
