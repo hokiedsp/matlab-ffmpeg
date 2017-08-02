@@ -53,61 +53,64 @@ struct InputStream : public ffmpegBase
 {
   static float dts_delta_threshold;
   static float dts_error_threshold;
-  InputStream(InputFile &infile, const int i, const InputOptionsContext &o);
+//   InputStream(InputFile &infile, const int i, const InputOptionsContext &o);
+  InputStream(InputFile &infile, const int i);
+//   InputStream(InputFile &infile, const int i, const InputOptionsContext &o);
   // ~InputStream();
 
-  virtual void init();
-
-  virtual void set_option(const InputOptionsContext &o);
-
-  // compare given dictionary to decoder_opts and remove duplicates from the given
-  void remove_used_opts(AVDictionary *&opts);
-
-  int init_stream(std::string &error);
-  virtual int prepare_packet(const AVPacket *pkt, bool no_eof);
-
-  virtual int64_t get_duration(const bool has_audio, AVRational *&tb) const
-  {
-    // for non-audio streams, AudioInputStream && VideoInputStream overload this function
-
-    // return the pointer to the stream's time base
-    tb = &(st->time_base);
-
-    // grab the duration only if specified in the stream object
-    if (!has_audio && st->avg_frame_rate.num)
-      return av_rescale_q(1, st->avg_frame_rate, st->time_base) + max_pts - min_pts;
-    else
-      return 1;
-   }
-
-   void assert_emu_dts() const
-   {
-      int64_t pts = av_rescale(dts, 1000000, AV_TIME_BASE);
-      int64_t now = av_gettime_relative() - start;
-      if (pts > now)
-         throw ffmpegException(AVERROR(EAGAIN));
-   }
-
-   virtual int flush(bool no_eof = true); // flush decoder
-
    virtual bool has_audio_samples() const { return false; }
-
-   virtual bool process_packet_time(AVPacket &pkt, int64_t &ts_offset, int64_t &last_ts);
-
-   virtual void close(); // close the stream
-
    AVMediaType get_codec_type() const { return dec_ctx->codec_type; }
    AVMediaType get_stream_type() const { return st->codecpar->codec_type; }
    int check_stream_specifier(const std::string spec);
-   void input_to_filter(InputFilter &new_filter); // from ffmpeg_opt.cpp::init_input_filter()
 
-   bool unused_stream(const AVMediaType type) { return get_codec_type() == type && discard; }
+   // bool unused_stream(const AVMediaType type) const { return get_codec_type() == type && discard; }
 
    virtual AVRational get_framerate() const;
    virtual AVRational get_time_base() const { return st->time_base; }
    virtual AVRational get_sar() const { return st->sample_aspect_ratio.num ? st->sample_aspect_ratio : dec_ctx->sample_aspect_ratio; };
 
    virtual std::string get_buffer_filt_args() const { return ""; }
+
+   virtual void process_packet(const AVPacket *pkt, bool no_eof); // call this function after 
+   virtual int prepare_packet(const AVPacket *pkt, bool no_eof);
+
+   //   virtual void init();
+
+   //   virtual void set_option(const InputOptionsContext &o);
+
+   // compare given dictionary to decoder_opts and remove duplicates from the given
+   //   void remove_used_opts(AVDictionary *&opts);
+
+   //   int init_stream(std::string &error);
+
+   //   virtual int64_t get_duration(const bool has_audio, AVRational *&tb) const
+   //   {
+   //     // for non-audio streams, AudioInputStream && VideoInputStream overload this function
+
+   //     // return the pointer to the stream's time base
+   //     tb = &(st->time_base);
+
+   //     // grab the duration only if specified in the stream object
+   //     if (!has_audio && st->avg_frame_rate.num)
+   //       return av_rescale_q(1, st->avg_frame_rate, st->time_base) + max_pts - min_pts;
+   //     else
+   //       return 1;
+   //    }
+
+   // void assert_emu_dts() const
+   // {
+   //    int64_t pts = av_rescale(dts, 1000000, AV_TIME_BASE);
+   //    int64_t now = av_gettime_relative() - start;
+   //    if (pts > now)
+   //       throw ffmpegException(AVERROR(EAGAIN));
+   // }
+
+   virtual int flush(bool no_eof = true); // flush decoder
+
+   virtual bool process_packet_time(AVPacket &pkt, int64_t &ts_offset, int64_t &last_ts);
+   virtual void close(); // close the stream
+
+   void input_to_filter(InputFilter &new_filter); // from ffmpeg_opt.cpp::init_input_filter()
 
    virtual bool auto_rotate() const { return false; }
    double get_rotation();
@@ -127,7 +130,7 @@ struct InputStream : public ffmpegBase
    int64_t nb_samples; /* number of samples in the last decoded audio frame before looping */
    int64_t min_pts;    /* pts (presentation time stamp) with the smallest value in a current stream */
    int64_t max_pts;    /* pts with the higher value in a current stream */
-   double ts_scale;    // the input ts scale
+   // double ts_scale;    // the input ts scale
    
    bool saw_first_ts;
 
@@ -183,7 +186,8 @@ typedef std::vector<InputStream*> InputStreamPtrs;
 
 struct VideoInputStream : public InputStream
 {
-   VideoInputStream(InputFile &infile, const int i, const InputOptionsContext &o);
+   VideoInputStream(InputFile &infile, const int i);
+   // VideoInputStream(InputFile &infile, const int i, const InputOptionsContext &o);
    //   ~VideoInputStream();
 
    virtual void close(); // close the stream

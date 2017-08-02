@@ -70,6 +70,14 @@
       "cmdutils.c": "cpp",
       "mutex": "cpp",
       "condition_variable": "cpp",
-      "ffmpeg.c": "cpp"
+      "ffmpeg.c": "cpp",
+      "ffmpeg_opt.c": "cpp",
+      "version.h": "c",
+      "avformat.h": "c",
+      "winioctl.h": "c",
+      "winnt.h": "c",
+      "avfilter.h": "c",
+      "async.c": "cpp",
+      "frame.h": "c"
    }
 }

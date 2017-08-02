@@ -76,11 +76,13 @@ InputStream::InputStream(InputFile &f, const int i)
    const Option *opt = NULL;
 
    // grab the option from OptionsContext
-   if (opt = o.cfind("itsscale"))
-      ts_scale = ((OptionDouble *)opt)->value;
+   // if (opt = o.cfind("itsscale"))
+   //    ts_scale = ((OptionDouble *)opt)->value;
 
-   dec = o.choose_decoder(file.ctx.get(), st);
-   decoder_opts.reset(o.filter_codec_opts(st->codecpar->codec_id, file.ctx.get(), st, dec));
+   dec = avcodec_find_decoder(st->codecpar->codec_id);
+
+   // dec = o.choose_decoder(file.ctx.get(), st);
+   // decoder_opts.reset(o.filter_codec_opts(st->codecpar->codec_id, file.ctx.get(), st, dec));
 
    // create decoder context
    dec_ctx.reset(avcodec_alloc_context3(dec));
@@ -109,15 +111,15 @@ InputStream::InputStream(InputFile &f, const int i)
 //    avcodec_free_context(&dec_ctx);
 // }
 
-void InputStream::remove_used_opts(AVDictionary *&opts)
-{
-   AVDictionaryEntry *e = NULL;
-   AVDictionary *dopts = decoder_opts.get();
-   while ((e = av_dict_get(opts, "", e, AV_DICT_IGNORE_SUFFIX)))
-      av_dict_set(&dopts, e->key, NULL, 0);
-   if (!decoder_opts.get())
-      decoder_opts.reset(opts);
-}
+// void InputStream::remove_used_opts(AVDictionary *&opts)
+// {
+//    AVDictionaryEntry *e = NULL;
+//    AVDictionary *dopts = decoder_opts.get();
+//    while ((e = av_dict_get(opts, "", e, AV_DICT_IGNORE_SUFFIX)))
+//       av_dict_set(&dopts, e->key, NULL, 0);
+//    if (!decoder_opts.get())
+//       decoder_opts.reset(opts);
+// }
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
 DataInputStream::DataInputStream(InputFile &f, const int i, const InputOptionsContext &o)
