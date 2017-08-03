@@ -14,10 +14,10 @@ using namespace ffmpeg;
 
 InputFileSelectStream::InputFileSelectStream(const std::string &filename, AVMediaType type, int st_index)
     : fmt_ctx(NULL, delete_input_ctx), st(NULL), dec(NULL), dec_ctx(NULL, delete_codec_ctx),
-      decoded_frame(NULL), filter_frame(NULL),
+      raw_packets(2), decoded_frames(2), filtered_frames(2),
       accurate_seek(0),
       loop(0),
-      thread_queue_size(8), non_blocking(false)
+      non_blocking(false)
 {
    // create new file format context
    open_file(filename);
@@ -55,9 +55,8 @@ void InputFileSelectStream::select_stream(AVMediaType type, int index)
 {
    AVFormatContext *ic = fmt_ctx.get();
 
-   int i = 0;
    int count = 0;
-   for (; i < (int)ic->nb_streams; i++) // for each stream
+   for (int i = 0; i < (int)ic->nb_streams; i++) // for each stream
    {
       // look for a stream which matches the
       if (ic->streams[i]->codecpar->codec_type == type && count++ == index)
@@ -67,10 +66,7 @@ void InputFileSelectStream::select_stream(AVMediaType type, int index)
          switch (type)
          {
          case AVMEDIA_TYPE_VIDEO:
-            decode = &decode_video;
-            break;
          case AVMEDIA_TYPE_AUDIO:
-            decode = &decode_audio;
             break;
          case AVMEDIA_TYPE_SUBTITLE:
          case AVMEDIA_TYPE_DATA:

@@ -78,6 +78,8 @@
       "winnt.h": "c",
       "avfilter.h": "c",
       "async.c": "cpp",
-      "frame.h": "c"
+      "frame.h": "c",
+      "iterator": "cpp",
+      "regex": "cpp"
    }
 }

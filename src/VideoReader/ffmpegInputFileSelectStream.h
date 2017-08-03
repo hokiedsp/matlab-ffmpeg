@@ -12,6 +12,7 @@ extern "C" {
 
 #include "ffmpegBase.h"
 #include "ffmpegPtrs.h"
+#include "ffmpegFifoBuffer.h"
 
 namespace ffmpeg
 {
@@ -34,21 +35,18 @@ class InputFileSelectStream : public ffmpegBase
    AVCodec *dec;        // decoder
    CodecCtxPtr dec_ctx; // decoder context
 
-   int (*decode)(AVPacket *pkt, bool &got_output, int eof); // points to the decoder function to convert packet to frame
-
-   int buffer_sizes[3];
-   std::vector<AVPacket*> raw_packets;    // encoded packets as read
-   std::vector<AVFrame*> decoded_frames;  // decoded media frames
-   std::vector<AVFrame*> filtered_frames; // filtred media frames
+   FifoBuffer<AVPacket*> raw_packets;    // encoded packets as read
+   FifoBuffer<AVFrame*> decoded_frames;  // decoded media frames
+   FifoBuffer<AVFrame*> filtered_frames; // filtred media frames
    
    std::thread read_thread; /* thread to read packets from file */
    int read_state;
 
    std::thread decode_thread; /* thread to decode encoded frames (only activated if data are encoded) */
-   std::thread filter_thread; /* thread to filter frames  (only activated if filtering is requested) */
+   int decode_state;
 
-   std::mutex pkt_m, frm_m;
-   std::condition_variable pkt_cv, frm_cv;
+   std::thread filter_thread; /* thread to filter frames  (only activated if filtering is requested) */
+   int filter_state;
 
    bool accurate_seek;
    int loop;              /* set number of times input stream should be looped */
