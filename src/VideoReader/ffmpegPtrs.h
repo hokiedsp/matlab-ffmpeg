@@ -4,6 +4,7 @@
 
 extern "C" {
 #include <libavutil/dict.h>
+#include <libavutil/frame.h>
 #include <libavcodec/avcodec.h>
 #include <libavformat/avformat.h>
 }

@@ -16,6 +16,12 @@ extern "C" {
 
 namespace ffmpeg
 {
+
+class AVFrameBuffer : FifoBuffer<AVFrame*>
+{
+
+};
+
 // InputFileSelectStream: buffers the selected stream
 class InputFileSelectStream : public ffmpegBase
 {
@@ -35,9 +41,10 @@ class InputFileSelectStream : public ffmpegBase
    AVCodec *dec;        // decoder
    CodecCtxPtr dec_ctx; // decoder context
 
-   FifoBuffer<AVPacket*> raw_packets;    // encoded packets as read
-   FifoBuffer<AVFrame*> decoded_frames;  // decoded media frames
-   FifoBuffer<AVFrame*> filtered_frames; // filtred media frames
+   bool reading;
+   AVPacketPtrBuffer raw_packets;    // encoded packets as read
+   AVFramePtrBuffer decoded_frames;  // decoded media frames
+   AVFramePtrBuffer filtered_frames; // filtred media frames
    
    std::thread read_thread; /* thread to read packets from file */
    int read_state;
@@ -54,6 +61,18 @@ class InputFileSelectStream : public ffmpegBase
    bool eagain;           /* true if data was not ready during the last read attempt */
    int eof_reached;       /* true if eof reached */
 
+   uint64_t samples_decoded;
+   uint64_t frames_decoded;
+   int64_t next_pts;
+   int64_t filter_in_rescale_delta_last;
+   int resample_sample_fmt;
+   int resample_channels;
+   uint64_t resample_channel_layout;
+   int resample_sample_rate;
+   int guess_layout_max; // default: INT_MAX
+int64_t dts;
+   int64_t nb_samples; // number of input samples to filter graph
+   
    /////////////////////////////////////////////
 
    void open_file(const std::string &filename);
@@ -62,13 +81,14 @@ class InputFileSelectStream : public ffmpegBase
    void init_thread(void);
    void free_thread(void);
 
-   void prepare_packet(AVPacket &pkt);
-   void input_thread(); // thread function to read input packet
-   void decode_thread(); // thread function to decode input packet to raw data frame(s)
-   //   void filter_thread(); // thread function to filter ipnut packet
+   void read_thread_fcn(); // thread function to read input packet
+   void decode_thread_fcn(); // thread function to decode input packet to raw data frame(s)
+   //   void filter_thread_fcn(); // thread function to filter ipnut packet
    
    int decode_frame(AVFrame *frame, bool &got_frame, const AVPacket *pkt);
    int decode_audio(AVPacket *pkt, bool &got_output, int eof);
    int decode_video(AVPacket *pkt, bool &got_output, int eof);
+
+   // void prepare_packet(AVPacket &pkt);
 };
 }
