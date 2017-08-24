@@ -6,14 +6,16 @@
 #include <condition_variable>
 #include <chrono>
 
+using namespace std::chrono_literals;
+
 namespace ffmpeg
 {
 template <typename T>
 class FifoBuffer
 {
  public:
-   FifoBuffer(const int size, const double timeout_s = 0.0)
-       : max_wait_time_us((timeout_s * 1e6) * std::chrono_literals::1us),
+   FifoBuffer(const int size = 2, const double timeout_s = 0.0)
+       : max_wait_time_us(int64_t(timeout_s * 1e6) * 1us),
          rpos(-1), wpos(-1)
    {
       resize_internal(size);
@@ -66,7 +68,7 @@ class FifoBuffer
 
       // done, unlock mutex and notify the condition variable
       lck.unlock();
-      cond.notify_one();
+      cv.notify_one();
    }
 
    T &reserve_next() // reserve a slot for the next item
@@ -82,17 +84,17 @@ class FifoBuffer
       // check for an available slot in the buffer; if not wait
       if (wpos_next == rpos)
       {
-         if (max_wait_time_us <= 0) // no timeout
-            cv.wait(lck);
-         else if (!cv.wait_for(lck, max_wait_time_us))
-            throw ffmpegException("Buffer overflow occurred");
+         if (max_wait_time_us <= 0us) // no timeout
+           cv.wait(lck);
+         else if (cv.wait_for(lck, max_wait_time_us) == std::cv_status::timeout)
+           throw ffmpegException("Buffer overflow occurred");
       }
 
       // place the new data onto the buffer
       return buffer[wpos_next];
    }
 
-   void enqued_reserved() // call to complete enquing the item in the reserved slot
+   void enque_reserved() // call to complete enquing the item in the reserved slot
    {
       // lock the mutex for the duration of this function
       std::unique_lock<std::mutex> lck(mu);
@@ -106,7 +108,7 @@ class FifoBuffer
 
       // done, unlock mutex and notify the condition variable
       lck.unlock();
-      cond.notify_one();
+      cv.notify_one();
    }
 
    void discard_reserved() //

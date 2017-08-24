@@ -4,17 +4,18 @@ extern "C" {
 #include <libavformat/avformat.h> // for AVFormatContext
 }
 
-#include <ffmpegFiFoBuffer.h>
-#include <ffmpegException.h>
+#include "ffmpegFifoBuffer.h"
+#include "ffmpegException.h"
 
 namespace ffmpeg
 {
 typedef std::vector<AVPacket *> AVPacketPtrVector;
 
-class AVPacketBuffer : FifoBuffer<AVPacket *>
+class AVPacketPtrBuffer : public FifoBuffer<AVPacket *>
 {
-   AVPacketBuffer(const int size, const double timeout_s = 0.0) : FifoBuffer<AVPacket *>(size, timeout_s){};
-   ~AVPacketBuffer()
+ public:
+   AVPacketPtrBuffer(const int size = 2, const double timeout_s = 0.0) : FifoBuffer<AVPacket *>(size, timeout_s){};
+   ~AVPacketPtrBuffer()
    {
       reset();
    }
@@ -23,14 +24,14 @@ class AVPacketBuffer : FifoBuffer<AVPacket *>
    virtual void reset_internal()
    {
       // set wpos & rpos to -1
-      FifoBuffer<AVPacket *>::reset_internal(size);
+      FifoBuffer<AVPacket *>::reset_internal();
 
       // dereference queued packets
       for (int i = rpos + 1; i < (wpos > rpos ? wpos + 1 : buffer.size()); i++)
-         av_packet_unref(&buffer[i]);
+         av_packet_unref(buffer[i]);
       if (wpos < rpos)
          for (int i = 0; i <= wpos; i++)
-            av_packet_unref(&buffer[i]);
+            av_packet_unref(buffer[i]);
    }
 
    virtual void resize_internal(const int size_new)

@@ -1,4 +1,4 @@
-#include "ffmpegInputFile.h"
+#include "ffmpegInputFileSelectStream.h"
 
 #include <cstring>
 
@@ -12,22 +12,50 @@ extern "C" {
 
 using namespace ffmpeg;
 
-InputFileSelectStream::InputFileSelectStream(const std::string &filename, AVMediaType type, int st_index)
-    : fmt_ctx(NULL, delete_input_ctx), st(NULL), dec(NULL), dec_ctx(NULL, delete_codec_ctx),
-      reading(false), raw_packets(3), decoded_frames(3), filtered_frames(3),
-      accurate_seek(0),
-      loop(0),
-      non_blocking(false)
-{
-   // initialize buffers
-   for (std::vector)
+InputFileSelectStream::InputFileSelectStream()
+: fmt_ctx(NULL, delete_input_ctx), st(NULL), dec(NULL), dec_ctx(NULL, delete_codec_ctx),
+  raw_packets(3), read_state(-1), decoded_frames(3), decode_state(-1), filtered_frames(3), filter_state(-1),
+  loop(0)
+{}
 
+InputFileSelectStream::InputFileSelectStream(const std::string &filename, AVMediaType type, int st_index)
+    : InputFileSelectStream()
+{
    // create new file format context
    open_file(filename);
 
    // select a stream defined in the file as specified and create new codec context
    select_stream(type, st_index);
 }
+
+void InputFileSelectStream::openFile(const std::string &filename, AVMediaType type, int index)
+{
+  if (fmt_ctx.get())
+    throw ffmpegException("openFile can only be called once after default constructor.");
+
+  // create new file format context
+  open_file(filename);
+
+  // select a stream defined in the file as specified and create new codec context
+  select_stream(type, index);
+}
+
+InputFileSelectStream::~InputFileSelectStream() {}
+
+bool InputFileSelectStream::eof() { return false; }
+double InputFileSelectStream::getDuration() { return 0.0; }
+std::string InputFileSelectStream::getFilePath() { return ""; }
+double InputFileSelectStream::getBitsPerPixel() { return 0.0; }
+double InputFileSelectStream::getFrameRate() { return 0.0; }
+int InputFileSelectStream::getHeight() { return 0; }
+int InputFileSelectStream::getWidth() { return 0; }
+std::string InputFileSelectStream::getVideoFormat() { return ""; }
+double InputFileSelectStream::getPTS() { return 0.0; }
+uint64_t InputFileSelectStream::getNumberOfFrames() { return 0; }
+
+void InputFileSelectStream::setPTS(const double val) {};
+
+///////////////////////////////
 
 void InputFileSelectStream::open_file(const std::string &filename)
 {
@@ -41,13 +69,14 @@ void InputFileSelectStream::open_file(const std::string &filename)
 
    ////////////////////
 
-   DictPtr format_opts = std::make_unique<AVDictionary, delete_dict>();
-   av_dict_set(*format_opts, "scan_all_pmts", "1", AV_DICT_DONT_OVERWRITE);
-
+   AVDictionary *d = NULL;
+   av_dict_set(&d, "scan_all_pmts", "1", AV_DICT_DONT_OVERWRITE);
+   DictPtr format_opts(d, delete_dict);
+   
    /* open the input file with generic avformat function */
    AVFormatContext *ic = fmt_ctx.release();
    int err;
-   if ((err = avformat_open_input(&ic, filename.c_str(), NULL, &format_opts)) < 0)
+   if ((err = avformat_open_input(&ic, filename.c_str(), NULL, &d)) < 0)
       throw ffmpegException(filename, err);
    fmt_ctx.reset(ic);
 }
@@ -107,18 +136,18 @@ void InputFileSelectStream::select_stream(AVMediaType type, int index)
 void InputFileSelectStream::init_thread()
 {
    read_thread = std::thread(&InputFileSelectStream::read_thread_fcn, this);
-   decode_thread = std::thread(&InputFileSelectStream::decode_thread_fcn, this);
+   // decode_thread = std::thread(&InputFileSelectStream::decode_thread_fcn, this);
 }
 
 void InputFileSelectStream::free_thread(void)
 {
    // stop the threads
-   decode_thread.join();
+   // decode_thread.join();
    read_thread.join();
 
    // clear buffers
-   filtered_frames.reset();
-   decoded_frames.reset();
+   // filtered_frames.reset();
+   // decoded_frames.reset();
    raw_packets.reset();
 }
 
@@ -126,23 +155,22 @@ void InputFileSelectStream::free_thread(void)
 
 void InputFileSelectStream::read_thread_fcn()
 {
-   unsigned flags = non_blocking ? AV_THREAD_MESSAGE_NONBLOCK : 0;
    read_state = 0;
    AVFormatContext *is = fmt_ctx.get();
 
    while (!read_state)
    {
-      AVPacket *pkt = &raw_packets.reserve_next();
+      AVPacket *pkt = raw_packets.reserve_next();
 
       // check for the buffer availability
 
-      av_init_packet(*it);
+      av_init_packet(pkt);
 
       // read next frame
       read_state = av_read_frame(is, pkt);
       if (read_state == AVERROR(EAGAIN)) // frame not ready, wait 10 ms
       {
-         raw_packets.discard_next();
+         raw_packets.discard_reserved();
          av_usleep(10000);
          continue;
       }
@@ -153,11 +181,11 @@ void InputFileSelectStream::read_thread_fcn()
          if ((loop--) > 0) // 0:no loop, >0: finite loop, <0: infinite loop
          {
             // rewind
-            ret = av_seek_frame(is, -1, is->start_time, 0);
+            read_state = av_seek_frame(is, -1, is->start_time, 0);
          }
          else
          {
-            av_init_packet(*it);
+            av_init_packet(pkt);
             // place the packet on the buffer
             raw_packets.enque_reserved();
             continue;
@@ -167,16 +195,16 @@ void InputFileSelectStream::read_thread_fcn()
       // unexcepted error occurred, terminate the thread
       if (read_state < 0)
       {
-         av_packet_unref(&pkt);
-         raw_packets.discard_next();
+         av_packet_unref(pkt);
+         raw_packets.discard_reserved();
          break;
       }
 
       // if received packet is not of the stream, read next packet
-      if (pkt.stream_index != stream_index)
+      if (pkt->stream_index != stream_index)
       {
-         av_packet_unref(&pkt);
-         raw_packets.discard_next();
+         av_packet_unref(pkt);
+         raw_packets.discard_reserved();
          continue;
       }
 
@@ -185,364 +213,364 @@ void InputFileSelectStream::read_thread_fcn()
    }
 }
 
-void InputFileSelectStream::decode_thread_fcn()
-{
-   decode_state = 0;
-   bool got_output = false;
-   
-   while (!decode_state)
-   {
-      // read next packet (blocks until next packet available)
-      AVPacket *pkt = &raw_packets.deque();
-
-      // check for end-of-file state
-      bool eof = pkt->buf==NULL;
-
-      if (!eof)
-      {
-         AVFrame *decoded_frame = &decoded_frames.reserve_next();
-         ret = decode_frame(dec_ctx, decoded_frame, got_output, pkt ? &avpkt : NULL);
-      }
-
-      // decode data
-      switch (st->codecpar->codec_type)
-      {
-      case AVMEDIA_TYPE_VIDEO:
-         decode_video(pkt, got_output, eof);
-         break;
-      case AVMEDIA_TYPE_AUDIO:
-         decode_audio(pkt, got_output, eof);
-         break;
-      default:
-         throw ffmpegException("Unsupported decoder media type.");
-      }
-
-      // place the packet on the buffer
-      decoded_frames.enque(frame);
-   }
-}
-
-int InputFileSelectStream::decode_audio(AVPacket *pkt, bool &got_output, int eof)
-{
-   AVFrame *decoded_frame = &decoded_frames.reserve_next();
-   AVCodecContext *avctx = dec_ctx->get();
-
-   // retrieve a decoded frame
-   int ret = decode_frame(decoded_frame, got_output, pkt);
-   if ((ret >= 0 && avctx->sample_rate <= 0) || check_decode_result(ist, got_output, ret))
-   {
-      ret = AVERROR_INVALIDDATA;
-   }
-   if (!got_output || ret < 0)
-      return ret;
-
-   samples_decoded += decoded_frame->nb_samples;
-   frames_decoded++;
-
-   /* increment next_dts to use for the case where the input stream does not
-       have timestamps or there are multiple frames in the packet */
-   // next_pts += ((int64_t)AV_TIME_BASE * decoded_frame->nb_samples) / avctx->sample_rate;
-   // next_dts += ((int64_t)AV_TIME_BASE * decoded_frame->nb_samples) / avctx->sample_rate;
-
-   // if (decoded_frame->pts != AV_NOPTS_VALUE)
-   // {
-   //    decoded_frame_tb = st->time_base;
-   // }
-   // else if (pkt && pkt->pts != AV_NOPTS_VALUE)
-   // {
-   //    decoded_frame->pts = pkt->pts;
-   //    decoded_frame_tb = st->time_base;
-   // }
-   // else
-   // {
-   //    decoded_frame->pts = dts;
-   //    decoded_frame_tb = AV_TIME_BASE_Q;
-   // }
-   // if (decoded_frame->pts != AV_NOPTS_VALUE)
-   //    decoded_frame->pts = av_rescale_delta(decoded_frame_tb, decoded_frame->pts, (AVRational){1, avctx->sample_rate},
-   //                                          decoded_frame->nb_samples, &filter_in_rescale_delta_last, (AVRational){1, avctx->sample_rate});
-}
-
-// void InputFileSelectStream::filter_audio()
-//    // if decoded audio format is different from expected, configure a filter graph to resample
-//    bool resample_changed = resample_sample_fmt != decoded_frame->format || resample_channels != avctx->channels ||
-//                       resample_channel_layout != decoded_frame->channel_layout || resample_sample_rate != decoded_frame->sample_rate;
-//    if (resample_changed)
-//    {
-//       if (!guess_input_channel_layout(ist))
-//          ffmpegException("Unable to find default channel layout\n");
-
-//       decoded_frame->channel_layout = avctx->channel_layout;
-
-//       resample_sample_fmt = decoded_frame->format;
-//       resample_sample_rate = decoded_frame->sample_rate;
-//       resample_channel_layout = decoded_frame->channel_layout;
-//       resample_channels = avctx->channels;
-
-//       for (i = 0; i < nb_filtergraphs; i++)
-//          if (ist_in_filtergraph(filtergraphs[i], ist))
-//          {
-//             FilterGraph *fg = filtergraphs[i];
-//             if (configure_filtergraph(fg) < 0)
-//                ffmpegException("Error reinitializing filters!\n");
-//          }
-//    }
-
-//    AVFrame *filter_frame = av_frame_alloc();
-
-//    nb_samples = decoded_frame->nb_samples;
-//    for (i = 0; i < ist->nb_filters; i++) // for each filter graph
-//    {
-//       if (i < ist->nb_filters - 1)
-//       {
-//          f = ist->filter_frame;
-//          err = av_frame_ref(f, decoded_frame);
-//          if (err < 0)
-//             break;
-//       }
-//       else
-//          f = decoded_frame;
-//       err = av_buffersrc_add_frame_flags(ist->filters[i]->filter, f,
-//                                          AV_BUFFERSRC_FLAG_PUSH);
-//       if (err == AVERROR_EOF)
-//          err = 0; /* ignore */
-//       if (err < 0)
-//          break;
-//    }
-//    decoded_frame->pts = AV_NOPTS_VALUE;
-
-//    av_frame_unref(filter_frame);
-//    av_frame_unref(decoded_frame);
-//    return err < 0 ? err : ret;
-// }
-
-int InputFileSelectStream::decode_video(AVPacket *pkt, bool &got_output, int eof)
-{
-   AVFrame *f;
-   int i, ret = 0, err = 0, resample_changed;
-   int64_t best_effort_timestamp;
-   int64_t dts = AV_NOPTS_VALUE;
-   AVRational *frame_sample_aspect;
-   AVPacket avpkt;
-
-   // With fate-indeo3-2, we're getting 0-sized packets before EOF for some
-   // reason. This seems like a semi-critical bug. Don't trigger EOF, and
-   // skip the packet.
-   if (!eof && pkt && pkt->size == 0)
-      return 0;
-
-   AVFrame *decoded_frame = &decoded_frames.reserve_next();
-   ret = decode_frame(dec_ctx, decoded_frame, got_output, pkt ? &avpkt : NULL);
-
-   if (ret != AVERROR_EOF)
-      check_decode_result(ist, got_output, ret);
-
-      if (!got_output || ret < 0)
-      return ret;
-
-   if (ist->top_field_first >= 0)
-      decoded_frame->top_field_first = ist->top_field_first;
-
-   frames_decoded++;
-
-   if (ist->hwaccel_retrieve_data && decoded_frame->format == ist->hwaccel_pix_fmt)
-   {
-      err = ist->hwaccel_retrieve_data(dec_ctx, decoded_frame);
-      if (err < 0)
-         goto fail;
-   }
-   ist->hwaccel_retrieved_pix_fmt = decoded_frame->format;
-
-}
-
-// void InputFileSelectStream::filter_video()
+// void InputFileSelectStream::decode_thread_fcn()
 // {
-//    if (st->sample_aspect_ratio.num)
-//       decoded_frame->sample_aspect_ratio = st->sample_aspect_ratio;
-
-//       if (!ist->filter_frame && !(ist->filter_frame = av_frame_alloc()))
-//       return AVERROR(ENOMEM);
-//    resample_changed = ist->resample_width != decoded_frame->width ||
-//                       ist->resample_height != decoded_frame->height ||
-//                       ist->resample_pix_fmt != decoded_frame->format;
-//    if (resample_changed)
+//    decode_state = 0;
+//    bool got_output = false;
+   
+//    while (!decode_state)
 //    {
-//       av_log(NULL, AV_LOG_INFO,
-//              "Input stream #%d:%d frame changed from size:%dx%d fmt:%s to size:%dx%d fmt:%s\n",
-//              ist->file_index, st->index,
-//              ist->resample_width, ist->resample_height, av_get_pix_fmt_name(ist->resample_pix_fmt),
-//              decoded_frame->width, decoded_frame->height, av_get_pix_fmt_name(decoded_frame->format));
+//       // read next packet (blocks until next packet available)
+//       AVPacket *pkt = &raw_packets.deque();
 
-//       ist->resample_width = decoded_frame->width;
-//       ist->resample_height = decoded_frame->height;
-//       ist->resample_pix_fmt = decoded_frame->format;
+//       // check for end-of-file state
+//       bool eof = pkt->buf==NULL;
 
-//       for (i = 0; i < nb_filtergraphs; i++)
+//       if (!eof)
 //       {
-//          if (ist_in_filtergraph(filtergraphs[i], ist) && ist->reinit_filters &&
-//              configure_filtergraph(filtergraphs[i]) < 0)
-//          {
-//             ffmpegException("Error reinitializing filters!");
-//          }
+//          AVFrame *decoded_frame = &decoded_frames.reserve_next();
+//          ret = decode_frame(dec_ctx, decoded_frame, got_output, pkt ? &avpkt : NULL);
 //       }
+
+//       // decode data
+//       switch (st->codecpar->codec_type)
+//       {
+//       case AVMEDIA_TYPE_VIDEO:
+//          decode_video(pkt, got_output, eof);
+//          break;
+//       case AVMEDIA_TYPE_AUDIO:
+//          decode_audio(pkt, got_output, eof);
+//          break;
+//       default:
+//          throw ffmpegException("Unsupported decoder media type.");
+//       }
+
+//       // place the packet on the buffer
+//       decoded_frames.enque(frame);
 //    }
-
-//    frame_sample_aspect = av_opt_ptr(avcodec_get_frame_class(), decoded_frame, "sample_aspect_ratio");
-//    for (i = 0; i < ist->nb_filters; i++)
-//    {
-//       if (!frame_sample_aspect->num)
-//          *frame_sample_aspect = st->sample_aspect_ratio;
-
-//       if (i < ist->nb_filters - 1)
-//       {
-//          f = ist->filter_frame;
-//          err = av_frame_ref(f, decoded_frame);
-//          if (err < 0)
-//             break;
-//       }
-//       else
-//          f = decoded_frame;
-//       err = av_buffersrc_add_frame_flags(ist->filters[i]->filter, f, AV_BUFFERSRC_FLAG_PUSH);
-//       if (err == AVERROR_EOF)
-//       {
-//          err = 0; /* ignore */
-//       }
-//       else if (err < 0)
-//       {
-//          ffmpegException("Failed to inject frame into filter network: %s", av_err2str(err));
-//       }
-//    }
-
-// fail:
-//    av_frame_unref(ist->filter_frame);
-//    av_frame_unref(decoded_frame);
-//    return err < 0 ? err : ret;
 // }
 
-// This does not quite work like avcodec_decode_audio4/avcodec_decode_video2.
-// There is the following difference: if you got a frame, you must call
-// it again with pkt=NULL. pkt==NULL is treated differently from pkt.size==0
-// (pkt==NULL means get more output, pkt.size==0 is a flush/drain packet)
-int InputFileSelectStream::decode_frame(AVFrame *frame, bool &got_frame, const AVPacket *pkt)
-{
-   int ret;
+// int InputFileSelectStream::decode_audio(AVPacket *pkt, bool &got_output, int eof)
+// {
+//    AVFrame *decoded_frame = &decoded_frames.reserve_next();
+//    AVCodecContext *avctx = dec_ctx->get();
 
-   got_frame = false;
+//    // retrieve a decoded frame
+//    int ret = decode_frame(decoded_frame, got_output, pkt);
+//    if ((ret >= 0 && avctx->sample_rate <= 0) || check_decode_result(ist, got_output, ret))
+//    {
+//       ret = AVERROR_INVALIDDATA;
+//    }
+//    if (!got_output || ret < 0)
+//       return ret;
 
-   if (pkt)
-   {
-      ret = avcodec_send_packet(dec_ctx->get(), pkt);
-      // In particular, we don't expect AVERROR(EAGAIN), because we read all
-      // decoded frames with avcodec_receive_frame() until done.
-      if (ret < 0 && ret != AVERROR_EOF)
-         return ret;
-   }
+//    samples_decoded += decoded_frame->nb_samples;
+//    frames_decoded++;
 
-   ret = avcodec_receive_frame(dec_ctx->get(), frame);
-   if (ret < 0 && ret != AVERROR(EAGAIN))
-      return ret;
-   if (ret >= 0)
-      got_frame = true;
+//    /* increment next_dts to use for the case where the input stream does not
+//        have timestamps or there are multiple frames in the packet */
+//    // next_pts += ((int64_t)AV_TIME_BASE * decoded_frame->nb_samples) / avctx->sample_rate;
+//    // next_dts += ((int64_t)AV_TIME_BASE * decoded_frame->nb_samples) / avctx->sample_rate;
 
-   return 0;
-}
+//    // if (decoded_frame->pts != AV_NOPTS_VALUE)
+//    // {
+//    //    decoded_frame_tb = st->time_base;
+//    // }
+//    // else if (pkt && pkt->pts != AV_NOPTS_VALUE)
+//    // {
+//    //    decoded_frame->pts = pkt->pts;
+//    //    decoded_frame_tb = st->time_base;
+//    // }
+//    // else
+//    // {
+//    //    decoded_frame->pts = dts;
+//    //    decoded_frame_tb = AV_TIME_BASE_Q;
+//    // }
+//    // if (decoded_frame->pts != AV_NOPTS_VALUE)
+//    //    decoded_frame->pts = av_rescale_delta(decoded_frame_tb, decoded_frame->pts, (AVRational){1, avctx->sample_rate},
+//    //                                          decoded_frame->nb_samples, &filter_in_rescale_delta_last, (AVRational){1, avctx->sample_rate});
+// }
 
-bool InputFileSelectStream::check_decode_result(AVFrame *decoded_frame, bool got_output, int ret)
-{
+// // void InputFileSelectStream::filter_audio()
+// //    // if decoded audio format is different from expected, configure a filter graph to resample
+// //    bool resample_changed = resample_sample_fmt != decoded_frame->format || resample_channels != avctx->channels ||
+// //                       resample_channel_layout != decoded_frame->channel_layout || resample_sample_rate != decoded_frame->sample_rate;
+// //    if (resample_changed)
+// //    {
+// //       if (!guess_input_channel_layout(ist))
+// //          ffmpegException("Unable to find default channel layout\n");
+
+// //       decoded_frame->channel_layout = avctx->channel_layout;
+
+// //       resample_sample_fmt = decoded_frame->format;
+// //       resample_sample_rate = decoded_frame->sample_rate;
+// //       resample_channel_layout = decoded_frame->channel_layout;
+// //       resample_channels = avctx->channels;
+
+// //       for (i = 0; i < nb_filtergraphs; i++)
+// //          if (ist_in_filtergraph(filtergraphs[i], ist))
+// //          {
+// //             FilterGraph *fg = filtergraphs[i];
+// //             if (configure_filtergraph(fg) < 0)
+// //                ffmpegException("Error reinitializing filters!\n");
+// //          }
+// //    }
+
+// //    AVFrame *filter_frame = av_frame_alloc();
+
+// //    nb_samples = decoded_frame->nb_samples;
+// //    for (i = 0; i < ist->nb_filters; i++) // for each filter graph
+// //    {
+// //       if (i < ist->nb_filters - 1)
+// //       {
+// //          f = ist->filter_frame;
+// //          err = av_frame_ref(f, decoded_frame);
+// //          if (err < 0)
+// //             break;
+// //       }
+// //       else
+// //          f = decoded_frame;
+// //       err = av_buffersrc_add_frame_flags(ist->filters[i]->filter, f,
+// //                                          AV_BUFFERSRC_FLAG_PUSH);
+// //       if (err == AVERROR_EOF)
+// //          err = 0; /* ignore */
+// //       if (err < 0)
+// //          break;
+// //    }
+// //    decoded_frame->pts = AV_NOPTS_VALUE;
+
+// //    av_frame_unref(filter_frame);
+// //    av_frame_unref(decoded_frame);
+// //    return err < 0 ? err : ret;
+// // }
+
+// int InputFileSelectStream::decode_video(AVPacket *pkt, bool &got_output, int eof)
+// {
+//    AVFrame *f;
+//    int i, ret = 0, err = 0, resample_changed;
+//    int64_t best_effort_timestamp;
+//    int64_t dts = AV_NOPTS_VALUE;
+//    AVRational *frame_sample_aspect;
+//    AVPacket avpkt;
+
+//    // With fate-indeo3-2, we're getting 0-sized packets before EOF for some
+//    // reason. This seems like a semi-critical bug. Don't trigger EOF, and
+//    // skip the packet.
+//    if (!eof && pkt && pkt->size == 0)
+//       return 0;
+
+//    AVFrame *decoded_frame = &decoded_frames.reserve_next();
+//    ret = decode_frame(dec_ctx, decoded_frame, got_output, pkt ? &avpkt : NULL);
+
+//    if (ret != AVERROR_EOF)
+//       check_decode_result(ist, got_output, ret);
+
+//       if (!got_output || ret < 0)
+//       return ret;
+
+//    if (ist->top_field_first >= 0)
+//       decoded_frame->top_field_first = ist->top_field_first;
+
+//    frames_decoded++;
+
+//    if (ist->hwaccel_retrieve_data && decoded_frame->format == ist->hwaccel_pix_fmt)
+//    {
+//       err = ist->hwaccel_retrieve_data(dec_ctx, decoded_frame);
+//       if (err < 0)
+//          goto fail;
+//    }
+//    ist->hwaccel_retrieved_pix_fmt = decoded_frame->format;
+
+// }
+
+// // void InputFileSelectStream::filter_video()
+// // {
+// //    if (st->sample_aspect_ratio.num)
+// //       decoded_frame->sample_aspect_ratio = st->sample_aspect_ratio;
+
+// //       if (!ist->filter_frame && !(ist->filter_frame = av_frame_alloc()))
+// //       return AVERROR(ENOMEM);
+// //    resample_changed = ist->resample_width != decoded_frame->width ||
+// //                       ist->resample_height != decoded_frame->height ||
+// //                       ist->resample_pix_fmt != decoded_frame->format;
+// //    if (resample_changed)
+// //    {
+// //       av_log(NULL, AV_LOG_INFO,
+// //              "Input stream #%d:%d frame changed from size:%dx%d fmt:%s to size:%dx%d fmt:%s\n",
+// //              ist->file_index, st->index,
+// //              ist->resample_width, ist->resample_height, av_get_pix_fmt_name(ist->resample_pix_fmt),
+// //              decoded_frame->width, decoded_frame->height, av_get_pix_fmt_name(decoded_frame->format));
+
+// //       ist->resample_width = decoded_frame->width;
+// //       ist->resample_height = decoded_frame->height;
+// //       ist->resample_pix_fmt = decoded_frame->format;
+
+// //       for (i = 0; i < nb_filtergraphs; i++)
+// //       {
+// //          if (ist_in_filtergraph(filtergraphs[i], ist) && ist->reinit_filters &&
+// //              configure_filtergraph(filtergraphs[i]) < 0)
+// //          {
+// //             ffmpegException("Error reinitializing filters!");
+// //          }
+// //       }
+// //    }
+
+// //    frame_sample_aspect = av_opt_ptr(avcodec_get_frame_class(), decoded_frame, "sample_aspect_ratio");
+// //    for (i = 0; i < ist->nb_filters; i++)
+// //    {
+// //       if (!frame_sample_aspect->num)
+// //          *frame_sample_aspect = st->sample_aspect_ratio;
+
+// //       if (i < ist->nb_filters - 1)
+// //       {
+// //          f = ist->filter_frame;
+// //          err = av_frame_ref(f, decoded_frame);
+// //          if (err < 0)
+// //             break;
+// //       }
+// //       else
+// //          f = decoded_frame;
+// //       err = av_buffersrc_add_frame_flags(ist->filters[i]->filter, f, AV_BUFFERSRC_FLAG_PUSH);
+// //       if (err == AVERROR_EOF)
+// //       {
+// //          err = 0; /* ignore */
+// //       }
+// //       else if (err < 0)
+// //       {
+// //          ffmpegException("Failed to inject frame into filter network: %s", av_err2str(err));
+// //       }
+// //    }
+
+// // fail:
+// //    av_frame_unref(ist->filter_frame);
+// //    av_frame_unref(decoded_frame);
+// //    return err < 0 ? err : ret;
+// // }
+
+// // This does not quite work like avcodec_decode_audio4/avcodec_decode_video2.
+// // There is the following difference: if you got a frame, you must call
+// // it again with pkt=NULL. pkt==NULL is treated differently from pkt.size==0
+// // (pkt==NULL means get more output, pkt.size==0 is a flush/drain packet)
+// int InputFileSelectStream::decode_frame(AVFrame *frame, bool &got_frame, const AVPacket *pkt)
+// {
+//    int ret;
+
+//    got_frame = false;
+
+//    if (pkt)
+//    {
+//       ret = avcodec_send_packet(dec_ctx->get(), pkt);
+//       // In particular, we don't expect AVERROR(EAGAIN), because we read all
+//       // decoded frames with avcodec_receive_frame() until done.
+//       if (ret < 0 && ret != AVERROR_EOF)
+//          return ret;
+//    }
+
+//    ret = avcodec_receive_frame(dec_ctx->get(), frame);
+//    if (ret < 0 && ret != AVERROR(EAGAIN))
+//       return ret;
+//    if (ret >= 0)
+//       got_frame = true;
+
+//    return 0;
+// }
+
+// bool InputFileSelectStream::check_decode_result(AVFrame *decoded_frame, bool got_output, int ret)
+// {
    
-   if (got_output || ret < 0) decode_error_stat[ret < 0]++;
+//    if (got_output || ret < 0) decode_error_stat[ret < 0]++;
 
-   bool rval = got_output && (ret != AVERROR_EOF) && (av_frame_get_decode_error_flags(decoded_frame) || (decoded_frame->flags & AV_FRAME_FLAG_CORRUPT));
-}
+//    bool rval = got_output && (ret != AVERROR_EOF) && (av_frame_get_decode_error_flags(decoded_frame) || (decoded_frame->flags & AV_FRAME_FLAG_CORRUPT));
+// }
 
-bool InputFileSelectStream::guess_input_channel_layout()
-{
-   // if channel layout is not given, make a guess
-   if (!dec_ctx->channel_layout)
-   {
-      if (dec_ctx->channels > guess_layout_max)
-         return false;
-      dec_ctx->channel_layout = av_get_default_channel_layout(dec_ctx->channels);
-      if (!dec_ctx->channel_layout)
-         return false;
-   }
-   return true;
-}
+// bool InputFileSelectStream::guess_input_channel_layout()
+// {
+//    // if channel layout is not given, make a guess
+//    if (!dec_ctx->channel_layout)
+//    {
+//       if (dec_ctx->channels > guess_layout_max)
+//          return false;
+//       dec_ctx->channel_layout = av_get_default_channel_layout(dec_ctx->channels);
+//       if (!dec_ctx->channel_layout)
+//          return false;
+//    }
+//    return true;
+// }
 
-////////////////////////////
+// ////////////////////////////
 
-void InputFileSelectStream::seek(const int64_t timestamp)
-{
-   // stop the threads
+// void InputFileSelectStream::seek(const int64_t timestamp)
+// {
+//    // stop the threads
 
-   int64_t seek_timestamp = timestamp;
-   if (!(fmt_ctx->iformat->flags & AVFMT_SEEK_TO_PTS)) // if seeking is not based on presentation timestamp (PTS)
-   {
-      bool dts_heuristic = false;
-      for (int i = 0; i < (int)fmt_ctx->nb_streams; i++)
-      {
-         if (fmt_ctx->streams[i]->codecpar->video_delay)
-            dts_heuristic = true;
-      }
-      if (dts_heuristic)
-         seek_timestamp -= 3 * AV_TIME_BASE / 23;
-   }
+//    int64_t seek_timestamp = timestamp;
+//    if (!(fmt_ctx->iformat->flags & AVFMT_SEEK_TO_PTS)) // if seeking is not based on presentation timestamp (PTS)
+//    {
+//       bool dts_heuristic = false;
+//       for (int i = 0; i < (int)fmt_ctx->nb_streams; i++)
+//       {
+//          if (fmt_ctx->streams[i]->codecpar->video_delay)
+//             dts_heuristic = true;
+//       }
+//       if (dts_heuristic)
+//          seek_timestamp -= 3 * AV_TIME_BASE / 23;
+//    }
 
-   if (avformat_seek_file(fmt_ctx.get(), stream.index, INT64_MIN, seek_timestamp, seek_timestamp, 0) < 0)
-   {
-      std::ostringstream msg;
-      msg << "Could not seek to position " << (double)timestamp / AV_TIME_BASE;
-      throw ffmpegException(msg.str());
-   }
+//    if (avformat_seek_file(fmt_ctx.get(), stream.index, INT64_MIN, seek_timestamp, seek_timestamp, 0) < 0)
+//    {
+//       std::ostringstream msg;
+//       msg << "Could not seek to position " << (double)timestamp / AV_TIME_BASE;
+//       throw ffmpegException(msg.str());
+//    }
 
-   // restart the threads
+//    // restart the threads
 
-}
+// }
 
-/*
- * Return
- * - 0 -- one packet was read and processed
- * - AVERROR(EAGAIN) -- no packets were available for selected file,
- *   this function should be called again
- * - AVERROR_EOF -- this function should not be called again
- */
-void InputFileSelectStream::prepare_packet(AVPacket &pkt)
-{
-   if (pkt.stream_index == stream_index)
-      stream.prepare_packet(&pkt, false); // decode if requested
-}
+// /*
+//  * Return
+//  * - 0 -- one packet was read and processed
+//  * - AVERROR(EAGAIN) -- no packets were available for selected file,
+//  *   this function should be called again
+//  * - AVERROR_EOF -- this function should not be called again
+//  */
+// void InputFileSelectStream::prepare_packet(AVPacket &pkt)
+// {
+//    if (pkt.stream_index == stream_index)
+//       stream.prepare_packet(&pkt, false); // decode if requested
+// }
 
-int InputFileSelectStream::get_packet(AVPacket &pkt)
-{
-#define RECVPKT(p) av_thread_message_queue_recv(in_thread_queue, &p, non_blocking ? AV_THREAD_MESSAGE_NONBLOCK : 0)
+// int InputFileSelectStream::get_packet(AVPacket &pkt)
+// {
+// #define RECVPKT(p) av_thread_message_queue_recv(in_thread_queue, &p, non_blocking ? AV_THREAD_MESSAGE_NONBLOCK : 0)
 
-   // receive the frame/packet from one of input threads
-   int ret = RECVPKT(pkt);
-   if (ret == AVERROR(EAGAIN)) // frame not available now
-   {
-      eagain = true;
-      return ret;
-   }
-   if (ret == AVERROR_EOF && loop) // if reached EOF and loop playback mode
-   {
-      seek(0);            // rewind the stream
-      ret = RECVPKT(pkt); // see if the first frame is already available
-      if (ret == AVERROR(EAGAIN))
-      {
-         eagain = true;
-         return ret;
-      }
-   }
-   if (ret == AVERROR_EOF) // if end-of-file
-   {
-      // if end-of-file reached, flush all input & output streams
-      stream.flush(false);
+//    // receive the frame/packet from one of input threads
+//    int ret = RECVPKT(pkt);
+//    if (ret == AVERROR(EAGAIN)) // frame not available now
+//    {
+//       eagain = true;
+//       return ret;
+//    }
+//    if (ret == AVERROR_EOF && loop) // if reached EOF and loop playback mode
+//    {
+//       seek(0);            // rewind the stream
+//       ret = RECVPKT(pkt); // see if the first frame is already available
+//       if (ret == AVERROR(EAGAIN))
+//       {
+//          eagain = true;
+//          return ret;
+//       }
+//    }
+//    if (ret == AVERROR_EOF) // if end-of-file
+//    {
+//       // if end-of-file reached, flush all input & output streams
+//       stream.flush(false);
 
-      eof_reached = true;
-      return AVERROR(EAGAIN);
-   }
-   else if (ret < 0) // if not end-of-file, a fatal error has occurred
-   {
-      throw ffmpegException(fmt_ctx->filename, ret);
-   }
-}
+//       eof_reached = true;
+//       return AVERROR(EAGAIN);
+//    }
+//    else if (ret < 0) // if not end-of-file, a fatal error has occurred
+//    {
+//       throw ffmpegException(fmt_ctx->filename, ret);
+//    }
+// }
