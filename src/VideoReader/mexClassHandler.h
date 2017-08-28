@@ -93,11 +93,19 @@ void mexClassHandler(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[])
   std::string component_id = mexClass::get_componentid();
 
   // if the first argument is empty & the second is a string "static", run static member function of mexClass
-  if (nrhs > 1 && mxIsEmpty(prhs[0]) && mexGetString(prhs[1]) == "static")
+  bool is_static = false;
+  try
   {
-    if (nrhs<3 || !mxIsChar(prhs[2]))
+    is_static = nrhs > 1 && mxIsEmpty(prhs[0]) && mexGetString(prhs[1]) == "static";
+  }
+  catch (...)
+  {
+  }
+  if (is_static)
+  {
+    if (nrhs < 3 || !mxIsChar(prhs[2]))
       mexErrMsgIdAndTxt((component_id + ":static:functionUndefined").c_str(), "Static function not given.");
-    
+
     try
     {
       if (!mexClass::static_handler(mexGetString(prhs[2]), nlhs, plhs, nrhs - 3, prhs + 3))
@@ -127,19 +135,21 @@ void mexClassHandler(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[])
   if (handle == NULL)
   {
     // otherwise create a new
-    mexClass *ptr;
+
+    if (nlhs > 1)
+      mexErrMsgIdAndTxt((component_id + ":tooManyOutputArguments").c_str(), "Only one argument is returned for object construction.");
+
+    mexClass *ptr(NULL);
     try
     {
       ptr = new mexClass(nrhs, prhs);
+      if (ptr == NULL)
+        mexPrintf("Constructor failed silently.\n");
     }
     catch (std::exception &e)
     {
+      mexPrintf("Exception thrown by the constructor\n");
       mexErrMsgIdAndTxt((component_id + ":constructorFail").c_str(), e.what());
-    }
-    if (nlhs > 1)
-    {
-      delete ptr;
-      mexErrMsgIdAndTxt((component_id + ":tooManyOutputArguments").c_str(), "Only one argument is returned for object construction.");
     }
 
     plhs[0] = convertPtr2Mat(ptr);

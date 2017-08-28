@@ -1,223 +1,415 @@
 #include "ffmpegInputFileSelectStream.h"
 
-#include <cstring>
+// #include <cstring>
+#include <cmath>
 
 extern "C" {
 #include <libavutil/time.h>
+#include <libavutil/pixdesc.h>
 }
 
 #include "ffmpegPtrs.h"
 #include "ffmpegUtil.h"
 #include "ffmpegAvRedefine.h"
 
+#include <mex.h>
+
 using namespace ffmpeg;
 
 InputFileSelectStream::InputFileSelectStream()
-: fmt_ctx(NULL, delete_input_ctx), st(NULL), dec(NULL), dec_ctx(NULL, delete_codec_ctx),
-  raw_packets(3), read_state(-1), decoded_frames(3), decode_state(-1), filtered_frames(3), filter_state(-1),
-  loop(0)
-{}
+    : fmt_ctx(NULL, delete_input_ctx), st(NULL), dec(NULL), dec_ctx(NULL, delete_codec_ctx),
+      raw_packets(3), decoded_frames(3), filtered_frames(3), kill_threads(false), suspend_threads(false),
+      read_state(-1), decode_state(-1), filter_state(-1),
+      loop(0),pts(0)
+{
+  // Creates an empty object
+
+  // set predicates for the buffers to be able to kill their threads
+  raw_packets.setPredicate(std::function<bool()>([&kill_threads=kill_threads]() { return kill_threads; }));
+  decoded_frames.setPredicate(std::function<bool()>([&kill_threads=kill_threads]() { return kill_threads; }));
+  filtered_frames.setPredicate(std::function<bool()>([&kill_threads=kill_threads]() { return kill_threads; }));
+}
 
 InputFileSelectStream::InputFileSelectStream(const std::string &filename, AVMediaType type, int st_index)
     : InputFileSelectStream()
 {
-   // create new file format context
-   open_file(filename);
-
-   // select a stream defined in the file as specified and create new codec context
-   select_stream(type, st_index);
-}
-
-void InputFileSelectStream::openFile(const std::string &filename, AVMediaType type, int index)
-{
-  if (fmt_ctx.get())
-    throw ffmpegException("openFile can only be called once after default constructor.");
-
   // create new file format context
   open_file(filename);
 
   // select a stream defined in the file as specified and create new codec context
-  select_stream(type, index);
+  select_stream(type, st_index);
+
+  // start decoding
+  init_thread();
 }
 
-InputFileSelectStream::~InputFileSelectStream() {}
+InputFileSelectStream::~InputFileSelectStream()
+{
+  free_thread();
+}
 
-bool InputFileSelectStream::eof() { return false; }
-double InputFileSelectStream::getDuration() { return 0.0; }
-std::string InputFileSelectStream::getFilePath() { return ""; }
-double InputFileSelectStream::getBitsPerPixel() { return 0.0; }
-double InputFileSelectStream::getFrameRate() { return 0.0; }
-int InputFileSelectStream::getHeight() { return 0; }
-int InputFileSelectStream::getWidth() { return 0; }
-std::string InputFileSelectStream::getVideoFormat() { return ""; }
-double InputFileSelectStream::getPTS() { return 0.0; }
-uint64_t InputFileSelectStream::getNumberOfFrames() { return 0; }
+bool InputFileSelectStream::eof() const { return false; }
+double InputFileSelectStream::getDuration() const
+{
+  if (!fmt_ctx)
+    return NAN;
 
-void InputFileSelectStream::setPTS(const double val) {};
+  // defined in us in the format context
+  double secs = NAN;
+  if (fmt_ctx->duration != AV_NOPTS_VALUE)
+  {
+    int64_t duration = fmt_ctx->duration + (fmt_ctx->duration <= INT64_MAX - 5000 ? 5000 : 0);
+    secs = double(duration / 100) / (AV_TIME_BASE / 100);
+  }
+
+  return secs;
+}
+
+std::string InputFileSelectStream::getFilePath() const { return ""; }
+int InputFileSelectStream::getBitsPerPixel() const
+{
+  if (!fmt_ctx)
+    return -1;
+
+  if (dec_ctx->pix_fmt == AV_PIX_FMT_NONE)
+    return -1;
+
+  const AVPixFmtDescriptor *pix_desc = av_pix_fmt_desc_get(dec_ctx->pix_fmt);
+  if (pix_desc == NULL)
+    return -1;
+  return av_get_bits_per_pixel(pix_desc);
+}
+
+double InputFileSelectStream::getFrameRate() const
+{
+  if (fmt_ctx)
+    return double(st->avg_frame_rate.num) / st->avg_frame_rate.den;
+  else
+    return NAN;
+}
+
+int InputFileSelectStream::getHeight() const
+{
+  if (fmt_ctx)
+    return dec_ctx->height;
+  else
+    return -1;
+}
+
+int InputFileSelectStream::getWidth() const
+{
+  if (fmt_ctx)
+    return dec_ctx->width;
+  else
+    return -1;
+}
+
+std::string InputFileSelectStream::getVideoPixelFormat() const
+{
+  if (fmt_ctx)
+    return (dec_ctx->pix_fmt == AV_PIX_FMT_NONE) ? "none" : av_get_pix_fmt_name(dec_ctx->pix_fmt);
+  else
+    return "";
+}
+
+std::string InputFileSelectStream::getVideoCodecName() const
+{
+  if (fmt_ctx)
+    return dec->name; // avcodec_get_name(dec_ctx->codec_id);
+  else
+    return "";
+}
+
+std::string InputFileSelectStream::getVideoCodecDesc() const
+{
+  if (fmt_ctx)
+    return dec->long_name ? dec->long_name : "";
+  else
+    return "";
+}
+
+double InputFileSelectStream::getPTS() const
+{
+  if (!fmt_ctx)
+    return NAN;
+
+  // * @param s          media file handle
+  // * @param stream     stream in the media file
+  // * @param[out] dts   DTS of the last packet output for the stream, in stream
+  // *                   time_base units
+  // * @param[out] wall  absolute time when that packet whas output,
+  // *                   in microsecond
+  // int64_t dts, wall;
+  // if (av_get_output_timestamp(fmt_ctx.get(), stream_index, &dts, &wall) < 0)
+  //   throw ffmpegException("Failed to obtain the current timestamp.");
+  // return double(dts / 100) / (AV_TIME_BASE / 100);
+  return double(pts / 100) / (AV_TIME_BASE / 100);
+}
+
+uint64_t InputFileSelectStream::getNumberOfFrames() const { return 0; }
+
+void InputFileSelectStream::setPTS(const double val)
+{
+  if (!fmt_ctx)
+    throw ffmpegException("No file open.");
+
+  int64_t seek_timestamp = int64_t(val * AV_TIME_BASE);
+
+  if (!(fmt_ctx->iformat->flags & AVFMT_SEEK_TO_PTS) && st->codecpar->video_delay)
+    seek_timestamp -= 3 * AV_TIME_BASE / 23;
+
+  if (avformat_seek_file(fmt_ctx.get(), stream_index, INT64_MIN, seek_timestamp, seek_timestamp, 0) < 0)
+    throw ffmpegException("Could not seek to position " + std::to_string(val) + " s");
+}
 
 ///////////////////////////////
 
 void InputFileSelectStream::open_file(const std::string &filename)
 {
-   /* get default parameters from command line */
-   fmt_ctx.reset(avformat_alloc_context());
-   if (!fmt_ctx.get())
-      throw ffmpegException(filename, AVERROR(ENOMEM));
+  if (filename.empty())
+    throw ffmpegException("filename must be non-empty.");
 
-   fmt_ctx->flags |= AVFMT_FLAG_NONBLOCK;
-   fmt_ctx->interrupt_callback = {NULL, NULL}; // from ffmpegBase
+  /* get default parameters from command line */
+  fmt_ctx.reset(avformat_alloc_context());
+  if (!fmt_ctx.get())
+    throw ffmpegException(filename, ENOMEM);
 
-   ////////////////////
+  fmt_ctx->flags |= AVFMT_FLAG_NONBLOCK;
+  fmt_ctx->interrupt_callback = {NULL, NULL}; // from ffmpegBase
 
-   AVDictionary *d = NULL;
-   av_dict_set(&d, "scan_all_pmts", "1", AV_DICT_DONT_OVERWRITE);
-   DictPtr format_opts(d, delete_dict);
-   
-   /* open the input file with generic avformat function */
-   AVFormatContext *ic = fmt_ctx.release();
-   int err;
-   if ((err = avformat_open_input(&ic, filename.c_str(), NULL, &d)) < 0)
-      throw ffmpegException(filename, err);
-   fmt_ctx.reset(ic);
+  ////////////////////
+
+  AVDictionary *d = NULL;
+  av_dict_set(&d, "scan_all_pmts", "1", AV_DICT_DONT_OVERWRITE);
+
+  /* open the input file with generic avformat function */
+  AVFormatContext *ic = fmt_ctx.release();
+  int err;
+  if ((err = avformat_open_input(&ic, filename.c_str(), NULL, &d)) < 0)
+    throw ffmpegException(filename, err);
+  fmt_ctx.reset(ic);
+
+  if (d)
+    av_dict_free(&d);
+
+  /* If not enough info to get the stream parameters, we decode the
+       first frames to get it. (used in mpeg case for example) */
+  if (avformat_find_stream_info(ic, NULL) < 0)
+    throw ffmpegException("Could not find codec parameters");
 }
 
 /* Add all the streams from the given input file to the global
  * list of input streams. */
 void InputFileSelectStream::select_stream(AVMediaType type, int index)
 {
-   AVFormatContext *ic = fmt_ctx.get();
+  if (!fmt_ctx)
+    throw ffmpegException("Cannot select a stream: No file open.");
 
-   int count = 0;
-   for (int i = 0; i < (int)ic->nb_streams; i++) // for each stream
-   {
-      // look for a stream which matches the
-      if (ic->streams[i]->codecpar->codec_type == type && count++ == index)
+  // // potentially use this function instead
+  // int av_find_best_stream(AVFormatContext *ic, enum AVMediaType type,
+  //   int wanted_stream_nb, int related_stream, AVCodec **decoder_ret, int flags);
+
+  AVFormatContext *ic = fmt_ctx.get();
+
+  int count = 0;
+  for (int i = 0; i < (int)ic->nb_streams; i++) // for each stream
+  {
+    // look for a stream which matches the
+    if (ic->streams[i]->codecpar->codec_type == type && count++ == index)
+    {
+      stream_index = i;
+      st = ic->streams[i];
+      switch (type)
       {
-         stream_index = i;
-         st = ic->streams[i];
-         switch (type)
-         {
-         case AVMEDIA_TYPE_VIDEO:
-         case AVMEDIA_TYPE_AUDIO:
-            break;
-         case AVMEDIA_TYPE_SUBTITLE:
-         case AVMEDIA_TYPE_DATA:
-         case AVMEDIA_TYPE_ATTACHMENT:
-         case AVMEDIA_TYPE_UNKNOWN:
-         default:
-            throw ffmpegException("Unsupported decoder media type.");
-         }
+      case AVMEDIA_TYPE_VIDEO:
+      case AVMEDIA_TYPE_AUDIO:
+        break;
+      case AVMEDIA_TYPE_SUBTITLE:
+      case AVMEDIA_TYPE_DATA:
+      case AVMEDIA_TYPE_ATTACHMENT:
+      case AVMEDIA_TYPE_UNKNOWN:
+      default:
+        throw ffmpegException("Unsupported decoder media type.");
       }
-      else
-      {
-         // all other streams are ignored
-         ic->streams[i]->discard = AVDISCARD_ALL;
-      }
-   }
-   if (!count)
-      ffmpegException("Media file does not include the requested media type.");
+    }
+    else
+    {
+      // all other streams are ignored
+      ic->streams[i]->discard = AVDISCARD_ALL;
+    }
+  }
+  if (!count)
+    ffmpegException("Media file does not include the requested media type.");
 
-   // set codec
-   dec = avcodec_find_decoder(st->codecpar->codec_id);
+  // set codec
+  dec = avcodec_find_decoder(st->codecpar->codec_id);
 
-   // create decoder context
-   dec_ctx.reset(avcodec_alloc_context3(dec));
-   if (!dec_ctx)
-      throw ffmpegException("Error allocating the decoder context.");
+  // create decoder context
+  dec_ctx.reset(avcodec_alloc_context3(dec));
+  if (!dec_ctx)
+    throw ffmpegException("Error allocating the decoder context.");
 
-   // set the stream parameters to the decoder context
-   if (avcodec_parameters_to_context(dec_ctx.get(), st->codecpar) < 0)
-      throw ffmpegException("Error initializing the decoder context.");
+  // set the stream parameters to the decoder context
+  if (avcodec_parameters_to_context(dec_ctx.get(), st->codecpar) < 0)
+    throw ffmpegException("Error initializing the decoder context.");
 
+  // do additional codec context configuration if needed
+  switch (type)
+  {
+  case AVMEDIA_TYPE_VIDEO:
+    dec_ctx->framerate = st->avg_frame_rate;
+    break;
+  case AVMEDIA_TYPE_AUDIO:
+  case AVMEDIA_TYPE_SUBTITLE:
+  case AVMEDIA_TYPE_DATA:
+  case AVMEDIA_TYPE_ATTACHMENT:
+  case AVMEDIA_TYPE_UNKNOWN:
+  default:
+    break;
+  }
 }
 
 /////////////////////////////////////////////////////////
 
 void InputFileSelectStream::init_thread()
 {
-   read_thread = std::thread(&InputFileSelectStream::read_thread_fcn, this);
-   // decode_thread = std::thread(&InputFileSelectStream::decode_thread_fcn, this);
+  mexPrintf("Starting packet_reader thread.\n");
+  try{
+    read_thread = std::thread(&InputFileSelectStream::read_thread_fcn, this);
+  }catch (std::exception &e) { mexPrintf("Failed to start the thread: %s",e.what()); }
+  // decode_thread = std::thread(&InputFileSelectStream::decode_thread_fcn, this);
 }
 
 void InputFileSelectStream::free_thread(void)
 {
-   // stop the threads
-   // decode_thread.join();
-   read_thread.join();
+mexPrintf("Terminating packet_reader thread.\n");
 
-   // clear buffers
-   // filtered_frames.reset();
-   // decoded_frames.reset();
-   raw_packets.reset();
+  kill_threads = true;
+  raw_packets.release();
+  decoded_frames.release();
+  filtered_frames.release();
+  
+  suspend_threads = false;
+  suspend_cv.notify_all();
+
+  // stop the threads
+  read_thread.join();
+  // decode_thread.join();
+  // filter_thread.join();
+
+  // clear buffers
+  // filtered_frames.reset();
+  // decoded_frames.reset();
+  raw_packets.reset();
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////
 
 void InputFileSelectStream::read_thread_fcn()
 {
-   read_state = 0;
-   AVFormatContext *is = fmt_ctx.get();
+  read_state = 0;
+  AVFormatContext *is = fmt_ctx.get();
 
-   while (!read_state)
-   {
+  int ctr = 0;
+
+  try
+  {
+    // kill_threads    - immediate termination
+    // suspend_threads - pause the thread loops until released
+
+    while (!kill_threads)
+    {
+      // if video reading operation is suspended, pause the thread until notified
+      if (suspend_threads)
+      {
+        std::unique_lock<std::mutex> lk(suspend_mutex);
+        suspend_cv.wait(lk, [this] { return !suspend_threads || kill_threads; });
+        if (kill_threads) break;
+      }
+
+      mexPrintf("[%d] Reserving an element in the packet queue.\n", ctr);
       AVPacket *pkt = raw_packets.reserve_next();
+      if (kill_threads) break;
 
       // check for the buffer availability
 
+      mexPrintf("[%d] Initializing the queue element.\n", ctr);
       av_init_packet(pkt);
 
       // read next frame
+      mexPrintf("[%d] Reading the next frame from file.\n", ctr);
       read_state = av_read_frame(is, pkt);
+
+      // if any type of read error occurred, release the reserved queue element
+      if (read_state < 0)
+        raw_packets.discard_reserved();
+
       if (read_state == AVERROR(EAGAIN)) // frame not ready, wait 10 ms
       {
-         raw_packets.discard_reserved();
-         av_usleep(10000);
-         continue;
+        mexPrintf("[%d] Frame not ready; wait a little while and try again...\n", ctr);
+        av_usleep(10000);
+        continue;
       }
 
-      // reached eof-of-file: 
+      // reached eof-of-file:
       if (read_state == AVERROR_EOF)
       {
-         if ((loop--) > 0) // 0:no loop, >0: finite loop, <0: infinite loop
-         {
-            // rewind
-            read_state = av_seek_frame(is, -1, is->start_time, 0);
-         }
-         else
-         {
-            av_init_packet(pkt);
-            // place the packet on the buffer
-            raw_packets.enque_reserved();
-            continue;
-         }
+        if (loop < 0 || (loop--) > 0) // 0:no loop, >0: finite loop, <0: infinite loop
+        {
+          mexPrintf("[%d] EOF; Rewinding to loop...\n", ctr);
+          // rewind
+          read_state = av_seek_frame(is, -1, is->start_time, 0);
+
+          mexPrintf("[%d] EOF; Releasing the reserved queue element...\n", ctr);
+          continue;
+        }
+        else // stop
+        {
+          mexPrintf("[%d] EOF; Stopping the thread\n", ctr);
+          eof_reached = true;
+          read_state = 0;
+          break; // replace later with continue after introducing a condition variable to restart
+        }
       }
 
       // unexcepted error occurred, terminate the thread
       if (read_state < 0)
       {
-         av_packet_unref(pkt);
-         raw_packets.discard_reserved();
-         break;
+        mexPrintf("[%d] Unexpected error has occurred\n", ctr);
+        break;
       }
 
       // if received packet is not of the stream, read next packet
       if (pkt->stream_index != stream_index)
       {
-         av_packet_unref(pkt);
-         raw_packets.discard_reserved();
-         continue;
+        mexPrintf("[%d] Frame is not for the selected stream\n", ctr);
+        av_packet_unref(pkt);
+        raw_packets.discard_reserved();
+        continue;
       }
 
+      pts = pkt->pts;
+
       // place the new packet on the buffer
+      mexPrintf("[%d] Finalize queing of the frame \n", ctr);
       raw_packets.enque_reserved();
-   }
+
+      mexPrintf("[%d] Frame is successfully placed on the queue\n", ctr++);
+      
+      if (ctr>3) return; // debug
+    }
+  }
+  catch (std::exception &e)
+  {
+    mexPrintf("Exception occurred in packet_reader thread: %s\n", e.what());
+  }
 }
 
 // void InputFileSelectStream::decode_thread_fcn()
 // {
 //    decode_state = 0;
 //    bool got_output = false;
-   
+
 //    while (!decode_state)
 //    {
 //       // read next packet (blocks until next packet available)
@@ -477,7 +669,7 @@ void InputFileSelectStream::read_thread_fcn()
 
 // bool InputFileSelectStream::check_decode_result(AVFrame *decoded_frame, bool got_output, int ret)
 // {
-   
+
 //    if (got_output || ret < 0) decode_error_stat[ret < 0]++;
 
 //    bool rval = got_output && (ret != AVERROR_EOF) && (av_frame_get_decode_error_flags(decoded_frame) || (decoded_frame->flags & AV_FRAME_FLAG_CORRUPT));

@@ -28,17 +28,19 @@ class InputFileSelectStream : public Base
 
   void openFile(const std::string &filename, AVMediaType type, int index = 0);
 
-  bool eof();
+  bool eof() const; 
 
-  double getDuration();
-  std::string getFilePath();
-  double getBitsPerPixel();
-  double getFrameRate();
-  int getHeight();
-  int getWidth();
-  std::string getVideoFormat();
-  double getPTS();
-  uint64_t getNumberOfFrames();
+  double getDuration() const;
+  std::string getFilePath() const;
+  int getBitsPerPixel() const;
+  double getFrameRate() const;
+  int getHeight() const;
+  int getWidth() const;
+  std::string getVideoPixelFormat() const;
+  std::string getVideoCodecName() const;
+  std::string getVideoCodecDesc() const;
+  double getPTS() const;
+  uint64_t getNumberOfFrames() const;
 
   void setPTS(const double val);
 
@@ -58,18 +60,23 @@ class InputFileSelectStream : public Base
    AVFramePtrBuffer decoded_frames;  // decoded media frames
    AVFramePtrBuffer filtered_frames; // filtred media frames
 
+   bool kill_threads;     // set to terminate worker threads
+   bool suspend_threads;  // set to pause worker threads
+   std::mutex suspend_mutex;              // mutex to suspend/resume threads
+   std::condition_variable suspend_cv; // condition variable to suspend/resume threads
+
    std::thread read_thread; /* thread to read packets from file */
    int read_state;
-
+ 
    std::thread decode_thread; /* thread to decode encoded frames (only activated if data are encoded) */
    int decode_state;
 
    std::thread filter_thread; /* thread to filter frames  (only activated if filtering is requested) */
    int filter_state;
 
-   bool reading;
    int loop;        /* set number of times input stream should be looped */
-   int eof_reached; /* true if eof reached */
+   bool eof_reached; /* true if eof reached */
+   uint64_t pts;
    // bool accurate_seek;
    // bool eagain;           /* true if data was not ready during the last read attempt */
 

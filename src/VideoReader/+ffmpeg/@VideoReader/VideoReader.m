@@ -60,10 +60,13 @@ classdef VideoReader < matlab.mixin.SetGet & matlab.mixin.CustomDisplay
    %   See also AUDIOVIDEO, VIDEOREADER/READFRAME, VIDEOREADER/HASFRAME, MMFILEINFO.
    %
    
-   properties(GetAccess='public', SetAccess='private', Dependent)
-      Duration        % Total length of file in seconds.
+   properties(GetAccess='public', SetAccess='private')
       Name            % Name of the file to be read.
       Path            % Path of the file to be read.
+   end
+   
+   properties(GetAccess='public', SetAccess='private', Dependent)
+      Duration        % Total length of file in seconds.
    end
    
    properties(GetAccess='public', SetAccess='public')
@@ -107,11 +110,28 @@ classdef VideoReader < matlab.mixin.SetGet & matlab.mixin.CustomDisplay
    end
    methods
       function obj = VideoReader(varargin)
+         
+         narginchk(1,inf);
+         validateattributes(varargin{1},{'char'},{'row'},mfilename,'FILENAME');
+         try
+            filename = which(varargin{1});
+         catch
+            error('Could not found the specified file: %s',varargin{1});
+         end
+         
          ffmpegsetpath();
-         obj.backend = mex_backend(varargin{:});
+         
+         obj.backend = ffmpeg.VideoReader.mex_backend(filename);
+         if isempty(obj.backend)
+            error('Constructor failed.');
+         end
+         
+         [obj.Path,obj.Name,ext] = fileparts(filename);
+         obj.Name = [obj.Name ext];
+         
          %             % If no file name provided.
          %             if nargin == 0
-         %                 error(message('FFmpeg:VideoReader:noFile'));
+         %                 error(message('ffmpeg:VideoReader:noFile'));
          %             end
          %
          %             try
@@ -132,7 +152,9 @@ classdef VideoReader < matlab.mixin.SetGet & matlab.mixin.CustomDisplay
       end
       
       function delete(obj)
-         mex_backend(obj.backend, 'delete');
+         if ~isempty(obj.backend)
+            ffmpeg.VideoReader.mex_backend(obj.backend, 'delete');
+         end
       end
    end
    
@@ -159,7 +181,7 @@ classdef VideoReader < matlab.mixin.SetGet & matlab.mixin.CustomDisplay
          if (nargin == 1)
             c = varargin{1};
          else
-            error(message('FFmpeg:VideoReader:noconcatenation'));
+            error(message('ffmpeg:VideoReader:noconcatenation'));
          end
       end
       function c = vertcat(varargin)
@@ -169,7 +191,7 @@ classdef VideoReader < matlab.mixin.SetGet & matlab.mixin.CustomDisplay
          if (nargin == 1)
             c = varargin{1};
          else
-            error(message('FFmpeg:VideoReader:noconcatenation'));
+            error(message('ffmpeg:VideoReader:noconcatenation'));
          end
       end
       function c = cat(varargin)
@@ -179,7 +201,7 @@ classdef VideoReader < matlab.mixin.SetGet & matlab.mixin.CustomDisplay
          if (nargin == 1)
             c = varargin{1};
          else
-            error(message('FFmpeg:VideoReader:noconcatenation'));
+            error(message('ffmpeg:VideoReader:noconcatenation'));
          end
       end
    end
@@ -215,40 +237,31 @@ classdef VideoReader < matlab.mixin.SetGet & matlab.mixin.CustomDisplay
       
       % Properties that are dependent on underlying object.
       function value = get.Duration(obj)
-         value = mex_backend(obj.backend,'get','Duration');
+         value = ffmpeg.VideoReader.mex_backend(obj.backend,'get','Duration');
          
          % Duration property is set to empty if it cannot be determined
          % from the video. Generate a warning to indicate this.
          if isempty(value)
             warnState=warning('off','backtrace');
             c = onCleanup(@()warning(warnState));
-            warning(message('FFmpeg:VideoReader:unknownDuration'));
+            warning(message('ffmpeg:VideoReader:unknownDuration'));
          end
       end
       
-      function value = get.Name(obj)
-         [~,n,e] = fileparts(mex_backend(obj.backend,'get','Path'));
-         value = [n e];
-      end
-      
-      function value = get.Path(obj)
-         value = fileparts(mex_backend(obj.backend,'get','Path'));
-      end
-      
       function value = get.BitsPerPixel(obj)
-         value = mex_backend(obj.backend,'get','BitsPerPixel');
+         value = ffmpeg.VideoReader.mex_backend(obj.backend,'get','BitsPerPixel');
       end
       
       function value = get.FrameRate(obj)
-         value = mex_backend(obj.backend,'get','FrameRate');
+         value = ffmpeg.VideoReader.mex_backend(obj.backend,'get','FrameRate');
       end
       
       function value = get.Height(obj)
-         value = mex_backend(obj.backend,'get','Height');
+         value = ffmpeg.VideoReader.mex_backend(obj.backend,'get','Height');
       end
       
       function value = get.NumberOfFrames(obj)
-         value = mex_backend(obj.backend,'get','NumberOfFrames');
+         value = ffmpeg.VideoReader.mex_backend(obj.backend,'get','NumberOfFrames');
          
          % NumberOfFrames property is set to empty if it cannot be
          % determined by from the video. Generate a warning in this
@@ -256,36 +269,36 @@ classdef VideoReader < matlab.mixin.SetGet & matlab.mixin.CustomDisplay
          if isempty(value)
             warnState=warning('off','backtrace');
             c = onCleanup(@()warning(warnState));
-            warning(message('FFmpeg:VideoReader:unknownNumFrames'));
+            warning(message('ffmpeg:VideoReader:unknownNumFrames'));
          end
       end
       
       function value = get.VideoFormat(obj)
-         value = mex_backend(obj.backend,'get','VideoFormat');
+         value = ffmpeg.VideoReader.mex_backend(obj.backend,'get','VideoFormat');
       end
       
       function value = get.Width(obj)
-         value = mex_backend(obj.backend,'get','Width');
+         value = ffmpeg.VideoReader.mex_backend(obj.backend,'get','Width');
       end
       
       function value = get.AudioCompression(obj)
-         value = mex_backend(obj.backend,'get','AudioCompression');
+         value = ffmpeg.VideoReader.mex_backend(obj.backend,'get','AudioCompression');
       end
       
       function value = get.NumberOfAudioChannels(obj)
-         value = mex_backend(obj.backend,'get','NumberOfAudioChannels');
+         value = ffmpeg.VideoReader.mex_backend(obj.backend,'get','NumberOfAudioChannels');
       end
       
       function value = get.VideoCompression(obj)
-         value = mex_backend(obj.backend,'get','VideoCompression');
+         value = ffmpeg.VideoReader.mex_backend(obj.backend,'get','VideoCompression');
       end
       
       function value = get.CurrentTime(obj)
-         value = mex_backend(obj.backend,'get','CurrentTime');
+         value = ffmpeg.VideoReader.mex_backend(obj.backend,'get','CurrentTime');
       end
       
       function set.CurrentTime(obj, value)
-         mex_backend(obj.backend,'set','CurrentTime',value);
+         ffmpeg.VideoReader.mex_backend(obj.backend,'set','CurrentTime',value);
       end
    end
    
@@ -293,14 +306,21 @@ classdef VideoReader < matlab.mixin.SetGet & matlab.mixin.CustomDisplay
    % Overrides for Custom Display
    %------------------------------------------------------------------
    methods (Access='protected')
-      function propGroups = getPropertyGroups(~)
+      function propGroups = getPropertyGroups(obj)
          import matlab.mixin.util.PropertyGroup;
          
-         propGroups(1) = PropertyGroup( {'Name', 'Path', 'Duration', 'CurrentTime', 'Tag', 'UserData'}, ...
-            getString( message('FFmpeg:VideoReader:GeneralProperties') ) );
+         if ~isscalar(obj)
+            error('Non-scalar object not supported.');
+         end
          
-         propGroups(2) = PropertyGroup( {'Width', 'Height', 'FrameRate', 'BitsPerPixel', 'VideoFormat'}, ...
-            getString( message('FFmpeg:VideoReader:VideoProperties') ) );
+         propGroups(1) = PropertyGroup( {'Name', 'Path', 'Duration', 'CurrentTime', 'Tag', 'UserData'});
+         propGroups(2) = PropertyGroup( {'Width', 'Height', 'FrameRate', 'BitsPerPixel', 'VideoFormat'});
+         
+         %          propGroups(1) = PropertyGroup( {'Name', 'Path', 'Duration', 'CurrentTime', 'Tag', 'UserData'}, ...
+         %             getString( message('ffmpeg:VideoReader:GeneralProperties') ) );
+         %
+         %          propGroups(2) = PropertyGroup( {'Width', 'Height', 'FrameRate', 'BitsPerPixel', 'VideoFormat'}, ...
+         %             getString( message('ffmpeg:VideoReader:VideoProperties') ) );
       end
    end
    
@@ -322,11 +342,11 @@ classdef VideoReader < matlab.mixin.SetGet & matlab.mixin.CustomDisplay
       % Operations
       %------------------------------------------------------------------
       function result = hasAudio(obj)
-         result = mex_backend(obj.backend,'hasAudio');
+         result = ffmpeg.VideoReader.mex_backend(obj.backend,'hasAudio');
       end
       
       function result = hasVideo(obj)
-         result = mex_backend(obj.backend,'hasVideo');
+         result = ffmpeg.VideoReader.mex_backend(obj.backend,'hasVideo');
       end
    end
    
@@ -334,22 +354,22 @@ classdef VideoReader < matlab.mixin.SetGet & matlab.mixin.CustomDisplay
       function fileDesc = translateDescToLocale(fileExtension)
          switch upper(fileExtension)
             case 'M4V'
-               fileDesc = getString(message('FFmpeg:VideoReader:formatM4V'));
+               fileDesc = getString(message('ffmpeg:VideoReader:formatM4V'));
             case 'MJ2'
-               fileDesc = getString(message('FFmpeg:VideoReader:formatMJ2'));
+               fileDesc = getString(message('ffmpeg:VideoReader:formatMJ2'));
             case 'MOV'
-               fileDesc = getString(message('FFmpeg:VideoReader:formatMOV'));
+               fileDesc = getString(message('ffmpeg:VideoReader:formatMOV'));
             case 'MP4'
-               fileDesc = getString(message('FFmpeg:VideoReader:formatMP4'));
+               fileDesc = getString(message('ffmpeg:VideoReader:formatMP4'));
             case 'MPG'
-               fileDesc = getString(message('FFmpeg:VideoReader:formatMPG'));
+               fileDesc = getString(message('ffmpeg:VideoReader:formatMPG'));
             case 'OGV'
-               fileDesc = getString(message('FFmpeg:VideoReader:formatOGV'));
+               fileDesc = getString(message('ffmpeg:VideoReader:formatOGV'));
             case 'WMV'
-               fileDesc = getString(message('FFmpeg:VideoReader:formatWMV'));
+               fileDesc = getString(message('ffmpeg:VideoReader:formatWMV'));
             otherwise
                % This includes formats such as AVI, ASF, ASX.
-               fileDesc = getString(message('FFmpeg:VideoReader:formatGeneric', upper(fileExtension)));
+               fileDesc = getString(message('ffmpeg:VideoReader:formatGeneric', upper(fileExtension)));
          end
       end
       

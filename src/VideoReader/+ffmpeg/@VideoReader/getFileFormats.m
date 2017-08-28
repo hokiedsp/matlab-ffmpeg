@@ -15,8 +15,9 @@ ffmpegsetpath();
 formats = ffmpeg.VideoReader.mex_backend([], 'static', mfilename);
 
 if nargout==0
-   display(struct2table(fmts))
-
+   display(struct2table(formats));
+   clear formats
+end
 % extensions = audiovideo.mmreader.getSupportedFormats();
 % formats = audiovideo.FileFormatInfo.empty();
 % for ii=1:length(extensions)

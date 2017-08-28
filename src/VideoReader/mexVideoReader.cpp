@@ -1,29 +1,13 @@
 #include "mexVideoReader.h"
 
-
 void mexFunction(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[])
 {
   mexClassHandler<mexVideoReader>(nlhs, plhs, nrhs, prhs);
 }
 
 // The class that we are interfacing to
-mexVideoReader::mexVideoReader(int nrhs, const mxArray *prhs[])
+mexVideoReader::mexVideoReader(int nrhs, const mxArray *prhs[]) : reader((nrhs > 0) ? mexGetString(prhs[0]) : "", AVMEDIA_TYPE_VIDEO)
 {
-  std::string filename;
-  try
-  {
-    if (nrhs < 1)
-      throw 0;
-    filename = mexGetString(prhs[0]);
-  }
-  catch (...)
-  {
-    throw std::runtime_error("First argument must be a string specifying the name of the video file to open.");
-  }
-
-  // instantiate the FFmpeg frame reader object
-  reader.openFile(filename,AVMEDIA_TYPE_VIDEO);
-
   // accept property name-value pairs as input, throws exception if invalid property given
   set_props(nrhs - 1, prhs + 1);
 }
@@ -106,13 +90,23 @@ mxArray *mexVideoReader::get_prop(const std::string name)
   {
     rval = mxCreateDoubleScalar(reader.getHeight());
   }
-  else if (name == "VideoFormat") // integer between -10 and 10
-  {
-    rval = mxCreateString(reader.getVideoFormat().c_str());
-  }
   else if (name == "Width")
   {
     rval = mxCreateDoubleScalar(reader.getWidth());
+  }
+  else if (name == "VideoFormat") // integer between -10 and 10
+  {
+    rval = mxCreateString(reader.getVideoPixelFormat().c_str());
+  }
+  else if (name == "VideoCompression")
+  {
+    std::string name = reader.getVideoCodecName();
+    std::string desc = reader.getVideoCodecDesc();
+    if (desc.size())
+    {
+      name += " (" + desc + ')';
+    }
+    rval = mxCreateString(name.c_str());
   }
   else if (name == "CurrentTime")
   {
@@ -125,10 +119,6 @@ mxArray *mexVideoReader::get_prop(const std::string name)
   else if (name == "NumberOfAudioChannels")
   {
     rval = mxCreateDoubleMatrix(0, 0, mxREAL);
-  }
-  else if (name == "VideoCompression")
-  {
-    rval = mxCreateString("");
   }
   else if (name == "NumberOfFrames")
   {
