@@ -10,8 +10,8 @@ extern "C" {
 #include <libavutil/rational.h>   // for AVRational
 }
 
-#include "ffmpegBase.h"
-#include "ffmpegPtrs.h"
+#include "../Common/ffmpegBase.h"
+#include "../Common/ffmpegPtrs.h"
 #include "ffmpegAVPacketBuffer.h"
 #include "ffmpegAVFrameBuffer.h"
 

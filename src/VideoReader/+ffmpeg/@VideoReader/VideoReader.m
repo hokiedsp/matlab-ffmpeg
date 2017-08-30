@@ -119,7 +119,7 @@ classdef VideoReader < matlab.mixin.SetGet & matlab.mixin.CustomDisplay
             error('Could not found the specified file: %s',varargin{1});
          end
          
-         ffmpegsetpath();
+         ffmpegsetenv(); % make sure ffmpeg DLLs are in the system path
          
          obj.backend = ffmpeg.VideoReader.mex_backend(filename);
          if isempty(obj.backend)
