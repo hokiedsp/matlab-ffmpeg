@@ -9,6 +9,7 @@ extern "C" {
 using namespace ffmpeg;
 
 std::string getFileName(const mxArray *arrayFile);
+void displayFFmpeg(const std::string &filename);
 mxArray *setFileFormats(FileDump &info); // formats = setFileFormats();
 std::tuple<int, int, int> countStreams(FileDump::Streams_t &streams);
 void setVideoStreamFormat(mxArray *streamArray, int index, FileDump::Stream_s &info);
@@ -34,21 +35,34 @@ void mexFunction(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[])
   try
   {
     FILENAME = getFileName(prhs[0]);
-    mexPrintf("filename: %s\n", FILENAME.c_str());
   }
   catch (std::exception &e)
   {
     mexErrMsgIdAndTxt((component_id + "invalidArgument").c_str(), "Invalid Argument: %s", e.what());
   }
 
-  try
+  if (nlhs == 0) // no output requested, display the info using ffmpeg
   {
-    FileDump ffmpeginfo(FILENAME);
-    plhs[0] = setFileFormats(ffmpeginfo);
+    try
+    {
+      displayFFmpeg(FILENAME);
+    }
+    catch (std::exception &e)
+    {
+      mexErrMsgIdAndTxt((component_id + "infoDisplayError").c_str(), e.what());
+    }
   }
-  catch (std::exception &e)
+  else
   {
-    mexErrMsgIdAndTxt((component_id + "infoExtractionError").c_str(), e.what());
+    try
+    {
+      FileDump ffmpeginfo(FILENAME);
+      plhs[0] = setFileFormats(ffmpeginfo);
+    }
+    catch (std::exception &e)
+    {
+      mexErrMsgIdAndTxt((component_id + "infoExtractionError").c_str(), e.what());
+    }
   }
 }
 
@@ -64,7 +78,7 @@ std::string getFileName(const mxArray *arrayFile)
     throw std::runtime_error("Filename must be a string scalar or character vector.");
   bool fileExists = 2 == (int)mxGetScalar(existOutArg);
   mxDestroyArray(existInArgs[1]);
-  if (!fileExists) 
+  if (!fileExists)
   {
     std::string FILENAME = mexGetString(arrayFile);
     FILENAME.insert(0, 1, '\'');
@@ -93,7 +107,29 @@ std::string getFileName(const mxArray *arrayFile)
   return filepath;
 }
 
-#define mxCreateDoubleScalarIfSet(src) (src<0)?mxCreateDoubleMatrix(0,0,mxREAL):mxCreateDoubleScalar(src)
+void displayFFmpeg(const std::string &filename)
+{
+  std::string command = "ffmpeg -i \"";
+  command += filename + '\"';
+  
+  // call Matlab's exist function first
+  mxArray *systemInArg = mxCreateString(command.c_str());
+  mxArray *systemOutArgs[2] = {NULL, NULL};
+  mxArray *ME = mexCallMATLABWithTrap(2, systemOutArgs, 1, &systemInArg, "system");
+  if (ME || 0 != *(int *)mxGetData(systemOutArgs[0])) // will fail here (in matlab?) if filename is not a string
+    throw std::runtime_error("ffmpeg system call failed.");
+
+  std::string msg = mexGetString(systemOutArgs[1]);
+
+  std::string::size_type pos0 = msg.find("Input #0");
+  std::string::size_type pos1 = msg.rfind("At least one output file must be specified");
+  if (pos0 == std::string::npos || pos1 == std::string::npos)
+    throw std::runtime_error("FFmpeg has not returned a valid file information.");
+
+  mexPrintf("\n%s\n", msg.substr(pos0, pos1 - pos0).c_str());
+}
+
+#define mxCreateDoubleScalarIfSet(src) (src < 0) ? mxCreateDoubleMatrix(0, 0, mxREAL) : mxCreateDoubleScalar(src)
 
 mxArray *setFileFormats(ffmpeg::FileDump &info) // formats = setFileFormats();
 {
@@ -154,24 +190,24 @@ mxArray *setFileFormats(ffmpeg::FileDump &info) // formats = setFileFormats();
                                 "ColorPrimaries", "ColorTransfer", "FieldOrder", "ChromaSampleLocation",
                                 "Width", "Height", "CodedWidth", "CodedHeight",
                                 "SAR", "DAR", "ClosedCaption", "Lossless",
-                                "AverageFrameRate", "RealBaseFrameRate", "TimeBase", "CodecTimeBase", 
+                                "AverageFrameRate", "RealBaseFrameRate", "TimeBase", "CodecTimeBase",
                                 "BitsPerRawSample", // 21
                                 common_fields_post};
 
-  mxArray *streamVideoArray = mxCreateStructMatrix(std::get<0>(stream_count), 1, 21+num_common_fields, video_fields);
+  mxArray *streamVideoArray = mxCreateStructMatrix(std::get<0>(stream_count), 1, 21 + num_common_fields, video_fields);
   mxSetField(infoArray, 0, "Video", streamVideoArray);
 
-  const char *audio_fields[] = {common_fields_pre, 
+  const char *audio_fields[] = {common_fields_pre,
                                 "SampleRate", "ChannelLayout", "SampleFormat", "BitsPerRawSample", "InitialPadding",
                                 "TrailingPadding",   // 6
                                 common_fields_post}; // excluding SideData
-  mxArray *streamAudioArray = mxCreateStructMatrix(std::get<1>(stream_count), 1, 6+num_common_fields, audio_fields);
+  mxArray *streamAudioArray = mxCreateStructMatrix(std::get<1>(stream_count), 1, 6 + num_common_fields, audio_fields);
   mxSetField(infoArray, 0, "Audio", streamAudioArray);
 
   const char *subtitle_fields[] = {common_fields_pre,   //
                                    "Width", "Height",   // 2
                                    common_fields_post}; // excluding SideData
-  mxArray *streamSubtitleArray = mxCreateStructMatrix(std::get<2>(stream_count), 1, 2+num_common_fields, subtitle_fields);
+  mxArray *streamSubtitleArray = mxCreateStructMatrix(std::get<2>(stream_count), 1, 2 + num_common_fields, subtitle_fields);
   mxSetField(infoArray, 0, "Subtitle", streamSubtitleArray);
 
   stream_count = std::make_tuple(0, 0, 0);
@@ -220,29 +256,48 @@ void setCommonStreamFormat(mxArray *streamArray, int index, FileDump::Stream_s &
   mxSetField(streamArray, index, "Language", mxCreateString(st.Language.c_str()));
 
   int dispo = st.Dispositions.Default;
-  if (st.Dispositions.Dub) dispo++;
-  if (st.Dispositions.Original) dispo++;
-  if (st.Dispositions.Comment) dispo++;
-  if (st.Dispositions.Lyrics) dispo++;
-  if (st.Dispositions.Karaoke) dispo++;
-  if (st.Dispositions.Forced) dispo++;
-  if (st.Dispositions.HearingImpaired) dispo++;
-  if (st.Dispositions.VisualImpaired) dispo++;
-  if (st.Dispositions.CleanEffects) dispo++;
-  mxArray *dispoArray = mxCreateCellMatrix(1,dispo);
+  if (st.Dispositions.Dub)
+    dispo++;
+  if (st.Dispositions.Original)
+    dispo++;
+  if (st.Dispositions.Comment)
+    dispo++;
+  if (st.Dispositions.Lyrics)
+    dispo++;
+  if (st.Dispositions.Karaoke)
+    dispo++;
+  if (st.Dispositions.Forced)
+    dispo++;
+  if (st.Dispositions.HearingImpaired)
+    dispo++;
+  if (st.Dispositions.VisualImpaired)
+    dispo++;
+  if (st.Dispositions.CleanEffects)
+    dispo++;
+  mxArray *dispoArray = mxCreateCellMatrix(1, dispo);
   dispo = 0;
-  if (st.Dispositions.Default) mxSetCell(dispoArray,dispo++,mxCreateString("default"));
-  if (st.Dispositions.Dub) mxSetCell(dispoArray,dispo++,mxCreateString("dub"));
-  if (st.Dispositions.Original) mxSetCell(dispoArray,dispo++,mxCreateString("original"));
-  if (st.Dispositions.Comment) mxSetCell(dispoArray,dispo++,mxCreateString("comment"));
-  if (st.Dispositions.Lyrics) mxSetCell(dispoArray,dispo++,mxCreateString("lyrics"));
-  if (st.Dispositions.Karaoke) mxSetCell(dispoArray,dispo++,mxCreateString("karaoke"));
-  if (st.Dispositions.Forced) mxSetCell(dispoArray,dispo++,mxCreateString("forced"));
-  if (st.Dispositions.HearingImpaired) mxSetCell(dispoArray,dispo++,mxCreateString("hearing_impaired"));
-  if (st.Dispositions.VisualImpaired) mxSetCell(dispoArray,dispo++,mxCreateString("visual_impaired"));
-  if (st.Dispositions.CleanEffects) mxSetCell(dispoArray,dispo++,mxCreateString("clean_effects"));
+  if (st.Dispositions.Default)
+    mxSetCell(dispoArray, dispo++, mxCreateString("default"));
+  if (st.Dispositions.Dub)
+    mxSetCell(dispoArray, dispo++, mxCreateString("dub"));
+  if (st.Dispositions.Original)
+    mxSetCell(dispoArray, dispo++, mxCreateString("original"));
+  if (st.Dispositions.Comment)
+    mxSetCell(dispoArray, dispo++, mxCreateString("comment"));
+  if (st.Dispositions.Lyrics)
+    mxSetCell(dispoArray, dispo++, mxCreateString("lyrics"));
+  if (st.Dispositions.Karaoke)
+    mxSetCell(dispoArray, dispo++, mxCreateString("karaoke"));
+  if (st.Dispositions.Forced)
+    mxSetCell(dispoArray, dispo++, mxCreateString("forced"));
+  if (st.Dispositions.HearingImpaired)
+    mxSetCell(dispoArray, dispo++, mxCreateString("hearing_impaired"));
+  if (st.Dispositions.VisualImpaired)
+    mxSetCell(dispoArray, dispo++, mxCreateString("visual_impaired"));
+  if (st.Dispositions.CleanEffects)
+    mxSetCell(dispoArray, dispo++, mxCreateString("clean_effects"));
   mxSetField(streamArray, index, "Dispositions", dispoArray);
-  
+
   mxSetField(streamArray, index, "MetaData", setMetaData(st.MetaData));
 }
 

@@ -7,7 +7,8 @@
 #include "../Common/ffmpegPtrs.h"
 
 extern "C" {
-#include <libavutil/pixdesc.h>
+  #include <libavutil/avutil.h>
+  #include <libavutil/pixdesc.h>
 }
 
 #include <mex.h> // for debugging
@@ -179,8 +180,13 @@ FileDump::Stream_s FileDump::dump_codec(AVStream *st)
 
   if (enc->codec_tag)
   {
+#ifdef AV_FOURCC_MAX_STRING_SIZE
+    char tag_buf[AV_FOURCC_MAX_STRING_SIZE];
+    av_fourcc_make_string(tag_buf, enc->codec_tag);
+#else
     char tag_buf[32];
     av_get_codec_tag_string(tag_buf, sizeof(tag_buf), enc->codec_tag);
+#endif
     codec.CodecTag = tag_buf;
   }
 

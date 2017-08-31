@@ -1,6 +1,6 @@
 #pragma once
 
-#include <vector>
+#include <deque>
 #include <thread>
 #include <mutex>
 #include <condition_variable>
@@ -260,8 +260,8 @@ public:
   }
 
 protected:
-  std::vector<T> buffer; // data storage
-  int64_t rpos, wpos;    // last read/written position | -1 not set, cycles from 0 to buffer.size()-1
+  std::deque<T> buffer; // data storage
+  bool write_in_progress; // if true, block any subsequent write op and any read op of the first in the queue
 
   virtual void resize_internal(const uint32_t size)
   {
