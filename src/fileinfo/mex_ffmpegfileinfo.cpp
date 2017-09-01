@@ -111,7 +111,7 @@ void displayFFmpeg(const std::string &filename)
 {
   std::string command = "ffmpeg -i \"";
   command += filename + '\"';
-  
+
   // call Matlab's exist function first
   mxArray *systemInArg = mxCreateString(command.c_str());
   mxArray *systemOutArgs[2] = {NULL, NULL};
@@ -133,21 +133,6 @@ void displayFFmpeg(const std::string &filename)
 
 mxArray *setFileFormats(ffmpeg::FileDump &info) // formats = setFileFormats();
 {
-  //   Filename: 'dc122909 1mo post.mpg'
-  //   Path: 'D:\Users\TakeshiIkuma\Documents\Research\clinicdata_conversion'
-  //   Duration: 73.654
-  //   Audio: [1×1 struct]
-  //   Video: [1×1 struct]
-  // std::string URL;
-  // std::string Format;
-  // double Duration;
-  // double StartTime;
-  // int64_t BitRate;
-  // Chapters_t Chapters;
-  // Programs_t Programs;
-  // Streams_t Streams;
-  // MetaData_t MetaData;
-
   const char *fields[] = {"Filename", "Path", "Duration", "StartTime",
                           "Format", "BitRate", "Video", "Audio",
                           "Subtitle", "Chapters", "Programs", "MetaData"};

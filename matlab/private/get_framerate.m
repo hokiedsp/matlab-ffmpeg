@@ -5,43 +5,19 @@ function [fs0,T] = get_framerate(infile)
 % Copyright 2015 Takeshi Ikuma
 % History:
 % rev. - : (04-06-2015) original release
+% rev. 1 : (08-30-2017) modified to use ffmpegfileinfo instead of
+%                       depricated ffmpeginfo
 
-info = ffmpeginfo(infile);
-found = false;
-for m = 1:numel(info)
-   s = info(m).streams;
-   for n = 1:numel(s)
-      found = strcmp(s(n).type,'video');
-      if found
-         break;
-      end
-   end
-end
-if ~found
+ffmpegsetenv();
+info = ffmpegfileinfo(infile);
+if isempty(info.Video)
    error('Input file does not contain any video stream.');
 end
 
-c = s(n).codec;
-if isempty(c.fps)
-   if isempty(c.tbr)
-      if isempty(c.tbn)
-         if isempty(c.tbc)
-            error('Input file does not report its frame rate.');
-         else
-            fs0 = c.tbc;
-         end
-      else
-         fs0 = c.tbn;
-      end
-   else
-      fs0 = c.tbr;
-   end
-else
-   fs0 = c.fps;
-end
+fs0 = info.Video(1).AverageFrameRate;
 
 if nargout>1
-   T = info(m).duration;
+   T = info.Duration;
 end
 
 end

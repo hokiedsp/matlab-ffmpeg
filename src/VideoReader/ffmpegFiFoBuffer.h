@@ -20,7 +20,7 @@ class FifoBuffer
 public:
   FifoBuffer(const uint32_t size = 0, const double timeout_s = 0.0, std::function<bool()> Predicate = std::function<bool()>())
       : max_wait_time_us(int64_t(timeout_s * 1e6) * 1us),
-        rpos(-1), wpos(-1), buffer(0), pred(Predicate)
+        peek_count(0), deque_after_peek(false), pred(Predicate)
   {
     // this calls the base-class function. virtual does not kick in until the object is instantiated
     resize_internal(size);
@@ -39,7 +39,7 @@ public:
   }
 
   // return the queue size
-  uint32_t size() { return (uint32_t)buffer.size(); }
+  uint32_t size() { return (uint32_t)buffer_length; }
 
   // release all waiting threads
   void release()
@@ -47,12 +47,12 @@ public:
     cv.notify_all();
   }
 
-  // returns true if a queue element has been reserved for the next write op
-  bool reserved()
+  // returns true if at least one thread is peeking at the head element
+  bool peeked()
   {
     // lock the mutex for the duration of this function
     std::unique_lock<std::mutex> lck(mu);
-    return wpos_next >= 0;
+    return peek_count;
   }
 
   // return the number of unread elements
@@ -60,13 +60,7 @@ public:
   {
     // lock the mutex for the duration of this function
     std::unique_lock<std::mutex> lck(mu);
-
-    if (wpos < 0) // nothing written yet
-      return 0;
-    else if (wpos >= rpos) // last-written position is ahead of or the same as the last-read position
-      return uint32_t(wpos - rpos);
-    else // last-read position is ahead of the last-written position
-      return uint32_t(wpos - rpos + size());
+    return (uint32_t)buffer.size();
   }
 
   // return the number of unread elements
@@ -75,15 +69,7 @@ public:
     // lock the mutex for the duration of this function
     std::unique_lock<std::mutex> lck(mu);
 
-    // last written position (treats a reserved element as written)
-    int64_t wpos_last = (wpos_next < 0) ? wpos : wpos_next;
-
-    if (wpos_last < 0) // nothing written yet
-      return (uint32_t)size();
-    else if (rpos <= wpos_last) // last-read position is ahead of last-written position
-      return uint32_t(rpos - wpos_last + size());
-    else
-      return uint32_t(rpos - wpos_last);
+    return uint32_t(buffer_length - buffer.size());
   }
 
   void resize(const uint32_t size)
@@ -109,25 +95,12 @@ public:
 
     // block until reserved enque element has been released
     std::pair<bool, bool> wait_state = std::make_pair(false, pred());
-    while (!wait_state.second && wpos_next >= 0)
+    while (!wait_state.second && buffer_length == buffer.size())
     {
       wait_state = wait_to_work(lck);
-      if (wait_state.first)
-        throw ffmpegException("Timed out waiting to write: Other worker is not releasing the reserved slot.");
+      if (wait_state.first) // timed out
+        throw ffmpegException("Timed out waiting to write: Buffer overflow.");
     }
-
-    // increment the write position for the next write
-    int64_t wpos_next_ = wpos + 1;
-
-    // if write op caught up with read op, wait until space available
-    if (((wpos>=0 && wpos == rpos) || (rpos == -1 && wpos_next_ == buffer.size())) && wait_to_work(lck).first)
-      throw ffmpegException("Timed out waiting to write: Buffer overflow.");
-
-    // finalize the next write position
-    if (wpos_next_ == buffer.size())
-      wpos = 0;
-    else
-      wpos = wpos_next_;
 
     enque_internal(elem);
 
@@ -136,92 +109,28 @@ public:
     cv.notify_one();
   }
 
-  T &reserve_next() // reserve a slot for the next item
-  {
-    mexPrintf("Buffer State:Pre-Reserve: rpos=%d; wpos=%d; wpos_next%d\n", rpos, wpos, wpos_next);
-    mexPrintf("Buffer State:Pre-Reserve: %d:%d:%d\n", size(), elements(), available());
-
-    // lock the mutex for the duration of this function
-    std::unique_lock<std::mutex> lck(mu);
-
-    // if another worker already reserved the next slot, must wait till the other is done
-    std::pair<bool, bool> wait_state = std::make_pair(false, pred());
-    while (wpos_next >= 0 && !wait_state.second)
-    {
-      wait_state = wait_to_work(lck);
-      if (wait_state.first)
-        throw ffmpegException("Timed out waiting to reserve an element ot enqueue: Another worker occupying reserved element.");
-    }
-
-    wpos_next = wpos + 1;
-    if (((wpos>=0 && wpos == rpos) || (rpos == -1 && wpos_next == buffer.size())) && wait_to_work(lck).first)
-      throw ffmpegException("Timed out waiting to reserve an element ot enqueue: Buffer overflow.");
-
-      // reserve the next position
-    if (wpos_next == buffer.size())
-      wpos_next = 0;
-
-    mexPrintf("Buffer State:Post-Reserve: rpos=%d; wpos=%d; wpos_next%d\n", rpos, wpos, wpos_next);
-
-    lck.unlock();
-    mexPrintf("Buffer State:Post-Reserve: %d:%d:%d\n", size(), elements(), available());
-
-    // Let caller have the element in the next position
-    return buffer[wpos_next];
-  }
-
-  void enque_reserved() // call to complete enquing the item in the reserved slot
-  {
-    mexPrintf("Buffer State:Pre-Commit: rpos=%d; wpos=%d; wpos_next%d\n", rpos, wpos, wpos_next);
-    mexPrintf("Buffer State:Pre-Commit: %d:%d:%d\n", size(), elements(), available());
-
-    // lock the mutex for the duration of this function
-    std::unique_lock<std::mutex> lck(mu);
-
-    if (wpos_next < 0)
-      throw ffmpegException("Buffer not reserved.");
-
-    // update the write position & clear enque-by-reference position
-    wpos = wpos_next;
-    wpos_next = -1;
-
-    // done, unlock mutex and notify the condition variable
-    lck.unlock();
-    cv.notify_one();
-
-    mexPrintf("Buffer State:Post-Commit: rpos=%d; wpos=%d; wpos_next%d\n", rpos, wpos, wpos_next);
-    mexPrintf("Buffer State:Post-Commit: %d:%d:%d\n", size(), elements(), available());
-  }
-
-  void discard_reserved() //
-  {
-    // lock the mutex for the duration of this function
-    std::unique_lock<std::mutex> lck(mu);
-
-    if (wpos_next < 0)
-      throw ffmpegException("Buffer not reserved.");
-
-    // update the write position & clear enque-by-reference position
-    wpos_next = -1;
-  }
-
   T &deque()
   {
+    // if deque_after_peek is set, block until deque_after_peek is cleared
+    // else if buffer is empty, block until an element is enqueued
+    // otherwise, deque
+
     // lock the mutex for the duration of this function
     std::unique_lock<std::mutex> lck(mu);
 
     // if no new item has been written, wait
     std::pair<bool, bool> wait_state = std::make_pair(false, pred());
-    while (!wait_state.second && (wpos == rpos))
+    while (!wait_state.second && (peek_count || buffer.empty()))
     {
       wait_state = wait_to_work(lck);
-      if (wait_state.first)
-        throw ffmpegException("Timed out waiting to read: Buffer underflow.");
+      if (wait_state.first) // timed out
+      {
+        if (peek_count)
+          throw ffmpegException("Timed out waiting to read: A peeking worker is not releasing the element.");
+        else if (buffer.empty())
+          throw ffmpegException("Timed out waiting to read: Buffer underflow.");
+      }
     }
-
-    // increment the write position
-    if (++rpos == buffer.size())
-      rpos = 0;
 
     // run the deque op, possibly overloaded
     T &rval = deque_internal();
@@ -243,56 +152,66 @@ public:
     // block until an empty slot is available in the buffer
     // if no new item has been written, wait
     std::pair<bool, bool> wait_state = std::make_pair(false, pred());
-    while ((wpos == rpos) && !wait_state.second)
+    while (!wait_state.second && buffer.empty())
     {
       wait_state = wait_to_work(lck);
-      if (wait_state.first)
-        throw ffmpegException("Timed out waiting to read: Buffer underflow.");
+      if (wait_state.first) // timed out
+        throw ffmpegException("Timed out waiting to peek: Buffer underflow.");
     }
 
-    // increment the write position
-    int peek_pos = rpos + 1;
-    if (peek_pos == buffer.size())
-      peek_pos = 0;
+    // increment peeker count
+    peek_count++;
 
     // get the head buffer content
-    return peek_internal(peek_pos);
+    return peek_internal();
+  }
+
+  void peek_done()
+  {
+    // lock the mutex for the duration of this function
+    std::unique_lock<std::mutex> lck(mu);
+
+    if (--peek_count > 0) // if others are still peeking
+      return;
   }
 
 protected:
   std::deque<T> buffer; // data storage
-  bool write_in_progress; // if true, block any subsequent write op and any read op of the first in the queue
+  std::deque::size_type len; // buffer length
 
   virtual void resize_internal(const uint32_t size)
   {
-    buffer.resize(size);
-    rpos = wpos = wpos_next = -1;
+    len = size;
+    reset_internal();
   }
 
   virtual void reset_internal()
   {
-    rpos = wpos = wpos_next = -1;
+    buffer.resize(clear);
   }
 
   virtual void enque_internal(const T &elem) // copy construct
   {
     // place the new data onto the buffer
-    buffer[wpos] = elem;
+    buffer.push_back(elem);
   }
 
   virtual T &deque_internal()
   {
     // get the head buffer content
-    return buffer[rpos];
+    T &val = buffer.front();
+    buffer.pop_front();
+    return val;
   }
 
   virtual T &peek_internal(int peek_pos)
   {
-    return buffer[peek_pos];
+    return buffer.front();
   }
 
 private:
-  int64_t wpos_next; // position for enque-by-reference operation
+  int peek_count; // to peek the next item to be dequeued, keep counts to allow multiple peekers
+
   std::chrono::microseconds max_wait_time_us;
   std::mutex mu;              // mutex to access the buffer
   std::condition_variable cv; // condition variable to control the queue/deque flow
