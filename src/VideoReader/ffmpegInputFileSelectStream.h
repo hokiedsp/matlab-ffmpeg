@@ -56,7 +56,7 @@ class InputFileSelectStream : public Base
    AVCodec *dec;        // decoder
    CodecCtxPtr dec_ctx; // decoder context
 
-   AVPacketPtrBuffer raw_packets;    // encoded packets as read
+   AVPacketBuffer raw_packets;    // encoded packets as read
    AVFramePtrBuffer decoded_frames;  // decoded media frames
    AVFramePtrBuffer filtered_frames; // filtred media frames
 
@@ -76,12 +76,14 @@ class InputFileSelectStream : public Base
 
    int loop;        /* set number of times input stream should be looped */
    bool eof_reached; /* true if eof reached */
-   uint64_t pts;
+
+   uint64_t frames_decoded;
+   uint64_t samples_decoded; // only for audio
+   
+    uint64_t pts;
    // bool accurate_seek;
    // bool eagain;           /* true if data was not ready during the last read attempt */
 
-   // uint64_t samples_decoded;
-   // uint64_t frames_decoded;
    // int64_t next_pts;
    // int64_t filter_in_rescale_delta_last;
    // int resample_sample_fmt;
@@ -101,10 +103,12 @@ class InputFileSelectStream : public Base
    void free_thread(void);
 
    void read_thread_fcn(); // thread function to read input packet
-   // void decode_thread_fcn(); // thread function to decode input packet to raw data frame(s)
+
+   void decode_thread_fcn(); // thread function to decode input packet to raw data frame(s)
+   int decode_frame(AVFrame *frame, bool &got_frame, const AVPacket *pkt);
+
    //   void filter_thread_fcn(); // thread function to filter ipnut packet
 
-   // int decode_frame(AVFrame *frame, bool &got_frame, const AVPacket *pkt);
    // int decode_audio(AVPacket *pkt, bool &got_output, int eof);
    // int decode_video(AVPacket *pkt, bool &got_output, int eof);
 

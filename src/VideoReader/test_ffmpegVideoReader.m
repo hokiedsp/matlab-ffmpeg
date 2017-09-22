@@ -9,7 +9,9 @@ try
    %    fprintf('Setting CurrentTime to 2.0...\n');
    %    vrobj.CurrentTime = 2.0;
    %    fprintf('New CurrentTime = %g\n',vrobj.CurrentTime);
-   pause(10);
+   for n = 1:100
+      pause(0.1);
+   end
    disp('deleting the object');
    delete(vrobj);
 catch ME

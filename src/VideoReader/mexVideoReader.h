@@ -1,6 +1,6 @@
 #pragma once
 
-#include "mexClassHandler.h"
+#include "..\Common\mexClassHandler.h"
 #include "ffmpegInputFileSelectStream.h"
 
 class mexVideoReader : public mexFunctionClass
