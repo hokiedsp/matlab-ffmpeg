@@ -54,11 +54,7 @@ public:
   {
     // lock the mutex for the duration of this function
     std::unique_lock<std::mutex> lck(mu);
-    bool rval = peek_count;
-    lck.unlock();
-    cv_rd.notify_one();
-    cv_wr.notify_one();
-    return rval;
+    return peek_count;
   }
 
   // return the number of unread elements
@@ -66,22 +62,23 @@ public:
   {
     // lock the mutex for the duration of this function
     std::unique_lock<std::mutex> lck(mu);
-    uint32_t rval = buffer.size();
-    lck.unlock();
-    cv_rd.notify_one();
-    cv_wr.notify_one();
-    return rval;
+    return (uint32_t)buffer.size();
   }
 
-  // return the number of unread elements
+  // return true if empty
+  bool empty()
+  {
+    // lock the mutex for the duration of this function
+    std::unique_lock<std::mutex> lck(mu);
+    return buffer.empty();
+  }
+
+  // return the number of available slots
   uint32_t available()
   {
     // lock the mutex for the duration of this function
     std::unique_lock<std::mutex> lck(mu);
-    uint32_t rval = (uint32_t)(len - buffer.size());
-    cv_rd.notify_one();
-    cv_wr.notify_one();
-    return rval;
+    return (uint32_t)pool.size();
   }
 
   void resize(const uint32_t size)
@@ -114,14 +111,13 @@ public:
     std::unique_lock<std::mutex> lck(mu);
 
     // block until reserved enqueue element has been released
-    std::pair<bool, bool> wait_state = std::make_pair(false, pred());
-    while (!wait_state.second && len == buffer.size())
+    bool killnow;
+    while (!(killnow=pred()) && pool.empty())
     {
-      wait_state = wait_to_work(lck, cv_wr);
-      if (wait_state.first) // timed out
+      if (wait_to_work(lck, cv_wr)) // timed out
         throw ffmpegException("Timed out waiting to write: Buffer overflow.");
     }
-    if (wait_state.second)
+    if (killnow)
       return;
 
     enqueue_internal(elem);
@@ -137,20 +133,17 @@ public:
     std::unique_lock<std::mutex> lck(mu);
 
     // block until reserved enqueue element has been released
-    std::pair<bool, bool> wait_state = std::make_pair(false, pred());
-    while (!wait_state.second && (len == buffer.size() || enqueue_in_process))
+    bool killnow;
+    while (!(killnow=pred()) && (pool.empty() || enqueue_in_process))
     {
-      wait_state = wait_to_work(lck, cv_wr);
-      if (wait_state.first) // timed out
+      if (wait_to_work(lck, cv_wr)) // timed out
         throw ffmpegException("Timed out waiting to write: Buffer overflow.");
     }
 
     buffer.emplace_back();
     T &rval = buffer.back();
-    if (wait_state.second)
-      return rval;
-
-    enqueue_in_process = true;
+    if (!killnow)
+      enqueue_in_process = true;
 
     return rval;
   }
@@ -162,27 +155,27 @@ public:
     std::unique_lock<std::mutex> lck(mu);
 
     // block until reserved enqueue element has been released
-    std::pair<bool, bool> wait_state = std::make_pair(false, pred());
-    while (!wait_state.second && (len == buffer.size() || enqueue_in_process))
+    bool killnow;
+    while (!(killnow=pred()) && (pool.empty() || enqueue_in_process))
     {
-      wait_state = wait_to_work(lck, cv_wr);
-      if (wait_state.first) // timed out
+      if (wait_to_work(lck, cv_wr)) // timed out
         throw ffmpegException("Timed out waiting to write: Buffer overflow.");
     }
-    if (wait_state.second)
-      return;
 
     T &rval = emplace_internal(args);
 
-    // if further manipulation of enqueued element is necessary, set the in-process flag
-    enqueue_in_process = lock;
+    if (!killnow)
+    {
+      // if further manipulation of enqueued element is necessary, set the in-process flag
+      enqueue_in_process = lock;
 
-    // done, unlock mutex and notify the condition variable
-    lck.unlock();
+      // done, unlock mutex and notify the condition variable
+      lck.unlock();
 
-    // notify waiting process only if queued item is not locked
-    if (!enqueue_in_process)
-      cv_rd.notify_one();
+      // notify waiting process only if queued item is not locked
+      if (!enqueue_in_process)
+        cv_rd.notify_one();
+    }
 
     return rval;
   }
@@ -235,12 +228,14 @@ public:
     if (was_peeking && peek_count)
       peek_count--;
 
+    if (peek_count)
+      mexPrintf("dequeue::still %d peekers\n",peek_count);
+
     // if no new item has been written, wait
-    std::pair<bool, bool> wait_state = std::make_pair(false, pred());
-    while (!wait_state.second && (peek_count || buffer.empty() || (buffer.size() == 1 && enqueue_in_process)))
+    bool killnow;
+    while (!(killnow=pred()) && (peek_count || buffer.empty() || (buffer.size() == 1 && enqueue_in_process)))
     {
-      wait_state = wait_to_work(lck, cv_rd);
-      if (wait_state.first) // timed out
+      if (wait_to_work(lck, cv_rd)) // timed out
       {
         if (peek_count)
           throw ffmpegException("Timed out waiting to read: A peeking worker is not releasing the element.");
@@ -248,7 +243,7 @@ public:
           throw ffmpegException("Timed out waiting to read: Buffer underflow.");
       }
     }
-    if (wait_state.second)
+    if (killnow)
       return;
 
     // run the dequeue op, possibly overloaded
@@ -269,21 +264,20 @@ public:
     // if no new item has been written, wait
     // block until an empty slot is available in the buffer
     // if no new item has been written, wait
-    std::pair<bool, bool> wait_state = std::make_pair(false, pred());
-    while (!wait_state.second && (buffer.empty() || (buffer.size() == 1 && enqueue_in_process)))
+    bool killnow;
+    while (!(killnow=pred()) && (buffer.empty() || (buffer.size() == 1 && enqueue_in_process)))
     {
       if (buffer.empty())
         mexPrintf("Nothing to peek...\n");
       else if (buffer.size() == 1 && enqueue_in_process)
         mexPrintf("Waiting for enqueue operation to be done...\n");
 
-      wait_state = wait_to_work(lck, cv_rd);
-      if (wait_state.first) // timed out
+      if (wait_to_work(lck, cv_rd)) // timed out
         throw ffmpegException("Timed out waiting to peek: Buffer underflow.");
     }
 
     // increment peeker count
-    if (!wait_state.second)
+    if (!killnow)
       peek_count++;
 
     // get the head buffer content
@@ -304,11 +298,16 @@ public:
 
 protected:
   std::deque<T> buffer; // data storage
+  std::deque<T> pool; // unused data storage
 
   virtual void resize_internal(const uint32_t size)
   {
-    len = size;
+    // clear the content
     reset_internal();
+
+    // adjust the size of pool
+    pool.resize(size);
+    len = size;
   }
 
   virtual void reset_internal()
@@ -349,28 +348,14 @@ private:
   std::condition_variable cv_rd, cv_wr; // condition variable to control the queue/dequeue flow
   std::function<bool()> pred;           // predicate
 
-  // returns pair of bools. first bool: true if timed out; false if successfully released or released by predicate | second bool: predicate function output
-  std::pair<bool, bool> wait_to_work(std::unique_lock<std::mutex> &lck, std::condition_variable &cv)
+  // returns true if timed out; false if successfully released
+  bool wait_to_work(std::unique_lock<std::mutex> &lck, std::condition_variable &cv)
   {
     if (max_wait_time_us <= 0us) // no timeout
-    {
-      if (pred)
-        cv.wait(lck, pred);
-      else
-        cv.wait(lck);
-    }
-    else if (pred)
-    {
-      while (!pred())
-      {
-        if (cv.wait_for(lck, max_wait_time_us) == std::cv_status::timeout)
-          return std::make_pair(true, pred());
-      }
-    }
-    else if (cv.wait_for(lck, max_wait_time_us) == std::cv_status::timeout)
-      return std::make_pair(true, pred());
-
-    return std::make_pair(false, true);
+      cv.wait(lck);
+    else 
+      return cv.wait_for(lck, max_wait_time_us) == std::cv_status::timeout;
+    return false;
   }
 };
 }
