@@ -1,6 +1,6 @@
 #pragma once
 
-#include <deque>
+#include <vector>
 #include <thread>
 #include <mutex>
 #include <condition_variable>
@@ -16,346 +16,272 @@ namespace ffmpeg
 {
 
 template <typename T>
-class FifoBuffer
+struct FifoContainer
 {
-public:
-  FifoBuffer(const uint32_t size = 0, const double timeout_s = 0.0, std::function<bool()> Predicate = std::function<bool()>())
-      : max_wait_time_us(int64_t(timeout_s * 1e6) * 1us), enqueue_in_process(false),
-        peek_count(0), pred(Predicate)
+  T data;
+  enum
   {
-    // this calls the base-class function. virtual does not kick in until the object is instantiated
-    resize_internal(size);
+    EMPTY,
+    BEING_WRITTEN,
+    WRITTEN,
+    BEING_READ,
+    READ
+  } status;
+
+  FifoContainer() : status(EMPTY){};
+  FifoContainer(const T &src) : FifoContainer(), data(src){};
+  bool is_writable(unsigned min_read = 1) { return (status == EMPTY) || (status == READ); }
+  bool is_readable() { return status == WRITTEN; }
+  bool is_busy() { return status == BEING_WRITTEN || status == BEING_READ; }
+
+  virtual void init()
+  {
+    status = EMPTY;
   }
 
-  void setTimeOut(const double timeout_s)
+  virtual T *write_init()
   {
-    std::unique_lock<std::mutex> lck(mu);
-    max_wait_time_us = int64_t(timeout_s * 1e6) * 1us;
+    if (status == BEING_READ)
+      throw ffmpegException("Data is being read.");
+    status = BEING_WRITTEN;
+    return &data;
+  }
+
+  virtual bool write_done(const T *ref)
+  {
+    bool matched = (&data == ref && status == BEING_WRITTEN);
+    if (matched)
+      status = WRITTEN;
+    return matched;
+  }
+
+  virtual bool write_cancel(const T *ref)
+  {
+    bool matched = (&data == ref && status == BEING_WRITTEN);
+    if (matched)
+      status = EMPTY;
+    return matched;
+  }
+
+  virtual T *read_init()
+  {
+    if (status != WRITTEN)
+      throw ffmpegException("No data to read.");
+    status = BEING_READ;
+    return &data;
+  }
+  virtual bool read_done(const T *ref)
+  {
+    bool matched = (&data == ref && status == BEING_READ);
+    if (matched)
+      status = READ;
+    return matched;
+  }
+};
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+template <typename T, typename C = FifoContainer<T>>
+class FifoBuffer
+{
+  typedef std::vector<C> FifoVector_t;
+
+public:
+  FifoBuffer(const unsigned nelem = 0, const double timeout_s = 0.0, std::function<bool()> Predicate = std::function<bool()>())
+      : pred(Predicate)
+  {
+    resize(nelem);
+    rptr = wptr = buffer.begin();
   }
 
   void setPredicate(std::function<bool()> pred_fcn)
   {
-    std::unique_lock<std::mutex> lck(mu);
+    std::unique_lock<std::mutex> guard(lock);
     pred = pred_fcn;
   }
 
-  // return the queue size
-  uint32_t size() { return (uint32_t)len; }
-
-  // release all waiting threads
   void releaseAll()
   {
-    cv_rd.notify_all();
-    cv_wr.notify_all();
+    cond_recv.notify_all();
+    cond_send.notify_all();
   }
 
-  // returns true if at least one thread is peeking at the head element
-  bool peeked()
-  {
-    // lock the mutex for the duration of this function
-    std::unique_lock<std::mutex> lck(mu);
-    return peek_count;
-  }
-
-  // return the number of unread elements
+  // return the queue size
+  uint32_t size() const { return buffer.size(); }
+  bool empty() const { return buffer.empty(); }
   uint32_t elements()
   {
-    // lock the mutex for the duration of this function
-    std::unique_lock<std::mutex> lck(mu);
-    return (uint32_t)buffer.size();
-  }
+    std::unique_lock<std::mutex> guard(lock);
 
-  // return true if empty
-  bool empty()
-  {
-    // lock the mutex for the duration of this function
-    std::unique_lock<std::mutex> lck(mu);
-    return buffer.empty();
-  }
+    if (!rptr->is_readable())
+      return 0;
 
-  // return the number of available slots
+    uint32_t cnt = 1;
+    FifoVector_t::iterator it = rptr + 1;
+    for (; it->is_readable() && it < buffer.end(); it++)
+      cnt++;
+    if (it != buffer.end())
+      return cnt;
+    for (it = buffer.begin(); it->is_readable() && it < rptr; it++)
+      cnt++;
+    return cnt;
+  }
   uint32_t available()
   {
-    // lock the mutex for the duration of this function
-    std::unique_lock<std::mutex> lck(mu);
-    return (uint32_t)pool.size();
+    std::unique_lock<std::mutex> guard(lock);
+
+    if (!wptr->is_writable())
+      return 0;
+
+    uint32_t cnt = 1;
+    FifoVector_t::iterator it = wptr + 1;
+    for (; it->is_writable() && it < buffer.end(); it++)
+      cnt++;
+    if (it != buffer.end())
+      return cnt;
+    for (it = buffer.begin(); it->is_writable() && it < wptr; it++)
+      cnt++;
+    return cnt;
   }
 
   void resize(const uint32_t size)
   {
-    // lock the mutex for the duration of this function
-    std::unique_lock<std::mutex> lck(mu);
+    std::unique_lock<std::mutex> guard(lock);
 
-    resize_internal(size);
-
-    // notify writer if there is anyone waiting to write
-    lck.unlock();
-    cv_wr.notify_one();
-  }
-
-  void reset()
-  {
-    // lock the mutex for the duration of this function
-    std::unique_lock<std::mutex> lck(mu);
-
-    reset_internal();
-
-    // notify writer if there is anyone waiting to write
-    lck.unlock();
-    cv_wr.notify_one();
-  }
-
-  void enqueue(const T &elem) // copy construct
-  {
-    // lock the mutex for the duration of this function
-    std::unique_lock<std::mutex> lck(mu);
-
-    // block until reserved enqueue element has been released
-    bool killnow;
-    while (!(killnow=pred()) && pool.empty())
-    {
-      if (wait_to_work(lck, cv_wr)) // timed out
-        throw ffmpegException("Timed out waiting to write: Buffer overflow.");
-    }
-    if (killnow)
-      return;
-
-    enqueue_internal(elem);
-
-    // done, unlock mutex and notify the condition variable
-    lck.unlock();
-    cv_rd.notify_one(); // there is something to read
-  }
-
-  T &enqueue_new() // emplace new element using its default constructor and returns it. Sets enqueue_in_progress flag. Must followup with enqueue_complete call to complete enqueueing
-  {
-    // lock the mutex for the duration of this function
-    std::unique_lock<std::mutex> lck(mu);
-
-    // block until reserved enqueue element has been released
-    bool killnow;
-    while (!(killnow=pred()) && (pool.empty() || enqueue_in_process))
-    {
-      if (wait_to_work(lck, cv_wr)) // timed out
-        throw ffmpegException("Timed out waiting to write: Buffer overflow.");
-    }
-
-    buffer.emplace_back();
-    T &rval = buffer.back();
-    if (!killnow)
-      enqueue_in_process = true;
-
-    return rval;
-  }
-
-  template <typename... TArgs>
-  T &enqueue_new(const bool lock, TArgs... args) // emplace new element (accepting variable arguments for its constructor) and returns it. Sets enqueue_in_progress flag if lock is true
-  {
-    // lock the mutex for the duration of this function
-    std::unique_lock<std::mutex> lck(mu);
-
-    // block until reserved enqueue element has been released
-    bool killnow;
-    while (!(killnow=pred()) && (pool.empty() || enqueue_in_process))
-    {
-      if (wait_to_work(lck, cv_wr)) // timed out
-        throw ffmpegException("Timed out waiting to write: Buffer overflow.");
-    }
-
-    T &rval = emplace_internal(args);
-
-    if (!killnow)
-    {
-      // if further manipulation of enqueued element is necessary, set the in-process flag
-      enqueue_in_process = lock;
-
-      // done, unlock mutex and notify the condition variable
-      lck.unlock();
-
-      // notify waiting process only if queued item is not locked
-      if (!enqueue_in_process)
-        cv_rd.notify_one();
-    }
-
-    return rval;
-  }
-
-  // Call this function to follow enqueue_new() or enqueue_new(true,...) to complete queueing process
-  void enqueue_complete()
-  {
-    if (!enqueue_in_process)
-      return;
-
-    // lock the mutex for the duration of this function
-    std::unique_lock<std::mutex> lck(mu);
-
-    enqueue_in_process = false;
-
-    lck.unlock();
-
-    mexPrintf("Enqueue completed, notifying a reader\n");
-    cv_rd.notify_one();
-  }
-
-  // Call this function to follow enqueue_new to cancel queueing process
-  void enqueue_cancel()
-  {
-    // lock the mutex for the duration of this function
-    std::unique_lock<std::mutex> lck(mu);
-
-    // relevant only if enqueueing proces was started previously by calling enqueue_new() function
-    if (!enqueue_in_process)
-      return;
-
-    // let go of the reserved buffer element
-    buffer.pop_back();
-    enqueue_in_process = false;
-
-    lck.unlock();
-    cv_wr.notify_one(); // more room now
-  }
-
-  void dequeue(const bool was_peeking = false)
-  {
-    // if dequeue_after_peek is set, block until dequeue_after_peek is cleared
-    // else if buffer is empty, block until an element is enqueued
-    // otherwise, dequeue
-
-    // lock the mutex for the duration of this function
-    std::unique_lock<std::mutex> lck(mu);
-
-    //
-    if (was_peeking && peek_count)
-      peek_count--;
-
-    if (peek_count)
-      mexPrintf("dequeue::still %d peekers\n",peek_count);
-
-    // if no new item has been written, wait
-    bool killnow;
-    while (!(killnow=pred()) && (peek_count || buffer.empty() || (buffer.size() == 1 && enqueue_in_process)))
-    {
-      if (wait_to_work(lck, cv_rd)) // timed out
-      {
-        if (peek_count)
-          throw ffmpegException("Timed out waiting to read: A peeking worker is not releasing the element.");
-        else if (buffer.empty())
-          throw ffmpegException("Timed out waiting to read: Buffer underflow.");
-      }
-    }
-    if (killnow)
-      return;
-
-    // run the dequeue op, possibly overloaded
-    dequeue_internal();
-
-    // done, unlock mutex and notify the condition variable
-    lck.unlock();
-    cv_wr.notify_one();
-  }
-
-  // Access the next element without dequeueing. Use with caution as the element could be altered by
-  // subsequent operation on the buffer.
-  T &peek_next()
-  {
-    // lock the mutex for the duration of this function
-    std::unique_lock<std::mutex> lck(mu);
-
-    // if no new item has been written, wait
-    // block until an empty slot is available in the buffer
-    // if no new item has been written, wait
-    bool killnow;
-    while (!(killnow=pred()) && (buffer.empty() || (buffer.size() == 1 && enqueue_in_process)))
-    {
-      if (buffer.empty())
-        mexPrintf("Nothing to peek...\n");
-      else if (buffer.size() == 1 && enqueue_in_process)
-        mexPrintf("Waiting for enqueue operation to be done...\n");
-
-      if (wait_to_work(lck, cv_rd)) // timed out
-        throw ffmpegException("Timed out waiting to peek: Buffer underflow.");
-    }
-
-    // increment peeker count
-    if (!killnow)
-      peek_count++;
-
-    // get the head buffer content
-    return peek_internal();
-  }
-
-  void peek_done()
-  {
-    // lock the mutex for the duration of this function
-    std::unique_lock<std::mutex> lck(mu);
-
-    if (peek_count > 0)
-      peek_count--; // if others are still peeking
-    lck.unlock();
-    if (!peek_count)
-      cv.notify_all(); // let others know that nobody else is peeking
-  }
-
-protected:
-  std::deque<T> buffer; // data storage
-  std::deque<T> pool; // unused data storage
-
-  virtual void resize_internal(const uint32_t size)
-  {
     // clear the content
-    reset_internal();
+    flush_locked(true);
 
     // adjust the size of pool
-    pool.resize(size);
-    len = size;
+    buffer.resize(size);
+    guard.unlock();
+    cond_send.notify_one();
   }
 
-  virtual void reset_internal()
+  // return the next container to be filled and mark it being_filled
+  T *get_container(const double timeout_s = 0.0f)
   {
-    buffer.clear();
+    std::unique_lock<std::mutex> guard(lock);
+
+    bool killnow;
+    while (!((killnow = pred()) || wptr->is_writable()))
+      wait(guard, cond_send, timeout_s);
+
+    if (killnow) return NULL;
+    return wptr->write_init();
   }
 
-  virtual void enqueue_internal(const T &elem) // copy construct
+  // mark the next container as filled
+  void send(const T *ref)
   {
-    // place the new data onto the buffer
-    buffer.push_back(elem);
+    std::unique_lock<std::mutex> guard(lock);
+    if (!wptr->write_done(ref))
+      throw ffmpegException("Trying to send a container which was not passed by the last get_container() call.");
+
+    // advance the write pointer
+    if (++wptr == buffer.end())
+      wptr = buffer.begin();
+
+    guard.unlock();
+    cond_recv.notify_one();
   }
 
-  template <typename... TArgs>
-  T &emplace_internal(TArgs... args) // emplace with default constructor
+  // mark the next container as empty
+  void send_cancel(const T *ref)
   {
-    return buffer.emplace_back(args...); // req. c++17
+    std::unique_lock<std::mutex> guard(lock);
+    if (!wptr->write_cancel(ref))
+      throw ffmpegException("Trying to cancel sending a container which was not passed by the last get_container() call.");
+    guard.unlock();
+    cond_send.notify_one();
   }
 
-  virtual void dequeue_internal()
+  // peek the next filled container
+  T *recv(const double timeout_s = 0.0f)
   {
-    // get the head buffer content
-    buffer.pop_front();
+    std::unique_lock<std::mutex> guard(lock);
+
+    bool killnow;
+    while (!((killnow = pred()) || rptr->is_readable()))
+      wait(guard, cond_recv, timeout_s);
+
+    if (killnow) return NULL;
+    return rptr->read_init();
   }
 
-  virtual T &peek_internal()
+  // done peeking the container
+  void recv_done(const T *ref)
   {
-    return buffer.front();
+    std::unique_lock<std::mutex> guard(lock);
+
+    if (!rptr->read_done(ref)) // makes container status to READ (now can be written)
+      throw ffmpegException("Given container is not the one returned by the last recv_init() call.");
+
+    // advance the read pointer
+    if (++rptr == buffer.end())
+      rptr = buffer.begin();
+
+    // bool matched = false;
+    // FifoVector_t::iterator it = rptr;
+    // do
+    // {
+    //   matched = it->read_done(ref);
+    // } while (!matched || it != buffer.begin());
+    // for (it = buffer.end() - 1; !matched || it != rptr; --it)
+    //   matched = it->read_done(ref);
+
+    // if (!matched)
+    //   throw ffmpegException("ffmpegFifoBuffer could not find matching data.");
+
+    guard.unlock();
+    // if (!it->is_writable())
+    cond_send.notify_one();
+  }
+
+  //
+  bool flush(bool force = false)
+  {
+    std::unique_lock<std::mutex> guard(lock);
+
+    if (!flush_locked(force))
+      return false;
+
+    guard.unlock();
+    cond_send.notify_one();
+
+    return true;
   }
 
 private:
-  std::size_t len;         // buffer length
-  bool enqueue_in_process; // true if enqueued element is still being worked on
-  int peek_count;          // to peek the next item to be dequeued, keep counts to allow multiple peekers
+  FifoVector_t buffer;
+  typename FifoVector_t::iterator rptr;
+  typename FifoVector_t::iterator wptr;
 
-  std::chrono::microseconds max_wait_time_us;
-  std::mutex mu;                        // mutex to access the buffer
-  std::condition_variable cv_rd, cv_wr; // condition variable to control the queue/dequeue flow
-  std::function<bool()> pred;           // predicate
+  std::mutex lock;                              // mutex to access the buffer
+  std::condition_variable cond_recv, cond_send; // condition variable to control the queue/dequeue flow
+  std::function<bool()> pred;                   // predicate
 
-  // returns true if timed out; false if successfully released
-  bool wait_to_work(std::unique_lock<std::mutex> &lck, std::condition_variable &cv)
+  void wait(std::unique_lock<std::mutex> &lock, std::condition_variable &cond, const double duration)
   {
-    if (max_wait_time_us <= 0us) // no timeout
-      cv.wait(lck);
-    else 
-      return cv.wait_for(lck, max_wait_time_us) == std::cv_status::timeout;
-    return false;
+    if (duration > 0.0f)
+      cond.wait_for(lock, int64_t(duration * 1e6) * 1us);
+    else
+      cond.wait(lock);
+  }
+
+  bool flush_locked(bool force)
+  {
+    // if anything still writing/reading
+    if (!force)
+      for (FifoVector_t::iterator it = buffer.begin(); it < buffer.end(); it++)
+        if (it->is_busy())
+          return false;
+
+    for (FifoVector_t::iterator it = buffer.begin(); it < buffer.end(); it++)
+      it->init();
+
+    wptr = rptr = buffer.begin();
+
+    return true;
   }
 };
 }

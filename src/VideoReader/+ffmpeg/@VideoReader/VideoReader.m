@@ -115,9 +115,17 @@ classdef VideoReader < matlab.mixin.SetGet & matlab.mixin.CustomDisplay
          validateattributes(varargin{1},{'char'},{'row'},mfilename,'FILENAME');
          try
             filename = which(varargin{1});
+            if isempty(filename)
+               if exist(varargin{1},'file')
+                  filename = varargin{1};
+               else
+                  error('bad file name.');
+               end
+            end
          catch
             error('Could not found the specified file: %s',varargin{1});
          end
+         
          
          ffmpegsetenv(); % make sure ffmpeg DLLs are in the system path
          

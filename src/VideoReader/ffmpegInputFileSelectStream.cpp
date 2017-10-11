@@ -4,8 +4,11 @@
 #include <cmath>
 
 extern "C" {
+#include <libavutil/opt.h>
 #include <libavutil/time.h>
 #include <libavutil/pixdesc.h>
+#include <libavutil/avutil.h>
+#include <libavformat/avformat.h>
 }
 
 #include "../Common/ffmpegPtrs.h"
@@ -17,10 +20,10 @@ extern "C" {
 using namespace ffmpeg;
 
 InputFileSelectStream::InputFileSelectStream()
-    : fmt_ctx(NULL, delete_input_ctx), st(NULL), dec(NULL), dec_ctx(NULL, delete_codec_ctx),
+    : fmt_ctx(NULL), st(NULL), dec(NULL), dec_ctx(NULL),
       raw_packets(3), decoded_frames(3), filtered_frames(3), kill_threads(false), suspend_threads(false),
       read_state(-1), decode_state(-1), filter_state(-1),
-      loop(0)
+      loop(0), eof_reached(false)
 {
   // Creates an empty object
 
@@ -39,16 +42,28 @@ InputFileSelectStream::InputFileSelectStream(const std::string &filename, AVMedi
   // select a stream defined in the file as specified and create new codec context
   select_stream(type, st_index);
 
+  // initialize the decoder for the stream
+  init_stream();
+
   // start decoding
   init_thread();
 }
 
 InputFileSelectStream::~InputFileSelectStream()
 {
+  mexPrintf("deconstructor::freeing threads\n");
   free_thread();
+  mexPrintf("deconstructor::threads freed\n");
+
+  if (dec_ctx) avcodec_close(dec_ctx);
+  if (fmt_ctx) avformat_free_context(fmt_ctx);
 }
 
-bool InputFileSelectStream::eof() const { return false; }
+bool InputFileSelectStream::eof()
+{
+  return eof_reached && decoded_frames.empty();
+}
+
 double InputFileSelectStream::getDuration() const
 {
   if (!fmt_ctx)
@@ -140,7 +155,7 @@ double InputFileSelectStream::getPTS() const
   // * @param[out] wall  absolute time when that packet whas output,
   // *                   in microsecond
   // int64_t dts, wall;
-  // if (av_get_output_timestamp(fmt_ctx.get(), stream_index, &dts, &wall) < 0)
+  // if (av_get_output_timestamp(fmt_ctx, stream_index, &dts, &wall) < 0)
   //   throw ffmpegException("Failed to obtain the current timestamp.");
   // return double(dts / 100) / (AV_TIME_BASE / 100);
   return double(pts / 100) / (AV_TIME_BASE / 100);
@@ -158,8 +173,18 @@ void InputFileSelectStream::setPTS(const double val)
   if (!(fmt_ctx->iformat->flags & AVFMT_SEEK_TO_PTS) && st->codecpar->video_delay)
     seek_timestamp -= 3 * AV_TIME_BASE / 23;
 
-  if (avformat_seek_file(fmt_ctx.get(), stream_index, INT64_MIN, seek_timestamp, seek_timestamp, 0) < 0)
+  if (avformat_seek_file(fmt_ctx, stream_index, INT64_MIN, seek_timestamp, seek_timestamp, 0) < 0)
     throw ffmpegException("Could not seek to position " + std::to_string(val) + " s");
+}
+
+AVRational InputFileSelectStream::getFrameSAR(AVFrame *frame)
+{
+  return av_guess_sample_aspect_ratio(fmt_ctx, st, frame);
+}
+
+double InputFileSelectStream::getFrameTimeStamp(const AVFrame *frame)
+{
+  return av_q2d(st->time_base) * av_frame_get_best_effort_timestamp(frame);
 }
 
 ///////////////////////////////
@@ -170,8 +195,8 @@ void InputFileSelectStream::open_file(const std::string &filename)
     throw ffmpegException("filename must be non-empty.");
 
   /* get default parameters from command line */
-  fmt_ctx.reset(avformat_alloc_context());
-  if (!fmt_ctx.get())
+  fmt_ctx = avformat_alloc_context();
+  if (!fmt_ctx)
     throw ffmpegException(filename, ENOMEM);
 
   fmt_ctx->flags |= AVFMT_FLAG_NONBLOCK;
@@ -183,25 +208,22 @@ void InputFileSelectStream::open_file(const std::string &filename)
   av_dict_set(&d, "scan_all_pmts", "1", AV_DICT_DONT_OVERWRITE);
 
   /* open the input file with generic avformat function */
-  AVFormatContext *ic = fmt_ctx.release();
   int err;
-  if ((err = avformat_open_input(&ic, filename.c_str(), NULL, &d)) < 0)
+  if ((err = avformat_open_input(&fmt_ctx, filename.c_str(), NULL, &d)) < 0)
     throw ffmpegException(filename, err);
-  fmt_ctx.reset(ic);
-
+  
   if (d)
     av_dict_free(&d);
 
   /* If not enough info to get the stream parameters, we decode the
        first frames to get it. (used in mpeg case for example) */
-  if (avformat_find_stream_info(ic, NULL) < 0)
+  if (avformat_find_stream_info(fmt_ctx, NULL) < 0)
     throw ffmpegException("Could not find codec parameters");
 
   // initialize frame counter
   pts = 0;
   frames_decoded = 0;
   samples_decoded = 0;
-
 }
 
 /* Add all the streams from the given input file to the global
@@ -215,16 +237,14 @@ void InputFileSelectStream::select_stream(AVMediaType type, int index)
   // int av_find_best_stream(AVFormatContext *ic, enum AVMediaType type,
   //   int wanted_stream_nb, int related_stream, AVCodec **decoder_ret, int flags);
 
-  AVFormatContext *ic = fmt_ctx.get();
-
   int count = 0;
-  for (int i = 0; i < (int)ic->nb_streams; i++) // for each stream
+  for (int i = 0; i < (int)fmt_ctx->nb_streams; i++) // for each stream
   {
     // look for a stream which matches the
-    if (ic->streams[i]->codecpar->codec_type == type && count++ == index)
+    if (fmt_ctx->streams[i]->codecpar->codec_type == type && count++ == index)
     {
       stream_index = i;
-      st = ic->streams[i];
+      st = fmt_ctx->streams[i];
       switch (type)
       {
       case AVMEDIA_TYPE_VIDEO:
@@ -241,7 +261,7 @@ void InputFileSelectStream::select_stream(AVMediaType type, int index)
     else
     {
       // all other streams are ignored
-      ic->streams[i]->discard = AVDISCARD_ALL;
+      fmt_ctx->streams[i]->discard = AVDISCARD_ALL;
     }
   }
   if (!count)
@@ -251,12 +271,12 @@ void InputFileSelectStream::select_stream(AVMediaType type, int index)
   dec = avcodec_find_decoder(st->codecpar->codec_id);
 
   // create decoder context
-  dec_ctx.reset(avcodec_alloc_context3(dec));
+  dec_ctx = avcodec_alloc_context3(dec);
   if (!dec_ctx)
     throw ffmpegException("Error allocating the decoder context.");
 
   // set the stream parameters to the decoder context
-  if (avcodec_parameters_to_context(dec_ctx.get(), st->codecpar) < 0)
+  if (avcodec_parameters_to_context(dec_ctx, st->codecpar) < 0)
     throw ffmpegException("Error initializing the decoder context.");
 
   // do additional codec context configuration if needed
@@ -277,6 +297,143 @@ void InputFileSelectStream::select_stream(AVMediaType type, int index)
 
 /////////////////////////////////////////////////////////
 
+// modified ffmpeg.c::static int init_input_stream(int ist_index, char *error, int error_len)
+void InputFileSelectStream::init_stream()
+{
+  int ret;
+  AVDictionary *decoder_opts = NULL;
+
+  if (!dec)
+    throw ffmpegException("Decoder (codec %s) not found for the input stream #%d", avcodec_get_name(dec_ctx->codec_id), st->index);
+
+  dec_ctx->opaque = this;
+  dec_ctx->get_format = get_format;
+  dec_ctx->get_buffer2 = get_buffer;
+  dec_ctx->thread_safe_callbacks = 1;
+
+  // set pixel format to the desired
+  // enum AVPixelFormat avcodec_find_best_pix_fmt_of_list(const enum AVPixelFormat *pix_fmt_list,
+  //   enum AVPixelFormat src_pix_fmt,
+  //   int has_alpha, int *loss_ptr);
+
+  av_opt_set_int(dec_ctx, "refcounted_frames", 1, 0);
+  if (dec_ctx->codec_id == AV_CODEC_ID_DVB_SUBTITLE)
+  {
+    av_dict_set(&decoder_opts, "compute_edt", "1", AV_DICT_DONT_OVERWRITE);
+  }
+
+  av_dict_set(&decoder_opts, "sub_text_format", "ass", AV_DICT_DONT_OVERWRITE);
+
+  /* Useful for subtitles retiming by lavf (FIXME), skipping samples in
+         * audio, and video decoders such as cuvid or mediacodec */
+  av_codec_set_pkt_timebase(dec_ctx, st->time_base);
+
+  if (!av_dict_get(decoder_opts, "threads", NULL, 0))
+    av_dict_set(&decoder_opts, "threads", "auto", 0);
+  if ((ret = avcodec_open2(dec_ctx, dec, &decoder_opts)) < 0)
+  {
+    if (ret == AVERROR_EXPERIMENTAL)
+      throw ffmpegException("Error in an experimental decoder.");
+
+    throw ffmpegException(ret);
+    // snprintf(error, error_len,
+    //          "Error while opening decoder for input stream "
+    //          "#%d : %s",
+    //          st->index, av_err2str(ret));
+  }
+
+  AVDictionaryEntry *t;
+  if (t = av_dict_get(decoder_opts, "", NULL, AV_DICT_IGNORE_SUFFIX))
+  {
+    throw ffmpegException("Option %s not found.\n", t->key);
+  }
+
+  // next_pts = AV_NOPTS_VALUE;
+  // next_dts = AV_NOPTS_VALUE;
+}
+
+// static const HWAccel *InputFileSelectStream::get_hwaccel(enum AVPixelFormat pix_fmt)
+// {
+//     int i;
+//     for (i = 0; hwaccels[i].name; i++)
+//         if (hwaccels[i].pix_fmt == pix_fmt)
+//             return &hwaccels[i];
+//     return NULL;
+// }
+
+enum AVPixelFormat InputFileSelectStream::get_format(AVCodecContext *s, const enum AVPixelFormat *pix_fmts)
+{
+
+  if (!pix_fmts)
+    mexPrintf("Decoder's pixel format capability is unkown.");
+  else
+    for (const AVPixelFormat *p = pix_fmts; *p != -1; p++)
+    {
+      char buf[AV_FOURCC_MAX_STRING_SIZE];
+      mexPrintf("%s\n", av_fourcc_make_string(buf, avcodec_pix_fmt_to_codec_tag(*p)));
+    }
+
+  return *pix_fmts;
+  // InputFileSelectStream *ist = s->opaque;
+  // const enum AVPixelFormat *p;
+  // int ret;
+
+  // for (p = pix_fmts; *p != -1; p++)
+  // {
+  //   const AVPixFmtDescriptor *desc = av_pix_fmt_desc_get(*p);
+  //   const HWAccel *hwaccel;
+
+  //   if (!(desc->flags & AV_PIX_FMT_FLAG_HWACCEL))
+  //     break;
+
+  //   hwaccel = get_hwaccel(*p);
+  //   if (!hwaccel ||
+  //       (ist->active_hwaccel_id && ist->active_hwaccel_id != hwaccel->id) ||
+  //       (ist->hwaccel_id != HWACCEL_AUTO && ist->hwaccel_id != hwaccel->id))
+  //     continue;
+
+  //   ret = hwaccel->init(s);
+  //   if (ret < 0)
+  //   {
+  //     if (ist->hwaccel_id == hwaccel->id)
+  //     {
+  //       av_log(NULL, AV_LOG_FATAL,
+  //              "%s hwaccel requested for input stream #%d:%d, "
+  //              "but cannot be initialized.\n",
+  //              hwaccel->name,
+  //              ist->file_index, ist->st->index);
+  //       return AV_PIX_FMT_NONE;
+  //     }
+  //     continue;
+  //   }
+
+  //   if (ist->hw_frames_ctx)
+  //   {
+  //     s->hw_frames_ctx = av_buffer_ref(ist->hw_frames_ctx);
+  //     if (!s->hw_frames_ctx)
+  //       return AV_PIX_FMT_NONE;
+  //   }
+
+  //   ist->active_hwaccel_id = hwaccel->id;
+  //   ist->hwaccel_pix_fmt = *p;
+  //   break;
+  // }
+
+  // return *p;
+}
+
+int InputFileSelectStream::get_buffer(AVCodecContext *s, AVFrame *frame, int flags)
+{
+  // InputFileSelectStream *ist = s->opaque;
+
+  // if (ist->hwaccel_get_buffer && frame->format == ist->hwaccel_pix_fmt)
+  //   return ist->hwaccel_get_buffer(s, frame, flags);
+
+  return avcodec_default_get_buffer2(s, frame, flags);
+}
+
+/////////////////////////////////////////////////////////
+
 void InputFileSelectStream::init_thread()
 {
   mexPrintf("Starting packet_reader thread.\n");
@@ -289,30 +446,32 @@ void InputFileSelectStream::init_thread()
   {
     mexPrintf("Failed to start the thread: %s", e.what());
   }
-  // decode_thread = std::thread(&InputFileSelectStream::decode_thread_fcn, this);
 }
 
 void InputFileSelectStream::free_thread(void)
 {
-  mexPrintf("Terminating packet_reader thread.\n");
+  mexPrintf("Terminating threads.\n");
 
   kill_threads = true;
-  raw_packets.releaseAll();
-  decoded_frames.releaseAll();
-  filtered_frames.releaseAll();
-
   suspend_threads = false;
+
+  // filtered_frames.releaseAll();
+  decoded_frames.releaseAll();
+  raw_packets.releaseAll();
+
   suspend_cv.notify_all();
 
   // stop the threads
-  read_thread.join();
-  decode_thread.join();
-  // filter_thread.join();
+  if (read_thread.joinable())
+    read_thread.join();
+  if (decode_thread.joinable())
+    decode_thread.join();
+  // if (filter_thread.joinable()) filter_thread.join();
 
   // clear buffers
-  // filtered_frames.reset();
-  decoded_frames.reset();
-  raw_packets.reset();
+  // filtered_frames.flush(true);
+  decoded_frames.flush(true);
+  raw_packets.flush(true);
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////
@@ -320,7 +479,6 @@ void InputFileSelectStream::free_thread(void)
 void InputFileSelectStream::read_thread_fcn()
 {
   read_state = 0;
-  AVFormatContext *is = fmt_ctx.get();
 
   int ctr = 0;
   try
@@ -339,38 +497,35 @@ void InputFileSelectStream::read_thread_fcn()
           break;
       }
 
-      mexPrintf("Reader [%d] Reserving an element in the packet queue.\n", ctr);
-      AVPacket &pkt = raw_packets.enqueue_new();
-      if (kill_threads)
-      {
-        raw_packets.enqueue_complete();
-        break;
-      }
+      // mexPrintf("Reader [%d] Reserving an element in the packet queue (%d:%d).\n", ctr,raw_packets.elements(),raw_packets.available());
+      AVPacket *pkt = raw_packets.get_container();
+      if (!pkt || kill_threads)
+        continue;
 
       // read next frame
-      mexPrintf("Reader [%d] Reading the next frame from file.\n", ctr);
-      read_state = av_read_frame(is, &pkt);
+      // mexPrintf("Reader [%d] Reading the next frame from file.\n", ctr);
+      read_state = av_read_frame(fmt_ctx, pkt);
 
       // if any type of read error occurred, release the reserved queue element
-      if (read_state < 0 || pkt.buf == NULL)
-        raw_packets.enqueue_cancel();
+      if (read_state < 0 || pkt->buf == NULL)
+        raw_packets.send_cancel(pkt);
 
       if (read_state == AVERROR(EAGAIN)) // frame not ready, wait 10 ms
       {
-        mexPrintf("Reader [%d] Frame not ready; wait a little while and try again...\n", ctr);
+        // mexPrintf("Reader [%d] Frame not ready; wait a little while and try again...\n", ctr);
         av_usleep(10000);
         continue;
       }
 
       // reached eof-of-file:
-      if (read_state == AVERROR_EOF || pkt.buf == NULL)
+      if (read_state == AVERROR_EOF || pkt->buf == NULL)
       {
         if (loop < 0 || (loop--) > 0) // 0:no loop, >0: finite loop, <0: infinite loop
         {
-          mexPrintf("Reader [%d] EOF; Rewinding to loop...\n", ctr);
+          // mexPrintf("Reader [%d] EOF; Rewinding to loop...\n", ctr);
           // rewind
-          read_state = av_seek_frame(is, -1, is->start_time, 0);
-          mexPrintf("Reader [%d] EOF; Releasing the reserved queue element...\n", ctr);
+          read_state = av_seek_frame(fmt_ctx, -1, fmt_ctx->start_time, 0);
+          // mexPrintf("Reader [%d] EOF; Releasing the reserved queue element...\n", ctr);
 
           // reset the counter
           frames_decoded = 0;
@@ -379,7 +534,7 @@ void InputFileSelectStream::read_thread_fcn()
         }
         else // stop
         {
-          mexPrintf("Reader [%d] EOF; Stopping the thread\n", ctr);
+          // mexPrintf("Reader [%d] EOF; Stopping the thread\n", ctr);
           eof_reached = true;
           read_state = 0;
         }
@@ -389,39 +544,35 @@ void InputFileSelectStream::read_thread_fcn()
       // unexcepted error occurred, terminate the thread
       if (read_state < 0)
       {
-        mexPrintf("Reader [%d] Unexpected error has occurred\n", ctr);
+        // mexPrintf("Reader [%d] Unexpected error has occurred\n", ctr);
         break;
       }
 
       // if received packet is not of the stream, read next packet
-      if (pkt.stream_index != stream_index)
+      if (pkt->stream_index != stream_index)
       {
-        mexPrintf("Reader [%d] Frame is not for the selected stream\n", ctr);
-        av_packet_unref(&pkt);
-        raw_packets.enqueue_cancel();
+        // mexPrintf("Reader [%d] Frame is not for the selected stream\n", ctr);
+        raw_packets.send_cancel(pkt);
         continue;
       }
 
       // place the new packet on the buffer
-      mexPrintf("Reader [%d] Finalize queing of the frame \n", ctr);
-      raw_packets.enqueue_complete();
+      // mexPrintf("Reader [%d] Finalize queueing of the frame (%d:%d).\n", ctr,raw_packets.elements(),raw_packets.available());
+      raw_packets.send(pkt);
 
-      mexPrintf("Reader [%d] Frame is successfully placed on the queue\n", ctr++);
-
-      if (ctr > 3)
-        return; // debug
+      // mexPrintf("Reader [%d] Packet is successfully placed on the queue\n", ctr++);
     }
   }
   catch (std::exception &e)
   {
     mexPrintf("Exception occurred in packet_reader thread: %s\n", e.what());
+    throw e;
   }
 }
 
 void InputFileSelectStream::decode_thread_fcn()
 {
   int ret;
-  AVCodecContext *avctx = dec_ctx.get();
   decode_state = 0;
   bool got_output = false;
   int ctr = 0;
@@ -439,83 +590,106 @@ void InputFileSelectStream::decode_thread_fcn()
       }
 
       // read next packet (blocks until next packet available)
-      mexPrintf("Decoder [%d] Getting the next packet.\n", ctr);
-      AVPacket *pkt = &raw_packets.peek_next();
-      if (suspend_threads || kill_threads) continue;
+      // mexPrintf("Decoder [%d] Try to peek the next packet (%d:%d).\n", ctr, raw_packets.elements(), raw_packets.available());
+      AVPacket *pkt = raw_packets.recv();
+      // mexPrintf("Decoder [%d] Peeking the next packet.\n", ctr);
+      if (!pkt || suspend_threads || kill_threads)
+        continue;
 
       // send packet to the decoder
-      mexPrintf("Decoder [%d] Sending the packet to the FFmpeg decoder.\n", ctr);
-      ret = avcodec_send_packet(avctx, pkt);
+      // // mexPrintf("Decoder [%d] Sending the packet to the FFmpeg decoder.\n", ctr);
+      ret = avcodec_send_packet(dec_ctx, pkt);
       if (ret < 0)
-        throw ffmpegException(av_err2str(ret));
-      if (suspend_threads || kill_threads) continue;
-        
+      {
+        // mexPrintf("avcodec_send_packet failed with %d\n", ret);
+        throw ffmpegException(ret);
+      }
+  
       // receive frames until there are no more
       int fctr = 0;
-      while (ret != AVERROR(EAGAIN))
+      while (ret != AVERROR(EAGAIN) && !(suspend_threads || kill_threads))
       {
-        // create a new frame queue entry to accept the first frame of the packet
-        mexPrintf("Decoder [%d:%d] Reserving the buffer space for the next frame.\n", ctr,fctr);
-        AVFrame *frame = decoded_frames.enqueue_new();
-        if (suspend_threads || kill_threads) continue;
-        
-        mexPrintf("Decoder [%d:%d] Receiving the decoded frame from FFmpeg decoder.\n", ctr,fctr);
-        ret = avcodec_receive_frame(avctx, frame);
-
-        if (ret < 0) // if no frame decoded, cancel enqueue
+        AVFrame **frame = decoded_frames.get_container();
+        if (!frame || suspend_threads || kill_threads) continue;
+      
+        mexPrintf("Decoder [%d:%d] Receiving the decoded frame from FFmpeg decoder.\n", ctr, fctr);
+        ret = avcodec_receive_frame(dec_ctx, *frame);
+        if (suspend_threads || kill_threads || ret < 0) // if no frame decoded, cancel enqueue
         {
-          decoded_frames.enqueue_cancel();
-          if (suspend_threads || kill_threads) continue;
+          decoded_frames.send_cancel(frame);
+          if (suspend_threads || kill_threads)
+            continue;
           if (ret == AVERROR(EAGAIN))
           {
-            mexPrintf("Decoder [%d:%d] All the frames decoded for the current packet.\n", ctr,fctr);
+            // mexPrintf("Decoder [%d:%d] All the frames decoded for the current packet.\n", ctr, fctr);
             continue;
           }
           else
           {
-            mexPrintf("Decoder [%d:%d] Something went wrong.\n", ctr, fctr);
+            // mexPrintf("Decoder [%d:%d] Something went wrong.\n", ctr, fctr);
             throw ffmpegException(av_err2str(ret));
           }
         }
 
         // update stats
-        mexPrintf("Decoder [%d:%d] Update the frame count.\n", ctr,fctr);
+        mexPrintf("Decoder [%d:%d] Update the frame count.\n", ctr, fctr);
         frames_decoded++;
-        samples_decoded += frame->nb_samples;
+        samples_decoded += (*frame)->nb_samples;
 
-        // new frame data are now populated
-        mexPrintf("Decoder [%d:%d] Releasing the buffer element.\n", ctr,fctr);
-        decoded_frames.enqueue_complete();
-        if (suspend_threads || kill_threads) continue;
+        //enqueue the newly decoded frame
+        mexPrintf("Decoder [%d:%d] Releasing the buffer element.\n", ctr, fctr);
+        decoded_frames.send(frame);
+        
+        // fctr++;
       }
-      if (suspend_threads || kill_threads) continue;
-      
+      if (suspend_threads || kill_threads)
+        continue;
+
       // release the packet (may not need to wait until the end of decoding...)
-      mexPrintf("Decoder [%d] Releasing the packet element.\n", ctr);
-      raw_packets.dequeue(true); // was_peeking=true 
+      // mexPrintf("Decoder [%d] Releasing the packet element.\n", ctr);
+      raw_packets.recv_done(pkt); // was_peeking=true
+      
+      // ctr++;
     }
   }
   catch (std::exception &e)
   {
     mexPrintf("Exception occurred in decode_thread thread: %s\n", e.what());
+    throw e;
   }
+}
+
+AVFrame *InputFileSelectStream::read_next_frame(const bool block)
+{
+  if (!block && decoded_frames.empty())
+    return NULL;
+
+  mexPrintf("read_next_frame(): waiting for the next frame to be decoded\n");
+  AVFrame **recv_frame = decoded_frames.recv();
+  AVFrame *frame = NULL;
+  mexPrintf("read_next_frame(): copying the decoded frame for caller's consumption\n");
+  av_frame_ref(frame, *recv_frame);
+  mexPrintf("read_next_frame(): mark the decoded frame consumed\n");
+  decoded_frames.recv_done(recv_frame);
+
+  return frame;
 }
 
 // void InputFileSelectStream::filter_audio()
 //    // if decoded audio format is different from expected, configure a filter graph to resample
-//    bool resample_changed = resample_sample_fmt != decoded_frame->format || resample_channels != avctx->channels ||
+//    bool resample_changed = resample_sample_fmt != decoded_frame->format || resample_channels != dec_ctx->channels ||
 //                       resample_channel_layout != decoded_frame->channel_layout || resample_sample_rate != decoded_frame->sample_rate;
 //    if (resample_changed)
 //    {
 //       if (!guess_input_channel_layout(ist))
 //          ffmpegException("Unable to find default channel layout\n");
 
-//       decoded_frame->channel_layout = avctx->channel_layout;
+//       decoded_frame->channel_layout = dec_ctx->channel_layout;
 
 //       resample_sample_fmt = decoded_frame->format;
 //       resample_sample_rate = decoded_frame->sample_rate;
 //       resample_channel_layout = decoded_frame->channel_layout;
-//       resample_channels = avctx->channels;
+//       resample_channels = dec_ctx->channels;
 
 //       for (i = 0; i < nb_filtergraphs; i++)
 //          if (ist_in_filtergraph(filtergraphs[i], ist))
@@ -553,7 +727,6 @@ void InputFileSelectStream::decode_thread_fcn()
 //    av_frame_unref(decoded_frame);
 //    return err < 0 ? err : ret;
 // }
-
 
 // // void InputFileSelectStream::filter_video()
 // // {
@@ -660,7 +833,7 @@ void InputFileSelectStream::decode_thread_fcn()
 //          seek_timestamp -= 3 * AV_TIME_BASE / 23;
 //    }
 
-//    if (avformat_seek_file(fmt_ctx.get(), stream.index, INT64_MIN, seek_timestamp, seek_timestamp, 0) < 0)
+//    if (avformat_seek_file(fmt_ctx, stream.index, INT64_MIN, seek_timestamp, seek_timestamp, 0) < 0)
 //    {
 //       std::ostringstream msg;
 //       msg << "Could not seek to position " << (double)timestamp / AV_TIME_BASE;

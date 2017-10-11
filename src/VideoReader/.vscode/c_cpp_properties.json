@@ -46,8 +46,8 @@
                 "C:/Program Files (x86)/Windows Kits/10/Include/10.0.15063.0/ucrt",
                 "C:/Program Files (x86)/Windows Kits/10/Include/10.0.15063.0/um",
                 "C:/Program Files/MATLAB/R2017a/extern/include",
-                "../Common",
-                "${USERPROFILE}/Documents/Programming/ffmpeg-3.2.4/include"
+                "${workspaceRoot}/Common",
+                "${USERPROFILE}/Documents/Programming/ffmpeg-3.3.3/include"
             ],
             "browse": {
                 "limitSymbolsToIncludedHeaders": true,
@@ -58,8 +58,8 @@
                     "C:/Program Files (x86)/Windows Kits/10/Include/10.0.15063.0/ucrt",
                     "C:/Program Files (x86)/Windows Kits/10/Include/10.0.15063.0/um",
                     "C:/Program Files/MATLAB/R2017a/extern/include",
-                    "${USERPROFILE}/Documents/Programming/ffmpeg-3.2.4/include",
-                    "../Common",
+                    "${USERPROFILE}/Documents/Programming/ffmpeg-3.3.3/include",
+                    "${workspaceRoot}/Common",
                     "${workspaceRoot}"
                 ]
             },

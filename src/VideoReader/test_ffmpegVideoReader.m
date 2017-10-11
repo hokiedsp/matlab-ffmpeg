@@ -4,14 +4,15 @@ clear; close all; drawnow
 % ffmpeg.VideoReader.getFileFormats
 
 try
-   vrobj = ffmpeg.VideoReader('xylophone.mp4');
-   %    fprintf('VideoCompression: %s\n',vrobj.VideoCompression);
-   %    fprintf('Setting CurrentTime to 2.0...\n');
+%    vrobj = ffmpeg.VideoReader('xylophone.mp4');
+   vrobj = ffmpeg.VideoReader('E:\HSV Data\Vision Research Test 2.avi');
+      fprintf('VideoCompression: %s\n',vrobj.VideoCompression);
+%       fprintf('Setting CurrentTime to 2.0...\n');
    %    vrobj.CurrentTime = 2.0;
-   %    fprintf('New CurrentTime = %g\n',vrobj.CurrentTime);
-   for n = 1:100
-      pause(0.1);
-   end
+%       fprintf('New CurrentTime = %g\n',vrobj.CurrentTime);
+%    disp('Reading the first frame');
+%    frame = vrobj.readFrame();
+   pause(1)
    disp('deleting the object');
    delete(vrobj);
 catch ME

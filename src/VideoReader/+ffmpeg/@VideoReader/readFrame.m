@@ -1,4 +1,4 @@
-function varargout = readFrame(obj, varargin)
+function VIDEO = readFrame(obj, varargin)
 %READFRAME Read the next available frame from a video file
 %
 %   VIDEO = READFRAME(OBJ) reads the next available video frame from the
@@ -65,7 +65,7 @@ function varargout = readFrame(obj, varargin)
 %       
 %       % Read video frames until available
 %       while hasFrame(vidObj)
-%           vidFrame = readFrame(vidObj);
+%           VIDEO = readFrame(vidObj);
 %           image(vidFrame, 'Parent', currAxes);
 %           currAxes.Visible = 'off';
 %           pause(1/vidObj.FrameRate);

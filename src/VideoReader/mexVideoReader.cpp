@@ -1,5 +1,13 @@
 #include "mexVideoReader.h"
 
+#include <algorithm>
+
+extern "C" {
+#include <libavutil/frame.h>  // for AVFrame
+#include <libavutil/pixfmt.h>
+#include <libavutil/pixdesc.h>
+}
+
 void mexFunction(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[])
 {
   mexClassHandler<mexVideoReader>(nlhs, plhs, nrhs, prhs);
@@ -133,7 +141,53 @@ mxArray *mexVideoReader::get_prop(const std::string name)
 
 void mexVideoReader::readFrame(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[]) //    varargout = readFrame(obj, varargin);
 {
-  throw std::runtime_error("Not yet implemented.");
+
+  mexPrintf("Next frame requested\n");
+  AVFrame *frame = reader.read_next_frame();
+  mexPrintf("Next frame retrieved\n");
+
+  // determine the number of channels
+  int nch = 0;
+  uint8_t **data = frame->data;
+  while (!(*data++))
+    nch++;
+
+  AVRational sar = reader.getFrameSAR(frame);
+  mexPrintf("Frame@%f:chan=%d | linesize=%d | width=%d | height=%d | fmt=%s | SAR=%d:%d | interlaced=%d\n",
+            1e3 * reader.getFrameTimeStamp(frame), nch,
+            frame->linesize, frame->width, frame->height, av_get_pix_fmt_name((AVPixelFormat)frame->format),
+            sar.num, sar.den, frame->interlaced_frame);
+
+  // frame->data
+  // int linesize = frame->linesize
+  // int width = frame->width
+  // int height = frame->height
+
+  // AVPixelFormat fmt = frame->format
+  //
+  // double pts = av_q2d(st->time_base) * av_frame_get_best_effort_timestamp(frame);
+  // bool interlaced_frame = frame->interlaced_frame
+  // bool top_field_first = frame->top_field_first
+  mwSize dims[3];
+  dims[0] = frame->width;
+  dims[1] = frame->height;
+  dims[2] = nch;
+  plhs[0] = mxCreateNumericArray(3, dims, mxUINT8_CLASS, mxREAL);
+  uint8_t *out = (uint8_t *)mxGetData(plhs[0]);
+  int w = frame->width;
+  for (int n = 0; n < nlhs && n < nch; n++)
+  {
+    uint8_t *chdata = frame->data[n];
+    int lsz = frame->linesize[n];
+    for (int h = 0; h < frame->height; h++)
+    {
+      std::copy_n(*data, w, out);
+      chdata += lsz;
+      out += w;
+    }
+  }
+
+  av_frame_unref(frame);
 }
 void mexVideoReader::read(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[]) //varargout = read(obj, varargin);
 {

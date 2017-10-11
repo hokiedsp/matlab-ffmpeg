@@ -1,19 +1,19 @@
 {
-    "version": "0.2.0",
-    "configurations": [
-        {
-            "name": "C++ Attach to Process (Windows)",
-            "type": "cppvsdbg",
-            "request": "attach",
-            "program": "C:\\Program Files\\MATLAB\\R2015b\\bin\\win64\\matlab.exe",
-            "symbolSearchPath": "${workspaceRoot}",
-            "externalConsole": false
-            //    "logging": {
-            //        "moduleLoad": false,
-            //        "trace": true
-            //     },
-            //    "visualizerFile": "${workspaceRoot}/my.natvis",
-            //    "showDisplayString": "true"
-        }
-    ]
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "C++ Attach to Process (Windows)",
+      "type": "cppvsdbg",
+      "request": "attach",
+      "processId": "${command:pickProcess}",
+      "symbolSearchPath": "${workspaceRoot}",
+      // "externalConsole": false,
+      // "logging": {
+      //   "moduleLoad": false,
+      //   "trace": true
+      // },
+      // "visualizerFile": "${workspaceRoot}/my.natvis",
+      // "showDisplayString": "true"
+    }
+  ]
 }

@@ -21,4 +21,7 @@ inline void delete_codec_ctx(AVCodecContext *ctx) { if (ctx) avcodec_free_contex
 typedef std::unique_ptr<AVFormatContext, std::function<void(AVFormatContext *)>> FormatCtxPtr;
 inline void delete_input_ctx(AVFormatContext *ctx) { if (ctx) avformat_close_input(&ctx); }
 inline void delete_format_ctx(AVFormatContext *ctx) { avformat_free_context(ctx); }
+
+typedef std::unique_ptr<AVFrame, std::function<void(AVFrame*)>> AVFramePtr;
+inline void delete_av_frame(AVFrame *frame) { if (frame) av_frame_free(&frame); }
 }

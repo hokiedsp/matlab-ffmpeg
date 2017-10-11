@@ -1,6 +1,8 @@
 #pragma once
 
-#include <stdexcept>
+#include <cstdarg>
+#include <exception>
+#include <sstream>
 
 extern "C" {
 #include <libavutil/avutil.h>
@@ -8,28 +10,40 @@ extern "C" {
 
 namespace ffmpeg
 {
-class ffmpegException : public std::runtime_error
+class ffmpegException : public std::exception
 {
 public:
-  ffmpegException(int ffmpegerrnum) : std::runtime_error(print_error("", AVERROR(ENOMEM))) {}
-  ffmpegException(const std::string &filename, int errnum) : std::runtime_error(print_error(filename, AVERROR(errnum))) {}
-  ffmpegException(const std::string &errmsg) : std::runtime_error(errmsg) {}
+  ffmpegException(int ffmpegerrnum) { print_error("", AVERROR(ENOMEM)); }
+  ffmpegException(const std::string &filename, int errnum) { print_error(filename, AVERROR(errnum)); }
+  ffmpegException(const std::string &errmsg) : message(errmsg) {}
+  ffmpegException(const char *format...)
+  {
+    char what_arg[1024];
+
+    va_list argptr;
+    va_start(argptr, format);
+    vsnprintf(what_arg, 1024, format, argptr);
+    va_end(argptr);
+
+    message = what_arg;
+  }
   ~ffmpegException() {}
 
+  virtual const char *what() const throw() { return message.c_str(); }
+
 private:
-  static std::string print_error(const std::string &filename, int err)
+  std::string message;
+
+  void print_error(const std::string &filename, int err)
   {
-    std::string errmsg;
-    errmsg.reserve(AV_ERROR_MAX_STRING_SIZE+1);
+    message.reserve(AV_ERROR_MAX_STRING_SIZE + 128);
 
-    if (av_strerror(err, &errmsg.front(), errmsg.size())<0 || errmsg.empty())
+    if (av_strerror(err, &message.front(), message.size()) < 0 || message.empty())
     {
-      errmsg = "Unknown error has occurred [AVERROR code = ";
-      errmsg += std::to_string(err);
-      errmsg +="].";
+      message = "Unknown error has occurred [AVERROR code = ";
+      message += std::to_string(err);
+      message += "].";
     }
-
-    return errmsg;
   }
 };
 }

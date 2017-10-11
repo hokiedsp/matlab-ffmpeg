@@ -1,39 +1,42 @@
 #pragma once
 
-#include <algorithm>
-
 extern "C" {
-#include <libavformat/avformat.h> // for AVFormatContext
+#include <libavcodec/avcodec.h> // for AVFormatContext
 }
 
-#include "../Common/ffmpegException.h"
 #include "ffmpegFifoBuffer.h"
+
+#include <mex.h>
 
 namespace ffmpeg
 {
-typedef std::deque<AVPacket> AVPacketVector;
 
-class AVPacketBuffer : public FifoBuffer<AVPacket>
+struct AVPacketContainer : public FifoContainer<AVPacket>
 {
-public:
-  AVPacketBuffer(const uint32_t size = 2, const double timeout_s = 0.0) : FifoBuffer<AVPacket>(0, timeout_s)
+  AVPacketContainer()
   {
-    resize(size);
-  };
-  ~AVPacketBuffer()
+    av_init_packet(&data);
+    data.data = NULL;
+    data.size = 0;
+  }
+  ~AVPacketContainer()
   {
-    reset();
+    av_packet_unref(&data);
   }
 
-protected:
-  virtual void reset_internal()
+  virtual void init()
   {
-    // dereference queued packets
-    for (auto it = buffer.begin(); it!=buffer.end(); it++)
-      av_packet_unref(&*it);
+    FifoContainer<AVPacket>::init();
+    av_packet_unref(&data);
+  }
 
-    // then empty the buffer
-    FifoBuffer<AVPacket>::reset_internal();
+  virtual AVPacket *write_init()
+  {
+    AVPacket *rval = FifoContainer<AVPacket>::write_init();
+    av_packet_unref(&data);
+    return rval;
   }
 };
+
+typedef FifoBuffer<AVPacket, AVPacketContainer> AVPacketBuffer;
 }
