@@ -73,7 +73,7 @@ function VIDEO = readFrame(obj, varargin)
 %
 %   See also AUDIOVIDEO, MOVIE, VIDEOREADER,VIDEOREADER/HASFRAME, MMFILEINFO.
 
-[varargout{1:nargout}] = obj.mex_backend(obj.backend,'readFrame',varargin{:});
+VIDEO = obj.mex_backend(obj.backend,'readFrame',varargin{:});
 
 % if length(obj) > 1
 %     error(message('FFmpeg:VideoReader:nonscalar'));
