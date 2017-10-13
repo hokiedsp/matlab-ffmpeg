@@ -3,9 +3,10 @@
 #include <algorithm>
 
 extern "C" {
-#include <libavutil/frame.h>  // for AVFrame
+#include <libavutil/frame.h> // for AVFrame
 #include <libavutil/pixfmt.h>
 #include <libavutil/pixdesc.h>
+#include <libswscale/swscale.h>
 }
 
 void mexFunction(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[])
@@ -141,53 +142,68 @@ mxArray *mexVideoReader::get_prop(const std::string name)
 
 void mexVideoReader::readFrame(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[]) //    varargout = readFrame(obj, varargin);
 {
-
   mexPrintf("Next frame requested\n");
   AVFrame *frame = reader.read_next_frame();
   mexPrintf("Next frame retrieved\n");
 
+  SwsContext *sws_ctx = sws_getContext(frame->width, frame->height, (AVPixelFormat)frame->format,
+                                       frame->width, frame->height, AV_PIX_FMT_GBRP, 
+                                       0, NULL, NULL, NULL);
+
+  AVFrame* gbr_frame = av_frame_alloc();
+  gbr_frame->format = AV_PIX_FMT_GBRP;
+  gbr_frame->width  = frame->width;
+  gbr_frame->height = frame->height;
+  av_frame_get_buffer(gbr_frame, 32);
+
+  // convert image from native format to planar GBR
+  sws_scale(sws_ctx, frame->data,
+            frame->linesize, 0, frame->height,
+            gbr_frame->data, gbr_frame->linesize);
+
   // determine the number of channels
-  int nch = 0;
-  uint8_t **data = frame->data;
-  while (!(*data++))
-    nch++;
-
   AVRational sar = reader.getFrameSAR(frame);
-  mexPrintf("Frame@%f:chan=%d | linesize=%d | width=%d | height=%d | fmt=%s | SAR=%d:%d | interlaced=%d\n",
-            1e3 * reader.getFrameTimeStamp(frame), nch,
-            frame->linesize, frame->width, frame->height, av_get_pix_fmt_name((AVPixelFormat)frame->format),
-            sar.num, sar.den, frame->interlaced_frame);
+  mexPrintf("Frame@%f: linesize=%d | width=%d | height=%d | fmt=%s | SAR=%d:%d | interlaced=%d\n",
+            1e3 * reader.getFrameTimeStamp(frame), 
+            gbr_frame->linesize[0], gbr_frame->width, gbr_frame->height, av_get_pix_fmt_name((AVPixelFormat)gbr_frame->format),
+            sar.num, sar.den, gbr_frame->interlaced_frame);
 
-  // frame->data
-  // int linesize = frame->linesize
-  // int width = frame->width
-  // int height = frame->height
-
-  // AVPixelFormat fmt = frame->format
-  //
-  // double pts = av_q2d(st->time_base) * av_frame_get_best_effort_timestamp(frame);
-  // bool interlaced_frame = frame->interlaced_frame
-  // bool top_field_first = frame->top_field_first
   mwSize dims[3];
-  dims[0] = frame->width;
-  dims[1] = frame->height;
-  dims[2] = nch;
+  dims[0] = gbr_frame->width;
+  dims[1] = abs(gbr_frame->height);
+  dims[2] = 3;
   plhs[0] = mxCreateNumericArray(3, dims, mxUINT8_CLASS, mxREAL);
   uint8_t *out = (uint8_t *)mxGetData(plhs[0]);
-  int w = frame->width;
-  for (int n = 0; n < nlhs && n < nch; n++)
+
+  size_t w = gbr_frame->width;
+  size_t Nel = w * dims[1];
+
+  mexPrintf("Nel = %d|%d\n",Nel,mxGetNumberOfElements(plhs[0]));
+  for (int ch = 0; ch<3; ch++)
   {
-    uint8_t *chdata = frame->data[n];
-    int lsz = frame->linesize[n];
-    for (int h = 0; h < frame->height; h++)
-    {
-      std::copy_n(*data, w, out);
-      chdata += lsz;
-      out += w;
-    }
+    if (gbr_frame->data[ch]) mexPrintf("Ch #%d ok: linesize=%d\n",ch,gbr_frame->linesize[ch]);
+    else mexPrintf("Ch #%d n/a\n",ch);
   }
 
-  av_frame_unref(frame);
+  #define COPY_PLANE(n,dst) \
+  {\
+    uint8_t *chdata = gbr_frame->data[n]; \
+    int lsz = abs(gbr_frame->linesize[n]); \
+    for (int h = 0; h < gbr_frame->height; h++) \
+    { \
+      dst = std::copy_n(chdata, w, dst); \
+      chdata += lsz; \
+    } \
+  }
+
+  COPY_PLANE(2,out); // R
+  out += Nel;
+  COPY_PLANE(1,out); // G
+  out += Nel;
+  COPY_PLANE(0,out); // B
+
+  av_frame_free(&frame);
+  av_frame_free(&gbr_frame);
 }
 void mexVideoReader::read(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[]) //varargout = read(obj, varargin);
 {
