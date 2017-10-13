@@ -30,6 +30,7 @@ struct FifoContainer
 
   FifoContainer() : status(EMPTY){};
   FifoContainer(const T &src) : FifoContainer(), data(src){};
+  virtual ~FifoContainer() {}
   bool is_writable(unsigned min_read = 1) { return (status == EMPTY) || (status == READ); }
   bool is_readable() { return status == WRITTEN; }
   bool is_busy() { return status == BEING_WRITTEN || status == BEING_READ; }
@@ -148,11 +149,8 @@ public:
   {
     std::unique_lock<std::mutex> guard(lock);
 
-    // clear the content
-    flush_locked(true);
+    resize_locked(size);
 
-    // adjust the size of pool
-    buffer.resize(size);
     guard.unlock();
     cond_send.notify_one();
   }
@@ -166,7 +164,8 @@ public:
     while (!((killnow = pred()) || wptr->is_writable()))
       wait(guard, cond_send, timeout_s);
 
-    if (killnow) return NULL;
+    if (killnow)
+      return NULL;
     return wptr->write_init();
   }
 
@@ -204,7 +203,8 @@ public:
     while (!((killnow = pred()) || rptr->is_readable()))
       wait(guard, cond_recv, timeout_s);
 
-    if (killnow) return NULL;
+    if (killnow)
+      return NULL;
     return rptr->read_init();
   }
 
@@ -219,18 +219,6 @@ public:
     // advance the read pointer
     if (++rptr == buffer.end())
       rptr = buffer.begin();
-
-    // bool matched = false;
-    // FifoVector_t::iterator it = rptr;
-    // do
-    // {
-    //   matched = it->read_done(ref);
-    // } while (!matched || it != buffer.begin());
-    // for (it = buffer.end() - 1; !matched || it != rptr; --it)
-    //   matched = it->read_done(ref);
-
-    // if (!matched)
-    //   throw ffmpegException("ffmpegFifoBuffer could not find matching data.");
 
     guard.unlock();
     // if (!it->is_writable())
@@ -251,22 +239,18 @@ public:
     return true;
   }
 
-private:
+protected:
   FifoVector_t buffer;
-  typename FifoVector_t::iterator rptr;
-  typename FifoVector_t::iterator wptr;
-
   std::mutex lock;                              // mutex to access the buffer
-  std::condition_variable cond_recv, cond_send; // condition variable to control the queue/dequeue flow
-  std::function<bool()> pred;                   // predicate
-
-  void wait(std::unique_lock<std::mutex> &lock, std::condition_variable &cond, const double duration)
+  
+  virtual void resize_locked(const uint32_t size)
   {
-    if (duration > 0.0f)
-      cond.wait_for(lock, int64_t(duration * 1e6) * 1us);
-    else
-      cond.wait(lock);
-  }
+    // clear the content
+    flush_locked(true);
+
+    // adjust the size of pool
+    buffer.resize(size);
+  };
 
   bool flush_locked(bool force)
   {
@@ -282,6 +266,21 @@ private:
     wptr = rptr = buffer.begin();
 
     return true;
+  }
+
+private:
+  typename FifoVector_t::iterator rptr;
+  typename FifoVector_t::iterator wptr;
+
+  std::condition_variable cond_recv, cond_send; // condition variable to control the queue/dequeue flow
+  std::function<bool()> pred;                   // predicate
+
+  void wait(std::unique_lock<std::mutex> &lock, std::condition_variable &cond, const double duration)
+  {
+    if (duration > 0.0f)
+      cond.wait_for(lock, int64_t(duration * 1e6) * 1us);
+    else
+      cond.wait(lock);
   }
 };
 }
