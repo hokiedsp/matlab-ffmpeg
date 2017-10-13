@@ -590,18 +590,18 @@ void InputFileSelectStream::decode_thread_fcn()
       }
 
       // read next packet (blocks until next packet available)
-      // mexPrintf("Decoder [%d] Try to peek the next packet (%d:%d).\n", ctr, raw_packets.elements(), raw_packets.available());
+      mexPrintf("Decoder [%d] Try to peek the next packet (%d:%d).\n", ctr, raw_packets.elements(), raw_packets.available());
       AVPacket *pkt = raw_packets.recv();
-      // mexPrintf("Decoder [%d] Peeking the next packet.\n", ctr);
+      mexPrintf("Decoder [%d] Peeking the next packet.\n", ctr);
       if (!pkt || suspend_threads || kill_threads)
         continue;
 
       // send packet to the decoder
-      // // mexPrintf("Decoder [%d] Sending the packet to the FFmpeg decoder.\n", ctr);
+      mexPrintf("Decoder [%d] Sending the packet to the FFmpeg decoder.\n", ctr);
       ret = avcodec_send_packet(dec_ctx, pkt);
       if (ret < 0)
       {
-        // mexPrintf("avcodec_send_packet failed with %d\n", ret);
+        mexPrintf("avcodec_send_packet failed with %d\n", ret);
         throw ffmpegException(ret);
       }
   
@@ -621,12 +621,12 @@ void InputFileSelectStream::decode_thread_fcn()
             continue;
           if (ret == AVERROR(EAGAIN))
           {
-            // mexPrintf("Decoder [%d:%d] All the frames decoded for the current packet.\n", ctr, fctr);
+            mexPrintf("Decoder [%d:%d] No more frames to be decoded for the current packet.\n", ctr, fctr);
             continue;
           }
           else
           {
-            // mexPrintf("Decoder [%d:%d] Something went wrong.\n", ctr, fctr);
+            mexPrintf("Decoder [%d:%d] Something went wrong.\n", ctr, fctr);
             throw ffmpegException(av_err2str(ret));
           }
         }
@@ -640,16 +640,17 @@ void InputFileSelectStream::decode_thread_fcn()
         mexPrintf("Decoder [%d:%d] Releasing the buffer element.\n", ctr, fctr);
         decoded_frames.send(frame);
         
-        // fctr++;
+        mexPrintf("Decoder buffer: %d.\n", decoded_frames.elements());
+        fctr++;
       }
       if (suspend_threads || kill_threads)
         continue;
 
       // release the packet (may not need to wait until the end of decoding...)
-      // mexPrintf("Decoder [%d] Releasing the packet element.\n", ctr);
+      mexPrintf("Decoder [%d] Releasing the packet element.\n", ctr);
       raw_packets.recv_done(pkt); // was_peeking=true
       
-      // ctr++;
+      ctr++;
     }
   }
   catch (std::exception &e)
@@ -666,7 +667,7 @@ AVFrame *InputFileSelectStream::read_next_frame(const bool block)
 
   mexPrintf("read_next_frame(): waiting for the next frame to be decoded\n");
   AVFrame **recv_frame = decoded_frames.recv();
-  AVFrame *frame = NULL;
+  AVFrame *frame = av_frame_alloc();
   mexPrintf("read_next_frame(): copying the decoded frame for caller's consumption\n");
   av_frame_ref(frame, *recv_frame);
   mexPrintf("read_next_frame(): mark the decoded frame consumed\n");

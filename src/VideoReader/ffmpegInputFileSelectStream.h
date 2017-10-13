@@ -67,6 +67,8 @@ private:
   AVFramePtrBuffer decoded_frames;  // decoded media frames
   AVFramePtrBuffer filtered_frames; // filtred media frames
 
+  // SwsContext *sws_ctx; // software color conversion and resizing context
+
   bool kill_threads;                  // set to terminate worker threads
   bool suspend_threads;               // set to pause worker threads
   std::mutex suspend_mutex;           // mutex to suspend/resume threads
