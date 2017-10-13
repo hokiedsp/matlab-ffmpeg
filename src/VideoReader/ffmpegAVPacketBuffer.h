@@ -19,7 +19,7 @@ struct AVPacketContainer : public FifoContainer<AVPacket>
     data.data = NULL;
     data.size = 0;
   }
-  ~AVPacketContainer()
+  virtual ~AVPacketContainer()
   {
     av_packet_unref(&data);
   }
