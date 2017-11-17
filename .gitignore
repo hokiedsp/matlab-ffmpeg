@@ -2,6 +2,11 @@
 Thumbs.db
 ehthumbs.db
 
+# binaries
+*.mexw64
+*.exe
+*.dll
+
 # Folder config file
 Desktop.ini
 
@@ -45,3 +50,4 @@ $RECYCLE.BIN/
 Network Trash Folder
 Temporary Items
 .apdisk
+src/VideoReader/filtering_video.mexw64
