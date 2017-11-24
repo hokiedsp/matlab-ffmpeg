@@ -3,6 +3,7 @@
 extern "C" {
 #include <libavformat/avformat.h>
 #include <libavcodec/avcodec.h>
+#include <libavfilter/avfilter.h>
 }
 
 using namespace ffmpeg;
@@ -42,6 +43,8 @@ Base::Base()
                              // #if CONFIG_AVDEVICE
                              //       avdevice_register_all(); // Initialize libavdevice and register all the input and output devices.
                              // #endif
+
+    avfilter_register_all();
 
     setvbuf(stderr, NULL, _IONBF, 0); /* win32 runtime needs this */
   }

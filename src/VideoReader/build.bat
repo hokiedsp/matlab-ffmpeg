@@ -3,9 +3,17 @@ REM C++ Mex Building batch file
 CALL "C:\Program Files (x86)\Microsoft Visual Studio\2017\BuildTools\VC\Auxiliary\Build\vcvars64.bat"
 REM CALL "C:\Program Files (x86)\Microsoft Visual Studio 14.0\VC\vcvarsall.bat" amd64
 
-set MEX_NAME=mex_backend
 set MEX_DIR=+ffmpeg\@VideoReader\
-set MEX_SRC_FILES=mexVideoReader.cpp ..\Common\ffmpegBase.cpp ffmpegInputFileSelectStream.cpp
+set MEX_NAME=mex_backend
+set MEX_SRC_FILES=ffmpegVideoReader.cpp mexVideoReader.cpp ..\Common\ffmpegBase.cpp 
+
+REM set MEX_DIR=
+REM set MEX_NAME=ffmpegpixfmtinfo
+REM set MEX_SRC_FILES=mexpixfmtinfo.cpp
+
+REM set MEX_DIR=
+REM set MEX_NAME=filtering_video
+REM set MEX_SRC_FILES=filtering_video.cpp
 
 set MEX_EXT=.mexw64
 set MATLAB_ROOT_DIR=%ProgramFiles%\MATLAB\R2017a

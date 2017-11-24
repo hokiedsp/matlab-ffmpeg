@@ -60,6 +60,11 @@ struct VideoReader
       mexErrMsgIdAndTxt("filtering_video:open_input_file:error", "Cannot find a video stream in the input file");
     video_stream_index = ret;
 
+    // set to ignore all other streams
+    for (int i = 0; i < (int)fmt_ctx->nb_streams; i++) // for each stream
+      if (i != video_stream_index)
+        fmt_ctx->streams[i]->discard = AVDISCARD_ALL;
+
     /* create decoding context */
     dec_ctx = avcodec_alloc_context3(dec);
     if (!dec_ctx)
@@ -99,6 +104,7 @@ struct VideoReader
              dec_ctx->width, dec_ctx->height, dec_ctx->pix_fmt,
              time_base.num, time_base.den,
              dec_ctx->sample_aspect_ratio.num, dec_ctx->sample_aspect_ratio.den);
+mexPrintf("args=%s\n",args);
     ret = avfilter_graph_create_filter(&buffersrc_ctx, buffersrc, "in", args, NULL, filter_graph);
     if (ret < 0)
       mexErrMsgIdAndTxt("filtering_video:init_filters:error", "Cannot create buffer source: %s", av_err2str(ret));
