@@ -29,7 +29,6 @@ protected:
 
   void readBuffer(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[]);             //    [frames,timestamps] = readFrame(obj);
 private:
-  std::string pix_fmt_name;
   ffmpeg::VideoReader reader;
 
   size_t nb_planar; // number of planar components
@@ -60,7 +59,7 @@ private:
 
   void stuff_buffer();
 
-  static std::string mex_get_filterdesc(const mxArray *prhs);
-  static AVPixelFormat mex_get_pixfmt(const std::string &pix_fmt_str);
+  static std::string mex_get_filterdesc(const mxArray *obj);
+  static AVPixelFormat mex_get_pixfmt(const mxArray *obj);
   static size_t mex_get_numplanes();
 };

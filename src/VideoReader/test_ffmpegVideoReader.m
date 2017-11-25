@@ -5,7 +5,7 @@ clear; close all; drawnow
 % ffmpegtranscode('xylophone.mp4','test.mp4')
 try
 %       vrobj = ffmpeg.VideoReader('xylophone.mp4');
-      vrobj = ffmpeg.VideoReader('..\test.mp4')
+      vrobj = ffmpeg.VideoReader('..\test.mp4','VideoFormat','bgr555le')
 %    vrobj = ffmpeg.VideoReader('E:\HSV Data\Vision Research Test 2.avi')
 %    fprintf('VideoCompression: %s\n',vrobj.VideoCompression);
    %       fprintf('Setting CurrentTime to 2.0...\n');

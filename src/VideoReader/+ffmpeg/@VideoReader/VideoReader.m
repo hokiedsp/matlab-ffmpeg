@@ -33,9 +33,11 @@ classdef VideoReader < matlab.mixin.SetGet & matlab.mixin.CustomDisplay
    %
    %     Height           - Height of the video frame in pixels.
    %     Width            - Width of the video frame in pixels.
-   %     BitsPerPixel     - Bits per pixel of the video data.
    %     VideoFormat      - Video format as it is represented in MATLAB.
    %     FrameRate        - Frame rate of the video in frames per second.
+   %     VideoFilter      - FFmpeg video filter chain description
+   %
+   %     BitsPerPixel     - Bits per pixel of the video data.
    %
    %   Example:
    %       % Construct a multimedia reader object associated with file
@@ -74,15 +76,21 @@ classdef VideoReader < matlab.mixin.SetGet & matlab.mixin.CustomDisplay
       UserData        % Generic field for any user-defined data.
    end
    
+   properties(GetAccess='public', SetAccess='private')
+      FrameRate = []      % Frame rate of the video in frames per second.
+      Height = 0         % Height of the video frame in pixels.
+      Width = 0          % Width of the video frame in pixels.
+      VideoFormat = 'rgb24'    % Video format as it is represented in MATLAB.
+      VideoFilter = '' % FFmpeg Video filter chain description
+      ReadMode = 'components' % 'components'(default if pixel is byte size) |'planes' (default if pixel is sub-byte size)
+      BufferSize = 4  % Underlying frame buffer size
+   end
+   
    %------------------------------------------------------------------
    % Video properties (in alphabetic order)
    %------------------------------------------------------------------
    properties(GetAccess='public', SetAccess='private', Dependent)
       BitsPerPixel    % Bits per pixel of the video data.
-      FrameRate       % Frame rate of the video in frames per second.
-      Height          % Height of the video frame in pixels.
-      VideoFormat     % Video format as it is represented in MATLAB.
-      Width           % Width of the video frame in pixels.
    end
    
    properties(Access='public', Dependent)
@@ -126,13 +134,13 @@ classdef VideoReader < matlab.mixin.SetGet & matlab.mixin.CustomDisplay
             error('Could not found the specified file: %s',varargin{1});
          end
          
-         
          ffmpegsetenv(); % make sure ffmpeg DLLs are in the system path
-         
-         obj.backend = ffmpeg.VideoReader.mex_backend(filename);
-         if isempty(obj.backend)
-            error('Constructor failed.');
+
+         if nargin>1
+            set(obj,varargin{2:end});
          end
+         
+         obj.backend = ffmpeg.VideoReader.mex_backend(obj,filename);
          
          [obj.Path,obj.Name,ext] = fileparts(filename);
          obj.Name = [obj.Name ext];
@@ -259,15 +267,6 @@ classdef VideoReader < matlab.mixin.SetGet & matlab.mixin.CustomDisplay
       function value = get.BitsPerPixel(obj)
          value = ffmpeg.VideoReader.mex_backend(obj.backend,'get','BitsPerPixel');
       end
-      
-      function value = get.FrameRate(obj)
-         value = ffmpeg.VideoReader.mex_backend(obj.backend,'get','FrameRate');
-      end
-      
-      function value = get.Height(obj)
-         value = ffmpeg.VideoReader.mex_backend(obj.backend,'get','Height');
-      end
-      
       function value = get.NumberOfFrames(obj)
          value = ffmpeg.VideoReader.mex_backend(obj.backend,'get','NumberOfFrames');
          
@@ -281,13 +280,49 @@ classdef VideoReader < matlab.mixin.SetGet & matlab.mixin.CustomDisplay
          end
       end
       
-      function value = get.VideoFormat(obj)
-         value = ffmpeg.VideoReader.mex_backend(obj.backend,'get','VideoFormat');
+      function set.FrameRate(obj,value)
+         validateattributes(value,{'double'},{'scalar','real','positive','finite'});
+         obj.FrameRate = value;
       end
-      
-      function value = get.Width(obj)
-         value = ffmpeg.VideoReader.mex_backend(obj.backend,'get','Width');
+      function set.Height(obj,value)
+         % If the width or w value is 0, the input width is used for the output. If
+         % the height or h value is 0, the input height is used for the output. 
+         % 
+         % If one and only one of the values is -n with n >= 1, the scale filter
+         % will use a value that maintains the aspect ratio of the input image,
+         % calculated from the other specified dimension. After that it will,
+         % however, make sure that the calculated dimension is divisible by n and
+         % adjust the value if necessary.
+         % 
+         % If both values are -n with n >= 1, the behavior will be identical to both
+         % values being set to 0 as previously detailed. 
+         validateattributes(value,{'double'},{'scalar','real','integer'});
+         obj.Height = value;
       end
+      function set.Width(obj,value)
+         validateattributes(value,{'double'},{'scalar','real','integer'});
+         obj.Width = value;
+      end
+      function set.VideoFormat(obj,value)
+         try
+            value = validatestring(value,{'Grayscale'});
+            %value = validatestring(value,{'rgb24','Grayscale'});
+         catch
+            validateattributes(value,{'char'},{'row'});
+            ffmpeg.VideoReader.mex_backend([], 'static', 'validate_pixfmt',value);   
+         end
+         obj.VideoFormat = value;
+      end
+      function set.VideoFilter(obj,value)
+         value = validateattributes(value,{'char','row'},mfilename,'VideoFilter');
+         obj.VideoFilter = value;
+      end
+      function set.BufferSize(obj,value)
+         validateattributes(value,{'double'},{'scalar','real','positive','integer'});
+         obj.BufferSize = value;
+      end
+
+      %%%%%%%%%%%%%%%%%%%%%%%%%%
       
       function value = get.AudioCompression(obj)
          value = ffmpeg.VideoReader.mex_backend(obj.backend,'get','AudioCompression');
@@ -322,7 +357,8 @@ classdef VideoReader < matlab.mixin.SetGet & matlab.mixin.CustomDisplay
          end
          
          propGroups(1) = PropertyGroup( {'Name', 'Path', 'Duration', 'CurrentTime', 'Tag', 'UserData'});
-         propGroups(2) = PropertyGroup( {'Width', 'Height', 'FrameRate', 'BitsPerPixel', 'VideoFormat'});
+         propGroups(2) = PropertyGroup( {'Width', 'Height', 'FrameRate', 'BitsPerPixel', 'VideoFormat','VideoCompression'});
+         propGroups(3) = PropertyGroup( {'BufferSize'});
          
          %          propGroups(1) = PropertyGroup( {'Name', 'Path', 'Duration', 'CurrentTime', 'Tag', 'UserData'}, ...
          %             getString( message('ffmpeg:VideoReader:GeneralProperties') ) );

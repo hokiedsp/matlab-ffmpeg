@@ -18,6 +18,7 @@ extern "C" {
 
 namespace ffmpeg
 {
+
 class VideoReader : public Base
 {
 public:
@@ -29,6 +30,9 @@ public:
   void openFile(const std::string &filename, const std::string &filtdesc = "", const AVPixelFormat pix_fmt = AV_PIX_FMT_NONE)
   {
     open_input_file(filename);
+
+    av_log(fmt_ctx, AV_LOG_INFO, "filename=%s\n",fmt_ctx->filename);
+
     create_filters(filtdesc, pix_fmt);
     reader_status = ACTIVE;
     start();
@@ -104,12 +108,12 @@ public:
 
   std::string getCodecName() const
   {
-    return (fmt_ctx) ? fmt_ctx->video_codec->name : "";
+    return (dec_ctx && dec_ctx->codec && dec_ctx->codec->name) ? dec_ctx->codec->name : "";
   }
 
   std::string getCodecDescription() const
   {
-    return (fmt_ctx && fmt_ctx->video_codec->long_name) ? fmt_ctx->video_codec->long_name : "";
+    return (dec_ctx && dec_ctx->codec && dec_ctx->codec->long_name) ? dec_ctx->codec->long_name : "";
   }
 
   double getCurrentTimeStamp() const
@@ -132,8 +136,8 @@ public:
     return (pfd.flags & AV_PIX_FMT_FLAG_PLANAR) ? 1 : pfd.nb_components;
   }
 
-  size_t getWidth() const { return (dec_ctx) ? dec_ctx->width : 0; }
-  size_t getHeight() const { return (dec_ctx) ? dec_ctx->height : 0; }
+  size_t getWidth() const { return (firstframe) ? firstframe->width : 0; }
+  size_t getHeight() const { return (firstframe) ? firstframe->height : 0; }
   size_t getFrameSize() const { return getWidth() * getHeight() * getNbPixelComponents(); }
   size_t getCurrentFrameCount()
   {
@@ -154,7 +158,7 @@ private:
   void destroy_filters();
 
   void start();
-
+  void pause();
   void stop();
 
   AVFormatContext *fmt_ctx;
@@ -183,14 +187,8 @@ private:
 
   std::mutex reader_lock;
   std::condition_variable reader_ready;
-  std::mutex decoder_input_lock;
-  std::condition_variable decoder_input_ready;
-  std::mutex decoder_output_lock;
-  std::condition_variable decoder_output_ready;
-  std::mutex filter_input_lock;
-  std::condition_variable filter_input_ready;
-  std::mutex filter_output_lock;
-  std::condition_variable filter_output_ready;
+  std::mutex decoder_lock;
+  std::condition_variable decoder_ready;
   std::mutex buffer_lock;
   std::condition_variable buffer_ready;
 
@@ -204,7 +202,7 @@ private:
 
   bool killnow;
   std::atomic<STATUS> reader_status;
-  std::atomic<bool> paused;
+  std::atomic<int8_t> paused;
 
   // THREAD 1: responsible to read packet and send it to ffMPEG decoder
   void read_packets();
@@ -213,10 +211,6 @@ private:
   // THREAD 2: responsible to read decoded frame and send it to ffMPEG filter graph
   void filter_frames();
   std::thread frame_filter; // read packets and send it to decoder
-
-  // THREAD 3: responsible to read filtered frame to user specified buffer
-  void buffer_frames();
-  std::thread frame_output; // read packets and send it to decoder
 
   std::exception_ptr eptr;
 

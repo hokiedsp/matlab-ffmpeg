@@ -43,46 +43,59 @@ void mexFunction(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[])
 }
 
 // static
-std::string mexVideoReader::mex_get_filterdesc(const mxArray *prhs)
+std::string mexVideoReader::mex_get_filterdesc(const mxArray *obj)
 {
   std::string tr_filter_descr("transpose=dir=0");
-  if (!prhs)
-    return tr_filter_descr;
 
-  std::string filter_descr = mexGetString(prhs);
+  std::string sc_filter_descr("");
+  int w = (int)mxGetScalar(mxGetProperty(obj, 0, "Width"));
+  int h = (int)mxGetScalar(mxGetProperty(obj, 0, "Height"));
+  if (h > 0 || w > 0)
+    sc_filter_descr = "scale=" + std::to_string(w) + ":" + std::to_string(h) + ",";
 
+  std::string filter_descr = mexGetString(mxGetProperty(obj, 0, "VideoFilter"));
   if (filter_descr.size())
-    tr_filter_descr = "," + tr_filter_descr;
+    filter_descr += ",";
 
-  return filter_descr + tr_filter_descr;
+  return filter_descr + sc_filter_descr + tr_filter_descr;
 }
 
-AVPixelFormat mexVideoReader::mex_get_pixfmt(const std::string &pix_fmt_str)
+AVPixelFormat mexVideoReader::mex_get_pixfmt(const mxArray *obj)
 {
+  std::string pix_fmt_str = mexGetString(mxGetProperty(obj, 0, "VideoFormat"));
+
   // check for special cases
-  if (pix_fmt_str=="RGB24")
-    return AV_PIX_FMT_GBRP; // planar GBR 4:4:4 24bpp;
-  else if (pix_fmt_str=="Grayscale")
+  if (pix_fmt_str == "Grayscale")
     return AV_PIX_FMT_GRAY8; //        Y        ,  8bpp
+  // else if (pix_fmt_str=="RGB24")
+  //   return AV_PIX_FMT_GBRP; // planar GBR 4:4:4 24bpp;
 
   AVPixelFormat pix_fmt = av_get_pix_fmt(pix_fmt_str.c_str());
-  if (pix_fmt==AV_PIX_FMT_NONE)
+  if (pix_fmt==AV_PIX_FMT_NONE) // just in case
       mexErrMsgIdAndTxt("ffmpegVideoReader:InvalidInput","Pixel format is unknown.");
   return pix_fmt;
 }
 
-// mexVideoReader(filename, filter_desc, pix_fmt, buffersize) (all arguments  prevalidated)
+// mexVideoReader(mobj, filename) (all arguments  pre-validated)
 mexVideoReader::mexVideoReader(int nrhs, const mxArray *prhs[])
-    : pix_fmt_name((nrhs > 2) ? mexGetString(prhs[2]) : "RGB24"),
-      reader(mexGetString(prhs[0]), mex_get_filterdesc((nrhs > 1) ? prhs[1] : NULL), mex_get_pixfmt(pix_fmt_name)),
-      buffer_capacity(0), nb_planar(1), buffers(2), wr_buf(buffers.begin()), rd_buf(buffers.end() - 1), killnow(false)
+    : nb_planar(1), buffers(2), wr_buf(buffers.begin()), rd_buf(buffers.end() - 1), killnow(false)
 {
-  // set buffers
-  // if (nrhs > 3)
-  //   buffer_capacity = (int)mxGetScalar(prhs[3]);
-  // if (buffer_capacity == 0) // default
-  //   buffer_capacity = 4;
+  // open the video file
+  reader.openFile(mexGetString(prhs[1]), mex_get_filterdesc(prhs[0]), mex_get_pixfmt(prhs[0]));
 
+  // set unspecified properties
+  if (mxIsEmpty(mxGetProperty(prhs[0],0,"FrameRate")))
+    mxSetProperty((mxArray *)prhs[0], 0, "FrameRate", mxCreateDoubleScalar((double)reader.getFrameRate()));
+  
+  if (mxGetScalar(mxGetProperty(prhs[0], 0, "Width"))<=0.0)
+    mxSetProperty((mxArray *)prhs[0], 0, "Width", mxCreateDoubleScalar((double)reader.getHeight()));
+
+  if (mxGetScalar(mxGetProperty(prhs[0], 0, "Height"))<=0.0)
+    mxSetProperty((mxArray *)prhs[0], 0, "Height", mxCreateDoubleScalar((double)reader.getWidth()));
+  
+  // set buffers
+  buffer_capacity = (int)mxGetScalar(mxGetProperty(prhs[0],0,"BufferSize"));
+  
   // pix_byte = buffer_capacity * reader.getFrameSize();
 
   // const AVPixFmtDescriptor &pfd = reader.getPixFmtDescriptor();
@@ -97,9 +110,6 @@ mexVideoReader::mexVideoReader(int nrhs, const mxArray *prhs[])
   // // start the reader thread
   // frame_reader = std::thread(&mexVideoReader::stuff_buffer, this);
 
-  // accept property name-value pairs as input, throws exception if invalid property given
-  if (nrhs>4)
-    set_props(nrhs - 4, prhs + 4);
 }
 
 void mexVideoReader::FrameBuffer::reset(const size_t pix_byte, const size_t nb_planar, const size_t capacity)
@@ -147,8 +157,17 @@ bool mexVideoReader::static_handler(const std::string &command, int nlhs, mxArra
   if (command == "getFileFormats")
   {
     if (nrhs > 0)
-      throw std::runtime_error("getFileFormats() takes not input argument.");
+      throw std::runtime_error("getFileFormats() takes no input argument.");
     mexVideoReader::getFileFormats(nlhs, plhs);
+  }
+  if (command == "validate_pixfmt")
+  {
+    if (nrhs!=1 || !mxIsChar(prhs[0]))
+      throw std::runtime_error("validate_pixfmt0() takes one string input argument.");
+    
+    std::string pixfmt = mexGetString(prhs[0]);
+    if (av_get_pix_fmt(pixfmt.c_str()) == AV_PIX_FMT_NONE)
+      mexErrMsgIdAndTxt("ffmpeg:VideoReader:validate_pixfmt:invalidFormat", "%s is not a valid FFmpeg Pixel Format", pixfmt.c_str());
   }
   else
     return false;
@@ -183,29 +202,9 @@ mxArray *mexVideoReader::get_prop(const std::string name)
   {
     rval = mxCreateDoubleScalar(reader.getDuration());
   }
-  else if (name == "Path")
-  {
-    rval = mxCreateString(reader.getFilePath().c_str());
-  }
   else if (name == "BitsPerPixel") // integer between -10 and 10
   {
     rval = mxCreateDoubleScalar(reader.getBitsPerPixel());
-  }
-  else if (name == "FrameRate")
-  {
-    rval = mxCreateDoubleScalar(reader.getFrameRate());
-  }
-  else if (name == "Height")
-  {
-    rval = mxCreateDoubleScalar((double)reader.getHeight());
-  }
-  else if (name == "Width")
-  {
-    rval = mxCreateDoubleScalar((double)reader.getWidth());
-  }
-  else if (name == "VideoFormat") // integer between -10 and 10
-  {
-    rval = mxCreateString(pix_fmt_name.c_str());
   }
   else if (name == "VideoCompression")
   {
@@ -362,3 +361,17 @@ void mexVideoReader::readBuffer(int nlhs, mxArray *plhs[], int nrhs, const mxArr
     mxFree(ts);
   }
 }
+
+
+  // else if (name == "FrameRate")
+  // {
+  //   rval = mxCreateDoubleScalar(reader.getFrameRate());
+  // }
+  // else if (name == "Height")
+  // {
+  //   rval = mxCreateDoubleScalar((double)reader.getHeight());
+  // }
+  // else if (name == "Width")
+  // {
+  //   rval = mxCreateDoubleScalar((double)reader.getWidth());
+  // }
