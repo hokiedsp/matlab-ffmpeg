@@ -1,0 +1,144 @@
+read_packet()::sending_packet <= 0
+read_packet()::sending_packet <= 0
+read_packet()::sending_packet <= 0
+read_packet()::sending_packet <= 0
+read_packet()::sending_packet <= 0
+read_packet()::sending_packet <= -11
+filter_frames()::trying_receiving_frame => 0
+read_packet()::resending_packet <= 0
+read_packet()::sending_packet <= -11
+filter_frames()::trying_receiving_filtered_frame => 0
+copy_frame_ts()::saving_first_frame
+copy_frame_ts()::first_frame_saved
+copy_frame_ts()::copying_frame => -11
+killnow: 0
+firstframe: 1
+resetBuffer():begin
+resetBuffer():new buffer set
+resetBuffer():notified
+copy_frame_ts()::re-copying_frame => 0
+copy_frame_ts()::frame_copied
+filter_frames()::trying_re-receiving_filtered_frame => -11
+filter_frames()::trying_receiving_frame => 0
+read_packet()::resending_packet <= 0
+read_packet()::sending_packet <= -11
+filter_frames()::trying_receiving_filtered_frame => 0
+copy_frame_ts()::copying_frame => 0
+copy_frame_ts()::frame_copied
+filter_frames()::trying_re-receiving_filtered_frame => -11
+filter_frames()::trying_receiving_frame => 0
+read_packet()::resending_packet <= 0
+read_packet()::sending_packet <= -11
+filter_frames()::trying_receiving_filtered_frame => 0
+copy_frame_ts()::copying_frame => 0
+copy_frame_ts()::frame_copied
+filter_frames()::trying_re-receiving_filtered_frame => -11
+filter_frames()::trying_receiving_frame => 0
+read_packet()::resending_packet <= 0
+read_packet()::sending_packet <= -11
+filter_frames()::trying_receiving_filtered_frame => 0
+copy_frame_ts()::copying_frame => 0
+copy_frame_ts()::frame_copied
+filter_frames()::trying_re-receiving_filtered_frame => -11
+filter_frames()::trying_receiving_frame => 0
+resetBuffer():begin
+resetBuffer():new buffer set
+resetBuffer():notified
+read_packet()::resending_packet <= 0
+read_packet()::sending_packet <= -11
+filter_frames()::trying_receiving_filtered_frame => 0
+copy_frame_ts()::copying_frame => 0
+copy_frame_ts()::frame_copied
+filter_frames()::trying_re-receiving_filtered_frame => -11
+filter_frames()::trying_receiving_frame => 0
+read_packet()::resending_packet <= 0
+read_packet()::sending_packet <= -11
+filter_frames()::trying_receiving_filtered_frame => 0
+copy_frame_ts()::copying_frame => 0
+copy_frame_ts()::frame_copied
+filter_frames()::trying_re-receiving_filtered_frame => -11
+filter_frames()::trying_receiving_frame => 0
+read_packet()::resending_packet <= 0
+read_packet()::sending_packet <= -11
+filter_frames()::trying_receiving_filtered_frame => 0
+copy_frame_ts()::copying_frame => 0
+copy_frame_ts()::frame_copied
+filter_frames()::trying_re-receiving_filtered_frame => -11
+filter_frames()::trying_receiving_frame => 0
+read_packet()::resending_packet <= 0
+read_packet()::sending_packet <= -11
+filter_frames()::trying_receiving_filtered_frame => 0
+copy_frame_ts()::copying_frame => 0
+copy_frame_ts()::frame_copied
+filter_frames()::trying_re-receiving_filtered_frame => -11
+filter_frames()::trying_receiving_frame => 0
+resetBuffer():begin
+resetBuffer():new buffer set
+resetBuffer():notified
+read_packet()::resending_packet <= 0
+read_packet()::sending_packet <= -11
+filter_frames()::trying_receiving_filtered_frame => 0
+copy_frame_ts()::copying_frame => 0
+copy_frame_ts()::frame_copied
+filter_frames()::trying_re-receiving_filtered_frame => -11
+filter_frames()::trying_receiving_frame => 0
+read_packet()::resending_packet <= 0
+read_packet()::sending_packet <= -11
+filter_frames()::trying_receiving_filtered_frame => 0
+copy_frame_ts()::copying_frame => 0
+copy_frame_ts()::frame_copied
+filter_frames()::trying_re-receiving_filtered_frame => -11
+filter_frames()::trying_receiving_frame => 0
+read_packet()::resending_packet <= 0
+read_packet()::sending_packet <= -11
+filter_frames()::trying_receiving_filtered_frame => 0
+copy_frame_ts()::copying_frame => 0
+copy_frame_ts()::frame_copied
+filter_frames()::trying_re-receiving_filtered_frame => -11
+filter_frames()::trying_receiving_frame => 0
+read_packet()::resending_packet <= 0
+read_packet()::sending_packet <= -11
+filter_frames()::trying_receiving_filtered_frame => 0
+copy_frame_ts()::copying_frame => 0
+copy_frame_ts()::frame_copied
+filter_frames()::trying_re-receiving_filtered_frame => -11
+filter_frames()::trying_receiving_frame => 0
+resetBuffer():begin
+resetBuffer():new buffer set
+resetBuffer():notified
+read_packet()::resending_packet <= 0
+read_packet()::sending_packet <= -11
+filter_frames()::trying_receiving_filtered_frame => 0
+copy_frame_ts()::copying_frame => 0
+copy_frame_ts()::frame_copied
+filter_frames()::trying_re-receiving_filtered_frame => -11
+filter_frames()::trying_receiving_frame => 0
+read_packet()::resending_packet <= 0
+read_packet()::sending_packet <= -11
+filter_frames()::trying_receiving_filtered_frame => 0
+copy_frame_ts()::copying_frame => 0
+copy_frame_ts()::frame_copied
+filter_frames()::trying_re-receiving_filtered_frame => -11
+filter_frames()::trying_receiving_frame => 0
+read_packet()::resending_packet <= 0
+read_packet()::sending_packet <= -11
+filter_frames()::trying_receiving_filtered_frame => 0
+copy_frame_ts()::copying_frame => 0
+copy_frame_ts()::frame_copied
+filter_frames()::trying_re-receiving_filtered_frame => -11
+filter_frames()::trying_receiving_frame => 0
+read_packet()::resending_packet <= 0
+read_packet()::sending_packet <= -11
+filter_frames()::trying_receiving_filtered_frame => 0
+copy_frame_ts()::copying_frame => 0
+copy_frame_ts()::frame_copied
+filter_frames()::trying_re-receiving_filtered_frame => -11
+filter_frames()::trying_receiving_frame => 0
+read_packet()::resending_packet <= 0
+read_packet()::sending_packet <= -11
+filter_frames()::trying_receiving_filtered_frame => 0
+copy_frame_ts()::copying_frame => -11
+read_packet()::quit_sending_packet::killnow setfilter_frames()::terminated
+
+read_packets()::terminated
+ffmpeg::VideoReader::destructor

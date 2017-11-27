@@ -1,0 +1,56 @@
+Reinit context to 320x240, pix_fmt: yuv420p
+
+filename=..\test.mp4
+
+w:320 h:240 pixfmt:yuv420p tb:1/30000 fr:0/1 sar:1/1 sws_param:
+
+w:iw h:ih flags:'bilinear' interl:0
+
+auto-inserting filter 'auto_scaler_0' between the filter 'in' and the filter 'Parsed_transpose_0'
+
+w:320 h:240 fmt:yuv420p sar:1/1 -> w:320 h:240 fmt:rgb24 sar:1/1 flags:0x2
+
+w:320 h:240 dir:0 -> w:240 h:320 rotation:counterclockwise vflip:1
+
+Reinit context to 320x240, pix_fmt: yuv420p
+
+frame[0]:width=240,height=320,format=rgb24,key_frame=1,pict_type=I,SAR=1/1,pts=0,display_picture_number=0
+
+frame[0]:repeat_pict=0',interlaced_frame=0,top_field_first=0,top_field_first=0, palette_has_changed=73
+
+frame[0]:plane[0]:linesize=768
+
+allocating data buffer [nb_frames=4,data_sz=921600]
+
+allocating data buffer [nb_frames=4,data_sz=921600]
+
+mexVideoReader::shuffle_buffers::read buffer all read
+
+mexVideoReader::shuffle_buffers::buffers swapped
+
+mexVideoReader::shuffle_buffers::more in read buffer
+
+mexVideoReader::shuffle_buffers::more in read buffer
+
+releasing frame buffer
+
+allocating data buffer [nb_frames=4,data_sz=921600]
+
+mexVideoReader::shuffle_buffers::read buffer all read
+
+mexVideoReader::shuffle_buffers::buffers swapped
+
+mexVideoReader::shuffle_buffers::more in read buffer
+
+releasing frame buffer
+
+allocating data buffer [nb_frames=4,data_sz=921600]
+
+mexVideoReader::shuffle_buffers::read buffer all read
+
+mexVideoReader::shuffle_buffers::buffers swapped
+
+mexVideoReader::shuffle_buffers::more in read buffer
+
+mexVideoReader::shuffle_buffers::more in read buffer
+

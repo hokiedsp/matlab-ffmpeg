@@ -347,11 +347,7 @@ public:
     {
       // copy time
       if (frame->best_effort_timestamp != AV_NOPTS_VALUE)
-      {
-        /* sleep roughly the right amount of time;
-             * usleep is in microseconds, just like AV_TIME_BASE. */
         *wr_time = double(av_rescale_q(frame->best_effort_timestamp, time_base, AV_TIME_BASE_Q) / 100) / (AV_TIME_BASE / 100);
-      }
       else
         *wr_time = NAN;
       ++wr_time;

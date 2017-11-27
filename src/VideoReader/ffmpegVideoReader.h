@@ -119,12 +119,9 @@ public:
 
   double getCurrentTimeStamp() const
   {
-    return (fmt_ctx) ? (double(pts / 100) / (AV_TIME_BASE / 100)) : NAN;
+    return (fmt_ctx) ? (double(av_rescale_q(pts, (filter_graph) ? buffersink_ctx->inputs[0]->time_base : st->time_base, AV_TIME_BASE_Q) / 100) / (AV_TIME_BASE / 100)) : NAN;
   }
-  void setCurrentTimeStamp(const double val)
-  {
-    // TBD
-  }
+  void setCurrentTimeStamp(const double val);
 
   const AVPixelFormat getPixelFormat() const { return pix_fmt; };
   const AVPixFmtDescriptor &getPixFmtDescriptor() const;

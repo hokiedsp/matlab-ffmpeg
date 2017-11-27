@@ -80,6 +80,7 @@ classdef VideoReader < matlab.mixin.SetGet & matlab.mixin.CustomDisplay
       FrameRate = []      % Frame rate of the video in frames per second.
       Height = 0         % Height of the video frame in pixels.
       Width = 0          % Width of the video frame in pixels.
+      PixelAspectRatio = []
       VideoFormat = 'rgb24'    % Video format as it is represented in MATLAB.
       VideoFilter = '' % FFmpeg Video filter chain description
       ReadMode = 'components' % 'components'(default if pixel is byte size) |'planes' (default if pixel is sub-byte size)
@@ -304,6 +305,10 @@ classdef VideoReader < matlab.mixin.SetGet & matlab.mixin.CustomDisplay
          validateattributes(value,{'double'},{'scalar','real','integer'});
          obj.Width = value;
       end
+      function set.PixelAspectRatio(obj,value)
+         validateattributes(value,{'double'},{'vector','numel',2,'positive','finite'});
+         obj.PixelAspectRatio = value;
+      end
       function set.VideoFormat(obj,value)
          try
             value = validatestring(value,{'grayscale'});
@@ -359,8 +364,8 @@ classdef VideoReader < matlab.mixin.SetGet & matlab.mixin.CustomDisplay
          end
          
          propGroups(1) = PropertyGroup( {'Name', 'Path', 'Duration', 'CurrentTime', 'Tag', 'UserData'});
-         propGroups(2) = PropertyGroup( {'Width', 'Height', 'FrameRate', 'BitsPerPixel', 'VideoFormat','VideoCompression'});
-         propGroups(3) = PropertyGroup( {'BufferSize'});
+         propGroups(2) = PropertyGroup( {'Width', 'Height', 'PixelAspectRatio','FrameRate', 'BitsPerPixel', 'VideoFormat','VideoCompression'});
+         propGroups(3) = PropertyGroup( {'BufferSize', 'VideoFilter'});
          
          %          propGroups(1) = PropertyGroup( {'Name', 'Path', 'Duration', 'CurrentTime', 'Tag', 'UserData'}, ...
          %             getString( message('ffmpeg:VideoReader:GeneralProperties') ) );
