@@ -3,6 +3,7 @@
 // #include "../Common/ffmpegPtrs.h"
 #include "../Common/ffmpegAvRedefine.h"
 // #include "ffmpegAVFramePtrBuffer.h"
+#include "../Common/ffmpegFrameBuffers.h"
 
 extern "C" {
 #include <libavcodec/avcodec.h>
@@ -125,6 +126,7 @@ public:
     // TBD
   }
 
+  const AVPixelFormat getPixelFormat() const { return pix_fmt; };
   const AVPixFmtDescriptor &getPixFmtDescriptor() const;
   size_t getNbPlanar() const
   {
@@ -132,8 +134,7 @@ public:
   }
   size_t getNbPixelComponents() const
   {
-    const AVPixFmtDescriptor &pfd = getPixFmtDescriptor();
-    return (pfd.flags & AV_PIX_FMT_FLAG_PLANAR) ? 1 : pfd.nb_components;
+    return getPixFmtDescriptor().nb_components;
   }
 
   size_t getWidth() const { return (firstframe) ? firstframe->width : 0; }
@@ -142,11 +143,11 @@ public:
   size_t getCurrentFrameCount()
   {
     std::unique_lock<std::mutex> buffer_guard(buffer_lock);
-    return buf_count;
+    return buf->size();
   };
 
-  size_t resetBuffer(size_t sz, uint8_t *frame[], double *time = NULL);
-  size_t releaseBuffer();
+  void resetBuffer(FrameBuffer *new_buf);
+  FrameBuffer* releaseBuffer();
   size_t blockTillFrameAvail(size_t min_cnt = 1);
   size_t blockTillBufferFull();
 
@@ -180,10 +181,7 @@ private:
   std::mutex firstframe_lock;
   std::condition_variable firstframe_ready;
 
-  size_t buf_size;
-  uint8_t **frame_buf;
-  double *time_buf;
-  std::atomic<size_t> buf_count;
+  FrameBuffer *buf;
 
   std::mutex reader_lock;
   std::condition_variable reader_ready;

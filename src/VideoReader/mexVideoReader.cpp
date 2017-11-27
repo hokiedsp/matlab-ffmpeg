@@ -10,6 +10,7 @@ extern "C" {
 }
 
 #include <cstdarg>
+#include <locale>
 
 #include <fstream>
 static std::mutex lockfile;
@@ -31,6 +32,7 @@ void mexFFmpegCallback(void *avcl, int level, const char *fmt, va_list argptr)
     char dest[1024 * 16];
     vsprintf(dest, fmt, argptr);
     mexPrintf(dest);
+    output(dest);
   }
 }
 
@@ -65,20 +67,22 @@ AVPixelFormat mexVideoReader::mex_get_pixfmt(const mxArray *obj)
   std::string pix_fmt_str = mexGetString(mxGetProperty(obj, 0, "VideoFormat"));
 
   // check for special cases
-  if (pix_fmt_str == "Grayscale")
+  if (pix_fmt_str == "grayscale")
     return AV_PIX_FMT_GRAY8; //        Y        ,  8bpp
-  // else if (pix_fmt_str=="RGB24")
-  //   return AV_PIX_FMT_GBRP; // planar GBR 4:4:4 24bpp;
 
   AVPixelFormat pix_fmt = av_get_pix_fmt(pix_fmt_str.c_str());
   if (pix_fmt==AV_PIX_FMT_NONE) // just in case
       mexErrMsgIdAndTxt("ffmpegVideoReader:InvalidInput","Pixel format is unknown.");
+
+  if (!(sws_isSupportedOutput(pix_fmt) && mexComponentBuffer::supportedPixelFormat(pix_fmt)))
+      mexErrMsgIdAndTxt("ffmpegVideoReader:InvalidInput","Pixel format is not supported.");
+  
   return pix_fmt;
 }
 
 // mexVideoReader(mobj, filename) (all arguments  pre-validated)
 mexVideoReader::mexVideoReader(int nrhs, const mxArray *prhs[])
-    : nb_planar(1), buffers(2), wr_buf(buffers.begin()), rd_buf(buffers.end() - 1), killnow(false)
+    : killnow(false)
 {
   // open the video file
   reader.openFile(mexGetString(prhs[1]), mex_get_filterdesc(prhs[0]), mex_get_pixfmt(prhs[0]));
@@ -95,46 +99,33 @@ mexVideoReader::mexVideoReader(int nrhs, const mxArray *prhs[])
   
   // set buffers
   buffer_capacity = (int)mxGetScalar(mxGetProperty(prhs[0],0,"BufferSize"));
+  buffers.reserve(2);
+  buffers.emplace_back(buffer_capacity, reader.getWidth(), reader.getHeight(), reader.getPixelFormat());
+  buffers.emplace_back(buffer_capacity, reader.getWidth(), reader.getHeight(), reader.getPixelFormat());
+  wr_buf = buffers.begin();
+  rd_buf = wr_buf + 1;
+
+  reader.resetBuffer(&*wr_buf);
+
+  // start the reader thread
+  frame_writer = std::thread(&mexVideoReader::shuffle_buffers, this);
+}
+
+mexVideoReader::~mexVideoReader()
+{
+  killnow = true;
+
+  // close the file before buffers are destroyed
+  reader.closeFile();
+
+  {
+    std::unique_lock<std::mutex> buffer_guard(buffer_lock);
+    buffer_ready.notify_one();
+  }
   
-  // pix_byte = buffer_capacity * reader.getFrameSize();
-
-  // const AVPixFmtDescriptor &pfd = reader.getPixFmtDescriptor();
-  // if (pfd.flags & AV_PIX_FMT_FLAG_PLANAR) // planar format
-  //   nb_planar = pfd.nb_components;
-  // else // pixel format
-  //   pix_byte *= pfd.nb_components;
-
-  // buffers[0].reset(pix_byte, nb_planar, buffer_capacity);
-  // buffers[1].reset(pix_byte, nb_planar, buffer_capacity);
-
-  // // start the reader thread
-  // frame_reader = std::thread(&mexVideoReader::stuff_buffer, this);
-
-}
-
-void mexVideoReader::FrameBuffer::reset(const size_t pix_byte, const size_t nb_planar, const size_t capacity)
-{
-  if (time)
-    mxFree(time);
-  if (frame)
-    mxFree(frame);
-  time = (double *)mxMalloc(capacity * sizeof(double));
-  frame = (uint8_t *)mxMalloc(pix_byte * nb_planar * capacity);
-
-  for (size_t n = 0; n < nb_planar; ++n)
-    planes[n] = frame + n * pix_byte * capacity;
-
-  cnt = 0;
-  rd_pos = 0;
-  state = DONE;
-}
-
-mexVideoReader::FrameBuffer::~FrameBuffer()
-{
-  if (time)
-    mxFree(time);
-  if (frame)
-    mxFree(frame);
+  // start the file reading thread (sets up and idles)
+  if (frame_writer.joinable())
+    frame_writer.join();
 }
 
 bool mexVideoReader::action_handler(const std::string &command, int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[])
@@ -145,6 +136,8 @@ bool mexVideoReader::action_handler(const std::string &command, int nlhs, mxArra
 
   if (command == "readFrame")
     readFrame(nlhs, plhs, nrhs, prhs);
+  else if (command == "readBuffer")
+    readBuffer(nlhs, plhs, nrhs, prhs);
   else if (command == "read")
     read(nlhs, plhs, nrhs, prhs);
   else
@@ -218,7 +211,16 @@ mxArray *mexVideoReader::get_prop(const std::string name)
   }
   else if (name == "CurrentTime")
   {
-    rval = mxCreateDoubleScalar(reader.getCurrentTimeStamp());
+    double t(NAN);
+
+    std::unique_lock<std::mutex> buffer_guard(buffer_lock);
+    if (!rd_buf->available())
+      buffer_ready.wait(buffer_guard);
+    rd_buf->read_frame(NULL, &t, false);
+    buffer_ready.notify_one();
+    buffer_guard.unlock();
+
+    rval = mxCreateDoubleScalar(t);
   }
   else if (name == "AudioCompression") // integer between -10 and 10
   {
@@ -237,14 +239,6 @@ mxArray *mexVideoReader::get_prop(const std::string name)
     throw std::runtime_error(std::string("Unknown property name:") + name);
   }
   return rval;
-}
-
-void mexVideoReader::readFrame(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[]) //    varargout = readFrame(obj, varargin);
-{
-}
-void mexVideoReader::read(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[]) //varargout = read(obj, varargin);
-{
-  throw std::runtime_error("Not yet implemented.");
 }
 
 void mexVideoReader::getFileFormats(int nlhs, mxArray *plhs[]) // formats = getFileFormats();
@@ -275,46 +269,66 @@ void mexVideoReader::getFileFormats(int nlhs, mxArray *plhs[]) // formats = getF
   }
 }
 
-void mexVideoReader::stuff_buffer()
+void mexVideoReader::shuffle_buffers()
 {
   std::unique_lock<std::mutex> buffer_guard(buffer_lock);
   while (!killnow)
   {
-    switch (wr_buf->state)
+    if (!rd_buf->available()) // all read
     {
-    case FrameBuffer::DONE:
-      buffer_guard.unlock();
-      wr_buf->state = FrameBuffer::FILLING; // change the state to broadcast this buffer is now being filled
+      av_log(NULL,AV_LOG_INFO,"mexVideoReader::shuffle_buffers::read buffer all read\n");
 
-      reader.resetBuffer(buffer_capacity, wr_buf->planes, wr_buf->time);
+      // done with the read buffer
+      rd_buf->reset();
 
-    case FrameBuffer::FILLING: // shouldn't encounter this state
-
-      // block until filled
-      if (buffer_guard.owns_lock())
-        buffer_guard.unlock();
+      // wait until write buffer is full
       reader.blockTillBufferFull();
+      if (killnow)
+        break;
 
-      // update the buffer state
-      buffer_guard.lock();
-      wr_buf->state = FrameBuffer::FILLED; // change the state to broadcast this buffer is now filled
+      // swap the buffers
+      std::swap(wr_buf, rd_buf);
 
-      // swap if the other buffer already completely read
-      if (rd_buf->state == FrameBuffer::DONE)
-        std::swap(wr_buf, rd_buf);
-
-      // notify the waiting reader that rd_buf now contains a filled buffer
+      // notify the waiting thread that rd_buf now contains a filled buffer
       buffer_ready.notify_one();
 
-    case FrameBuffer::FILLED:
-    case FrameBuffer::READING:
-      // wait until write buffer is ready to be written (buffer reader will swap the buffer)
-      buffer_ready.wait(buffer_guard, [&]() { return (killnow || wr_buf->state == FrameBuffer::DONE); });
+      // give reader the new buffer
+      reader.resetBuffer(&*wr_buf);
+
+      av_log(NULL,AV_LOG_INFO,"mexVideoReader::shuffle_buffers::buffers swapped\n");
+    }
+    else // read buffer still has unread frames, wait until all read
+    {
+      av_log(NULL,AV_LOG_INFO,"mexVideoReader::shuffle_buffers::more in read buffer\n");
+      buffer_ready.wait(buffer_guard); // to be woken up by read functions
     }
   }
 }
 
-// [frames,timestamps] = readFrame(obj)
+void mexVideoReader::readFrame(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[]) //[frame,time] = readFrame(obj, varargin);
+{
+  mwSize dims[3] = {reader.getWidth(), reader.getHeight(), reader.getPixFmtDescriptor().nb_components};
+  plhs[0] = mxCreateNumericArray(3,dims,mxUINT8_CLASS,mxREAL);
+  uint8_t *dst = (uint8_t*)mxGetData(plhs[0]);
+  double t(NAN);
+
+  std::unique_lock<std::mutex> buffer_guard(buffer_lock);
+  if (!rd_buf->available())
+    buffer_ready.wait(buffer_guard);
+  rd_buf->read_frame(dst, (nlhs > 1) ? &t : NULL);
+  buffer_ready.notify_one();
+  buffer_guard.unlock();
+
+  if (nlhs>1)
+    plhs[1] = mxCreateDoubleScalar(t);
+}
+
+void mexVideoReader::read(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[]) //varargout = read(obj, varargin);
+{
+  throw std::runtime_error("Not supported. Use readFrame() or readBuffer() instead.");
+}
+
+// [frames,timestamps] = readBuffer(obj)
 void mexVideoReader::readBuffer(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[])
 {
   size_t nb_frames;
@@ -325,29 +339,21 @@ void mexVideoReader::readBuffer(int nlhs, mxArray *plhs[], int nrhs, const mxArr
   {
     // wait until a buffer is ready
     std::unique_lock<std::mutex> buffer_guard(buffer_lock);
-    buffer_ready.wait(buffer_guard, [&]() { return (killnow || rd_buf->state != FrameBuffer::DONE); });
+    if (!rd_buf->full())
+      buffer_ready.wait(buffer_guard);
 
-    // swap away the buffer memory
-    nb_frames = rd_buf->cnt;
-    std::swap(data, rd_buf->frame);
-    std::swap(ts, rd_buf->time);
-
-    // replace
-    rd_buf->reset(pix_byte, nb_planar, buffer_capacity);
-
-    // if the other buffer have been fully filled, swap
-    if (wr_buf->state == FrameBuffer::FILLED)
-      std::swap(rd_buf, wr_buf);
+    // release the buffer data (buffer automatically reallocate new data block)
+    nb_frames = rd_buf->release(&data, &ts);
 
     // notify the stuffer for the buffer availability
     buffer_ready.notify_one();
   }
 
   // create output array
-  mwSize dims[5] = {reader.getNbPixelComponents(), reader.getWidth(), reader.getHeight(), 0, reader.getNbPlanar()};
-    plhs[0] = mxCreateNumericArray(5, dims, mxUINT8_CLASS, mxREAL);
+  mwSize dims[4] = {reader.getWidth(), reader.getHeight(), reader.getPixFmtDescriptor().nb_components, 0};
+  plhs[0] = mxCreateNumericArray(4, dims, mxUINT8_CLASS, mxREAL);
   dims[3] = nb_frames;
-  mxSetDimensions(plhs[0], dims, 5);
+  mxSetDimensions(plhs[0], dims, 4);
   mxSetData(plhs[0], data);
 
   if (nlhs > 1) // create array for the time stamps if requested
@@ -361,7 +367,6 @@ void mexVideoReader::readBuffer(int nlhs, mxArray *plhs[], int nrhs, const mxArr
     mxFree(ts);
   }
 }
-
 
   // else if (name == "FrameRate")
   // {

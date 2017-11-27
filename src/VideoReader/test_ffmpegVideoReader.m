@@ -4,25 +4,26 @@ clear; close all; drawnow
 % ffmpeg.VideoReader.getFileFormats
 % ffmpegtranscode('xylophone.mp4','test.mp4')
 try
-%       vrobj = ffmpeg.VideoReader('xylophone.mp4');
-      vrobj = ffmpeg.VideoReader('..\test.mp4','VideoFormat','bgr555le')
-%    vrobj = ffmpeg.VideoReader('E:\HSV Data\Vision Research Test 2.avi')
-%    fprintf('VideoCompression: %s\n',vrobj.VideoCompression);
+   %       vrobj = ffmpeg.VideoReader('xylophone.mp4');
+   vrobj = ffmpeg.VideoReader('..\test.mp4','VideoFormat','rgb24')
+   %    vrobj = ffmpeg.VideoReader('E:\HSV Data\Vision Research Test 2.avi')
+   %    fprintf('VideoCompression: %s\n',vrobj.VideoCompression);
    %       fprintf('Setting CurrentTime to 2.0...\n');
    %    vrobj.CurrentTime = 2.0;
    %       fprintf('New CurrentTime = %g\n',vrobj.CurrentTime);
    %    disp('Reading the first frame');
    
-%    frames = zeros(vrobj.Height, vrobj.Width, 3, 5);
-%    fs = vrobj.FrameRate;
-%    t = zeros(5,1);
+      [frames,t] = vrobj.readBuffer();
+      [frames1,t1] = vrobj.readBuffer();
+      vrobj
+%    frames = zeros(vrobj.Height, vrobj.Width, 3, 10,'uint8');
 %    for n = 1:5
-%       t(n) = vrobj.CurrentTime;
+%       % t(n) = vrobj.CurrentTime;
 %       frames(:,:,:,n) = vrobj.readFrame();
 %    end
    
-   pause(1)
-   disp('deleting the object');
+    pause(1)
+   %  disp('deleting the object');
    delete(vrobj);
 catch ME
    disp(ME.getReport());

@@ -185,6 +185,7 @@ classdef VideoReader < matlab.mixin.SetGet & matlab.mixin.CustomDisplay
       %       inspect(obj)
       
       varargout = readFrame(obj, varargin)
+      varargout = readBuffer(obj)
       eof = hasFrame(obj)
       
       %------------------------------------------------------------------
@@ -305,9 +306,10 @@ classdef VideoReader < matlab.mixin.SetGet & matlab.mixin.CustomDisplay
       end
       function set.VideoFormat(obj,value)
          try
-            value = validatestring(value,{'Grayscale'});
+            value = validatestring(value,{'grayscale'});
             %value = validatestring(value,{'rgb24','Grayscale'});
          catch
+           value = lower(value);
             validateattributes(value,{'char'},{'row'});
             ffmpeg.VideoReader.mex_backend([], 'static', 'validate_pixfmt',value);   
          end

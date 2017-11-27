@@ -1,7 +1,7 @@
-function varargout = readFrame(obj, varargin)
-%READFRAME Read the next available frame from a video file
+function varargout = readBuffer(obj)
+%READBUFFER Read the currently available frame buffer from a video file
 %
-%   VIDEO = READFRAME(OBJ) reads the next available video frame from the
+%   VIDEO = READBUFFER(OBJ) reads the next available video frame from the
 %   file associated  with OBJ.  VIDEO is an H x W x B matrix where:
 %         H is the image frame height
 %         W is the image frame width
@@ -73,7 +73,7 @@ function varargout = readFrame(obj, varargin)
 %
 %   See also AUDIOVIDEO, MOVIE, VIDEOREADER,VIDEOREADER/HASFRAME, MMFILEINFO.
 
-[varargout{1:nargout}] = obj.mex_backend(obj.backend,'readFrame');
+[varargout{1:nargout}] = obj.mex_backend(obj.backend,'readBuffer');
 
 % if length(obj) > 1
 %     error(message('FFmpeg:VideoReader:nonscalar'));
@@ -96,7 +96,7 @@ function varargout = readFrame(obj, varargin)
 % end
 % 
 % if obj.IsFrameBased
-%     error( message('FFmpeg:VideoReader:NotSupportedFramesCounted', 'READFRAME', 'READFRAME') );
+%     error( message('FFmpeg:VideoReader:NotSupportedFramesCounted', 'READBUFFER', 'READBUFFER') );
 % end
 % 
 % readFrameOC = onCleanup( @() set(obj, 'IsStreamingBased', 'true') );

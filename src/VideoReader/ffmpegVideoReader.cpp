@@ -1,3 +1,15 @@
+#include <fstream>
+#include <mutex>
+static std::mutex lockfile;
+static std::ofstream of("test.csv");
+#define output(command)                     \
+  \
+{                                        \
+    std::unique_lock<std::mutex>(lockfile); \
+    of << command << std::endl;             \
+  \
+}
+
 #include "ffmpegVideoReader.h"
 #include "../Common/ffmpegException.h"
 #include "../Common/ffmpegPtrs.h"
@@ -10,24 +22,12 @@ extern "C" {
 #include <libavfilter/avfilter.h>
 }
 
-#include <fstream>
-static std::mutex lockfile;
-static std::ofstream of("test.csv");
-#define output(command)                     \
-  \
-{                                        \
-    std::unique_lock<std::mutex>(lockfile); \
-    of << command << std::endl;             \
-  \
-}
-
 using namespace ffmpeg;
 
 VideoReader::VideoReader(const std::string &filename, const std::string &filtdesc, const AVPixelFormat pix_fmt)
     : fmt_ctx(NULL), dec_ctx(NULL), filter_graph(NULL), buffersrc_ctx(NULL), buffersink_ctx(NULL),
       video_stream_index(-1), st(NULL), pix_fmt(AV_PIX_FMT_NONE), filter_descr(""),
-      pts(0), eof(false), paused(0), firstframe(NULL),
-      buf_size(0), frame_buf(NULL), time_buf(NULL), buf_count(0),
+      pts(0), eof(false), paused(0), firstframe(NULL), buf(NULL),
       killnow(false), reader_status(IDLE),
       eptr(NULL)
 {
@@ -37,6 +37,7 @@ VideoReader::VideoReader(const std::string &filename, const std::string &filtdes
 
 VideoReader::~VideoReader()
 {
+  output("ffmpeg::VideoReader::destructor");
   closeFile();
 }
 
@@ -124,7 +125,7 @@ void VideoReader::create_filters(const std::string &filter_description, const AV
   buffersrc_ctx = buffersink_ctx = NULL;
 
   // no filter if description not given
-  if (filter_description.empty())
+  if (filter_description.empty() && pix_fmt_rq==AV_PIX_FMT_NONE)
     return;
 
   if (!dec_ctx)
@@ -190,16 +191,19 @@ void VideoReader::create_filters(const std::string &filter_description, const AV
   inputs->pad_idx = 0;
   inputs->next = NULL;
 
-  AVFilterInOut *in = inputs.release();
-  AVFilterInOut *out = outputs.release();
-  if ((ret = avfilter_graph_parse_ptr(filter_graph, filter_description.c_str(), &in, &out, NULL)) < 0)
-    throw ffmpegException("filtering_video:create_filters:error: %s", av_err2str(ret));
-  inputs.reset(in);
-  outputs.reset(out);
-  filter_descr = filter_description;
+  if (filter_description.size()) // false if only format change
+  {
+    AVFilterInOut *in = inputs.release();
+    AVFilterInOut *out = outputs.release();
+    if ((ret = avfilter_graph_parse_ptr(filter_graph, filter_description.c_str(), &in, &out, NULL)) < 0)
+      throw ffmpegException("filtering_video:create_filters:avfilter_graph_parse_ptr:error: %s", av_err2str(ret));
+    inputs.reset(in);
+    outputs.reset(out);
+    filter_descr = filter_description;
+  }
 
   if (ret = avfilter_graph_config(filter_graph, NULL))
-    throw ffmpegException("filtering_video:create_filters:error: %s", av_err2str(ret));
+    throw ffmpegException("filtering_video:create_filters:avfilter_graph_config:error: %s", av_err2str(ret));
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////
@@ -238,8 +242,19 @@ void VideoReader::stop()
 {
   // make sure no thread is stuck on a wait state
   killnow = true;
-  decoder_ready.notify_one();
-  buffer_ready.notify_one();
+
+  {
+    std::unique_lock<std::mutex> reader_guard(reader_lock);
+    reader_ready.notify_all();
+  }
+  {
+    std::unique_lock<std::mutex> decoder_guard(decoder_lock);
+    decoder_ready.notify_all();
+  }
+  {
+    std::unique_lock<std::mutex> buffer_guard(buffer_lock);
+    buffer_ready.notify_all();
+  }
 
   // start the file reading thread (sets up and idles)
   if (packet_reader.joinable())
@@ -296,12 +311,17 @@ void VideoReader::read_packets()
       // decoder input buffer is full, wait until space available
       std::unique_lock<std::mutex> decoder_guard(decoder_lock);
       ret = avcodec_send_packet(dec_ctx, last_frame ? NULL : &packet);
+      output("read_packet()::sending_packet <= " << ret);
       while (!killnow && (ret == AVERROR(EAGAIN)))
       {
         decoder_ready.wait(decoder_guard);
         if (killnow)
+        {
+          output("read_packet()::quit_sending_packet::killnow set");
           break;
+        }
         ret = avcodec_send_packet(dec_ctx, last_frame ? NULL : &packet);
+        output("read_packet()::resending_packet <= " << ret);
       }
       decoder_ready.notify_one(); // notify the frame_filter thread for the availability
       decoder_guard.unlock();
@@ -309,7 +329,6 @@ void VideoReader::read_packets()
         break;
       if (ret < 0)
         throw ffmpegException("Error while sending a packet to the decoder: %s", av_err2str(ret));
-      output("read_packet()::sent_packet");
 
       // if just completed EOF flushing, done
       if (last_frame)
@@ -346,8 +365,6 @@ void VideoReader::filter_frames()
       output("filter_frames()::trying_receiving_frame => " << ret);
       while (!killnow && (ret == AVERROR(EAGAIN)))
       { /* receive decoded frames from decoder (wait until there is one available) */
-        if (killnow)
-          break;
         decoder_ready.wait(decoder_guard);
         ret = avcodec_receive_frame(dec_ctx, frame);
         output("filter_frames()::trying_re-receiving_frame => " << ret);
@@ -370,17 +387,19 @@ void VideoReader::filter_frames()
         ret = av_buffersrc_add_frame_flags(buffersrc_ctx, last_frame ? NULL : frame, AV_BUFFERSRC_FLAG_KEEP_REF);
         ret = av_buffersink_get_frame(buffersink_ctx, filt_frame);
         output("filter_frames()::trying_receiving_filtered_frame => " << ret);
-        while (!killnow && ret >= 0)
+        while (!killnow && (ret >= 0))
         {
           copy_frame_ts(filt_frame, buffersink_ctx->inputs[0]->time_base);
           av_frame_unref(filt_frame);
+          if (killnow)
+            break;
           ret = av_buffersink_get_frame(buffersink_ctx, filt_frame);
           output("filter_frames()::trying_re-receiving_filtered_frame => " << ret);
         }
 
         if (ret == AVERROR_EOF) // run copy_frame_ts one last time if EOF to let buffer know
           copy_frame_ts(NULL, buffersink_ctx->inputs[0]->time_base);
-        else if (!killnow && ret < 0)
+        else if (!killnow && ret < 0 && ret!=AVERROR(EAGAIN))
           throw ffmpegException("Error occurred while retrieving filtered frames: %s", av_err2str(ret));
       }
       else
@@ -392,7 +411,7 @@ void VideoReader::filter_frames()
       // clear last_frame flag -or- release frame
       if (last_frame)
         last_frame = false;
-      else
+      else if (ret!=AVERROR(EAGAIN))
         av_frame_unref(frame);
     }
   }
@@ -442,43 +461,39 @@ bool VideoReader::isFileOpen()
   return true;
 }
 
-size_t VideoReader::resetBuffer(size_t sz, uint8_t *frame[], double *time)
+void VideoReader::resetBuffer(FrameBuffer *new_buf)
 {
+  output("resetBuffer():begin");
   std::unique_lock<std::mutex> buffer_guard(buffer_lock);
-
-  size_t rval = buf_size;
-
-  buf_size = sz;
-  frame_buf = frame;
-  time_buf = time;
-  buf_count = 0;
-
+  buf = new_buf;
+  output("resetBuffer():new buffer set");
   buffer_ready.notify_one();
-
-  return rval; // return the current buffer size
+  output("resetBuffer():notified");
 }
 
-size_t VideoReader::releaseBuffer()
+FrameBuffer* VideoReader::releaseBuffer()
 {
-  return resetBuffer(0, NULL, NULL);
+  FrameBuffer *rval = buf;
+  resetBuffer(NULL);
+  return rval;
 }
 
 size_t VideoReader::blockTillBufferFull()
 {
-  if (!isFileOpen())
+  if (!isFileOpen() || !buf)
     return 0;
   std::unique_lock<std::mutex> buffer_guard(buffer_lock);
-  buffer_ready.wait(buffer_guard, [&]() { return killnow || reader_status == IDLE || buf_count == buf_size; });
-  return buf_count;
+  buffer_ready.wait(buffer_guard, [&]() { return killnow || reader_status == IDLE || buf->full(); });
+  return buf->size();
 }
 
 size_t VideoReader::blockTillFrameAvail(size_t min_cnt)
 {
-  if (!isFileOpen())
+  if (!isFileOpen() || !buf)
     return 0;
   std::unique_lock<std::mutex> buffer_guard(buffer_lock);
-  buffer_ready.wait(buffer_guard, [&]() { return killnow || reader_status == IDLE || buf_count >= min_cnt; });
-  return buf_count;
+  buffer_ready.wait(buffer_guard, [&]() { return killnow || reader_status == IDLE || buf->available() >= min_cnt; });
+  return buf->available();
 }
 
 void VideoReader::copy_frame_ts(const AVFrame *frame, AVRational time_base)
@@ -495,74 +510,27 @@ void VideoReader::copy_frame_ts(const AVFrame *frame, AVRational time_base)
   }
 
   std::unique_lock<std::mutex> buffer_guard(buffer_lock);
-
   // if null, reached the end-of-file (or stopped by user command)
-  if (frame)
+  // copy frame to buffer; if buffer not ready, wait until it is
+  int ret = (buf) ? buf->copy_frame(frame, buffersink_ctx->inputs[0]->time_base) : AVERROR(EAGAIN);
+  output("copy_frame_ts()::copying_frame => " << ret);
+  while (!killnow && (ret == AVERROR(EAGAIN)))
   {
-    // copy frame to buffer; if buffer not ready, wait until it is
-    int ret = copy_frame(frame, buffersink_ctx->inputs[0]->time_base);
-    output("copy_frame_ts()::copying_frame => " << ret);
-    while (!killnow && (ret == AVERROR(EAGAIN)))
-    {
-      buffer_ready.wait(buffer_guard);
-      if (killnow)
-        break;
-      ret = copy_frame(frame, buffersink_ctx->inputs[0]->time_base);
-      output("copy_frame_ts()::re-copying_frame => " << ret);
-    }
-    if (!killnow)
-      output("copy_frame_ts()::frame_copied");
+    buffer_ready.wait(buffer_guard);
+    if (killnow)
+      break;
+    ret = (buf) ? buf->copy_frame(frame, buffersink_ctx->inputs[0]->time_base) : AVERROR(EAGAIN);
+    output("copy_frame_ts()::re-copying_frame => " << ret);
   }
-  else if (paused) // if reader paused
-    paused = 2;    // now all the frames are processed
+  if (!killnow)
+    output("copy_frame_ts()::frame_copied");
+
+  if (frame) 
+    pts = frame->pts;
+
+  if (paused)   // if reader paused
+    paused = 2; // now all the frames are processed
 
   // notify the buffer state has changed
   buffer_ready.notify_one();
-}
-
-int VideoReader::copy_frame(const AVFrame *frame, AVRational time_base)
-{
-  // expects having exclusive access to the user supplied buffer
-
-  if (!buf_size || buf_count == buf_size) // receiving data buffer not set
-    return AVERROR(EAGAIN);
-
-  // increase the counter of frames filled in the output buffer
-  ++buf_count;
-
-  // copy time
-  pts = frame->pts;
-  if (time_buf)
-  {
-    if (frame->pts != AV_NOPTS_VALUE)
-      *time_buf = double(frame->pts / 100) / (AV_TIME_BASE / 100);
-    time_buf++;
-  }
-
-  int Npx = frame->height * frame->width;
-
-  for (int i = 0; i < getNbPlanar(); ++i) // for each planar component
-  {
-    // Copy frame data
-    if (frame->width == frame->linesize[i])
-    {
-      std::copy_n(frame->data[i], Npx, frame_buf[i]);
-    }
-    else
-    {
-      uint8_t *srcdata = frame->data[i];
-      uint8_t *dstdata = frame_buf[i];
-      int src_lsz = frame->linesize[i];
-      int dst_lsz = frame->width;
-      if (src_lsz < 0)
-        srcdata -= src_lsz * (frame->height - 1);
-      for (int h = 0; h < frame->height; h++)
-      {
-        dstdata = std::copy_n(srcdata, dst_lsz, dstdata);
-        srcdata += src_lsz;
-      }
-    }
-    frame_buf[i] += Npx;
-  }
-  return 0;
 }

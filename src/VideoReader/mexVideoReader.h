@@ -1,6 +1,9 @@
 #pragma once
 
 #include "..\Common\mexClassHandler.h"
+#include "..\Common\mexAllocator.h"
+#include "..\Common\ffmpegFrameBuffers.h"
+
 #include "ffmpegVideoReader.h"
 
 #include <vector>
@@ -14,6 +17,7 @@ class mexVideoReader : public mexFunctionClass
 {
 public:
   mexVideoReader(int nrhs, const mxArray *prhs[]);
+  ~mexVideoReader();
   static std::string get_componentid() { return "mexVideoReader"; }
 
   bool action_handler(const std::string &command, int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[]);
@@ -31,33 +35,20 @@ protected:
 private:
   ffmpeg::VideoReader reader;
 
-  size_t nb_planar; // number of planar components
-  size_t pix_byte; // number of bytes per component pixel
+  size_t nb_components; // number of components
   size_t buffer_capacity; // in frames
 
-  struct FrameBuffer
-  {
-    enum {FILLING, FILLED, READING, DONE } state;
-    size_t cnt;
-    size_t rd_pos;
-    double *time;
-    uint8_t *frame; // mxMalloc allocated
-    uint8_t *planes[8]; // top of each planar data
-    FrameBuffer() : state(DONE), cnt(0), rd_pos(0), time(NULL), frame(NULL) {}
-    FrameBuffer(const size_t pix_byte, const size_t nb_planar, const size_t capacity) : FrameBuffer() { reset(pix_byte, nb_planar, capacity); }
-    ~FrameBuffer();
-    void reset(const size_t pix_byte, const size_t nb_planar, const size_t capacity);
-  };
-  typedef std::vector<FrameBuffer> FrameBufferVector;
+  typedef ffmpeg::ComponentBuffer<mexAllocator<uint8_t>> mexComponentBuffer;
+  typedef std::vector<mexComponentBuffer,mexAllocator<mexComponentBuffer>> FrameBufferVector;
   FrameBufferVector buffers;
   FrameBufferVector::iterator rd_buf, wr_buf;
 
   std::atomic<bool> killnow;
-  std::thread frame_reader; // thread to swapping buffers 
+  std::thread frame_writer; // thread to swapping buffers 
   std::mutex buffer_lock;
   std::condition_variable buffer_ready;
 
-  void stuff_buffer();
+  void shuffle_buffers();
 
   static std::string mex_get_filterdesc(const mxArray *obj);
   static AVPixelFormat mex_get_pixfmt(const mxArray *obj);
