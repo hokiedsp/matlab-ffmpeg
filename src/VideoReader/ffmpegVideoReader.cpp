@@ -206,6 +206,25 @@ void VideoReader::create_filters(const std::string &filter_description, const AV
     throw ffmpegException("filtering_video:create_filters:avfilter_graph_config:error: %s", av_err2str(ret));
 }
 
+void VideoReader::setCurrentTimeStamp(const double val)
+{
+  if (!fmt_ctx)
+    throw ffmpegException("No file open.");
+
+  // pause the threads and flush the buffers
+
+  // set new time
+  int64_t seek_timestamp = int64_t(val * AV_TIME_BASE);
+
+  if (!(fmt_ctx->iformat->flags & AVFMT_SEEK_TO_PTS) && st->codecpar->video_delay)
+    seek_timestamp -= 3 * AV_TIME_BASE / 23;
+
+  if (avformat_seek_file(fmt_ctx, video_stream_index, INT64_MIN, seek_timestamp, seek_timestamp, 0) < 0)
+    throw ffmpegException("Could not seek to position " + std::to_string(val) + " s");
+
+  // restart
+}
+
 /////////////////////////////////////////////////////////////////////////////////////////////
 // THREAD FUNCTIONS: Read file and send it to the FFmpeg decoder
 
@@ -512,21 +531,23 @@ void VideoReader::copy_frame_ts(const AVFrame *frame, AVRational time_base)
   std::unique_lock<std::mutex> buffer_guard(buffer_lock);
   // if null, reached the end-of-file (or stopped by user command)
   // copy frame to buffer; if buffer not ready, wait until it is
-  int ret = (buf) ? buf->copy_frame(frame, buffersink_ctx->inputs[0]->time_base) : AVERROR(EAGAIN);
+  int ret = (buf) ? buf->copy_frame(frame, time_base) : AVERROR(EAGAIN);
   output("copy_frame_ts()::copying_frame => " << ret);
   while (!killnow && (ret == AVERROR(EAGAIN)))
   {
     buffer_ready.wait(buffer_guard);
     if (killnow)
       break;
-    ret = (buf) ? buf->copy_frame(frame, buffersink_ctx->inputs[0]->time_base) : AVERROR(EAGAIN);
+    ret = (buf) ? buf->copy_frame(frame, time_base) : AVERROR(EAGAIN);
     output("copy_frame_ts()::re-copying_frame => " << ret);
   }
   if (!killnow)
     output("copy_frame_ts()::frame_copied");
 
   if (frame) 
+  {
     pts = frame->pts;
+  }
 
   if (paused)   // if reader paused
     paused = 2; // now all the frames are processed

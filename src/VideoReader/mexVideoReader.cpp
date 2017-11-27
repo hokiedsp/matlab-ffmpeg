@@ -52,6 +52,8 @@ std::string mexVideoReader::mex_get_filterdesc(const mxArray *obj)
   std::string sc_filter_descr("");
   int w = (int)mxGetScalar(mxGetProperty(obj, 0, "Width"));
   int h = (int)mxGetScalar(mxGetProperty(obj, 0, "Height"));
+  // const double* sar = mxGetPr(mxGetProperty(obj, 0, "PixelAspectRatio"));
+
   if (h > 0 || w > 0)
     sc_filter_descr = "scale=" + std::to_string(w) + ":" + std::to_string(h) + ",";
 
@@ -96,7 +98,15 @@ mexVideoReader::mexVideoReader(int nrhs, const mxArray *prhs[])
 
   if (mxGetScalar(mxGetProperty(prhs[0], 0, "Height"))<=0.0)
     mxSetProperty((mxArray *)prhs[0], 0, "Height", mxCreateDoubleScalar((double)reader.getWidth()));
-  
+
+  if (mxIsEmpty(mxGetProperty(prhs[0], 0, "PixelAspectRatio")))
+  {
+    mxArray *sar = mxCreateDoubleMatrix(1, 2, mxREAL);
+    *mxGetPr(sar) = (double)reader.getSAR().num;
+    *(mxGetPr(sar)+1) = (double)reader.getSAR().den;
+    mxSetProperty((mxArray *)prhs[0], 0, "PixelAspectRatio", sar);
+  }
+
   // set buffers
   buffer_capacity = (int)mxGetScalar(mxGetProperty(prhs[0],0,"BufferSize"));
   buffers.reserve(2);
