@@ -157,6 +157,7 @@ private:
 
   void start();
   void pause();
+  void resume();
   void stop();
 
   AVFormatContext *fmt_ctx;
@@ -180,6 +181,7 @@ private:
 
   FrameBuffer *buf;
 
+  bool killnow; // true to kill member threads
   std::mutex reader_lock;
   std::condition_variable reader_ready;
   std::mutex decoder_lock;
@@ -187,17 +189,17 @@ private:
   std::mutex buffer_lock;
   std::condition_variable buffer_ready;
 
-  enum STATUS
+  enum READER_STATUS
   {
     FAILED = -1, //
     IDLE,
     ACTIVE,
-    STOP // requested to stop reading
+    PAUSE_RQ, // requested to stop reading and flush the pipeline
   };     // non-zero to idle
+  std::atomic<READER_STATUS> reader_status;
 
-  bool killnow;
-  std::atomic<STATUS> reader_status;
-  std::atomic<int8_t> paused;
+  std::atomic<bool> buffer_frames; // true to discard all new frames
+  std::condition_variable buffer_flushed;
 
   // THREAD 1: responsible to read packet and send it to ffMPEG decoder
   void read_packets();
@@ -209,7 +211,6 @@ private:
 
   std::exception_ptr eptr;
 
-  void copy_frame_ts(const AVFrame *frame, AVRational time_base); // thread-safe copy frame to buffer
-  int copy_frame(const AVFrame *frame, AVRational time_base);     // copy frame to buffer
+  int copy_frame_ts(const AVFrame *frame, AVRational time_base, bool block); // thread-safe copy frame to buffer
 };
 }
