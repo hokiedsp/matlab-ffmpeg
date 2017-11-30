@@ -12,17 +12,21 @@ try
    %    vrobj.CurrentTime = 2.0;
    %       fprintf('New CurrentTime = %g\n',vrobj.CurrentTime);
    %    disp('Reading the first frame');
-   
+
+%    for n = 1:10
       [frames,t] = vrobj.readBuffer();
-      [frames1,t1] = vrobj.readBuffer();
+%    end
       vrobj
+      vrobj.CurrentTime = 40;
+      [frames1,t1] = vrobj.readBuffer();
 %    frames = zeros(vrobj.Height, vrobj.Width, 3, 10,'uint8');
 %    for n = 1:5
 %       % t(n) = vrobj.CurrentTime;
 %       frames(:,:,:,n) = vrobj.readFrame();
 %    end
+      vrobj
    
-    pause(1)
+%     pause(1)
    %  disp('deleting the object');
    delete(vrobj);
 catch ME

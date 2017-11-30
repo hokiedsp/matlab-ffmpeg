@@ -185,7 +185,19 @@ void mexVideoReader::set_prop(const std::string name, const mxArray *value)
     {
       if (!(mxIsNumeric(value) && mxIsScalar(value)) || mxIsComplex(value))
         throw 0;
+      
+      // release buffer from the reader
+      reader.resetBuffer(NULL);
+
+      // set new time
       reader.setCurrentTimeStamp(mxGetScalar(value));
+
+      // reset buffers
+      wr_buf->reset();
+      rd_buf->reset();
+
+      // set write buffer to reader
+      reader.resetBuffer(&*wr_buf);
     }
     catch (...)
     {

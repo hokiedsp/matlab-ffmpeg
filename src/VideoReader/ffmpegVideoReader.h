@@ -198,7 +198,7 @@ private:
   };     // non-zero to idle
   std::atomic<READER_STATUS> reader_status;
 
-  std::atomic<bool> buffer_frames; // true to discard all new frames
+  std::atomic<bool> flush_frames; // true to discard all new frames
   std::condition_variable buffer_flushed;
 
   // THREAD 1: responsible to read packet and send it to ffMPEG decoder
@@ -211,6 +211,6 @@ private:
 
   std::exception_ptr eptr;
 
-  int copy_frame_ts(const AVFrame *frame, AVRational time_base, bool block); // thread-safe copy frame to buffer
+  void copy_frame_ts(const AVFrame *frame, AVRational time_base); // thread-safe copy frame to buffer
 };
 }
