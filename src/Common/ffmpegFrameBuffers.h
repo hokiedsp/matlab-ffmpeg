@@ -25,7 +25,7 @@ class FrameBuffer
 public:
   virtual ~FrameBuffer() {}
 
-  virtual int copy_frame(const AVFrame *frame, AVRational time_base) = 0; // copy frame to buffer
+  virtual int copy_frame(const AVFrame *frame, const AVRational &time_base) = 0; // copy frame to buffer
   virtual int read_frame(uint8_t *dst, double *t = NULL, bool advance = true) = 0; // read next frame
   
   virtual size_t capacity() const = 0;                                                // number of frames it can hold
@@ -155,7 +155,7 @@ public:
     allocator.deallocate(data_buf, data_sz);
   }
 
-  //virtual int copy_frame(const AVFrame *frame, AVRational time_base) = 0; // copy frame to buffer
+  //virtual int copy_frame(const AVFrame *frame, const AVRational &time_base) = 0; // copy frame to buffer
 
   int read_frame(uint8_t *dst, double *t = NULL, bool advance = true) // read next frame
   {
@@ -306,9 +306,7 @@ public:
     if (pixfmt==AV_PIX_FMT_NONE) // default-constructed unusable empty buffer
     {
       if (nframes > 0)
-      {
         throw ffmpegException("This buffer is default-constructed and thus unusable.");
-      }
       return;
     }
     
@@ -337,7 +335,7 @@ public:
     rd_data = data_buf;
   }
 
-  int copy_frame(const AVFrame *frame, AVRational time_base)
+  int copy_frame(const AVFrame *frame, const AVRational &time_base)
   {
     // expects having exclusive access to the user supplied buffer
     if (!nb_frames || full()) // receiving data buffer not set
@@ -389,6 +387,6 @@ private:
 // class PlanarBuffer : public FrameBuffer<Allocator>
 // {
 //   PlanarBuffer(const AVPixelFormat pixfmt, const size_t nb_frames, uint8_t *buffer);
-//   int copy_frame(const AVFrame *frame, AVRational time_base); // copy frame to buffer
+//   int copy_frame(const AVFrame *frame, const AVRational &time_base); // copy frame to buffer
 // };
 }

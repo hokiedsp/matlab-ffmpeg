@@ -102,10 +102,7 @@ public:
     return fmt_ctx ? fmt_ctx->filename : "";
   }
 
-  double getFrameRate() const
-  {
-    return (fmt_ctx) ? (double(st->avg_frame_rate.num) / st->avg_frame_rate.den) : NAN;
-  }
+  double getFrameRate() const;
 
   std::string getCodecName() const
   {
@@ -121,7 +118,7 @@ public:
   {
     return (fmt_ctx) ? (double(av_rescale_q(pts, (filter_graph) ? buffersink_ctx->inputs[0]->time_base : st->time_base, AV_TIME_BASE_Q) / 100) / (AV_TIME_BASE / 100)) : NAN;
   }
-  void setCurrentTimeStamp(const double val);
+  void setCurrentTimeStamp(const double val, const bool exact_search = true);
 
   const AVPixelFormat getPixelFormat() const { return pix_fmt; };
   const AVPixFmtDescriptor &getPixFmtDescriptor() const;
@@ -152,7 +149,7 @@ private:
   void open_input_file(const std::string &filename);
   void close_input_file(); // must call stop() before calling this function
 
-  void create_filters(const std::string &descr, const AVPixelFormat pix_fmt = AV_PIX_FMT_NONE);
+  void create_filters(const std::string &descr="", const AVPixelFormat pix_fmt = AV_PIX_FMT_NONE);
   void destroy_filters();
 
   void start();
@@ -172,15 +169,17 @@ private:
   AVPixelFormat pix_fmt;
   std::string filter_descr;
 
-  std::atomic<uint64_t> pts; // presentation timestamp of the last buffered
+  std::atomic<int64_t> pts; // presentation timestamp of the last buffered
   std::atomic<bool> eof;
 
+  AVRational tb; // timebase
   AVFrame *firstframe;
   std::mutex firstframe_lock;
   std::condition_variable firstframe_ready;
 
   FrameBuffer *buf;
-
+  int64_t buf_start_ts; // if non-zero, frames with pts less than this number are ignored, used to seek to exact pts
+  
   bool killnow; // true to kill member threads
   std::mutex reader_lock;
   std::condition_variable reader_ready;
@@ -211,6 +210,6 @@ private:
 
   std::exception_ptr eptr;
 
-  void copy_frame_ts(const AVFrame *frame, AVRational time_base); // thread-safe copy frame to buffer
+  void copy_frame_ts(const AVFrame *frame); // thread-safe copy frame to buffer
 };
 }

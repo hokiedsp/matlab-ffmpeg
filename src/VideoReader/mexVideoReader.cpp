@@ -186,7 +186,9 @@ void mexVideoReader::set_prop(const std::string name, const mxArray *value)
       if (!(mxIsNumeric(value) && mxIsScalar(value)) || mxIsComplex(value))
         throw 0;
       
-      // release buffer from the reader
+      std::unique_lock<std::mutex> buffer_guard(buffer_lock);
+      // this should stop the shuffle_buffer thread when the buffer is not available
+
       reader.resetBuffer(NULL);
 
       // set new time
@@ -198,6 +200,9 @@ void mexVideoReader::set_prop(const std::string name, const mxArray *value)
 
       // set write buffer to reader
       reader.resetBuffer(&*wr_buf);
+
+      // tell  shuffle_buffers thread to resume
+      buffer_ready.notify_one();
     }
     catch (...)
     {
@@ -240,7 +245,6 @@ mxArray *mexVideoReader::get_prop(const std::string name)
       buffer_ready.wait(buffer_guard);
     rd_buf->read_frame(NULL, &t, false);
     buffer_ready.notify_one();
-    buffer_guard.unlock();
 
     rval = mxCreateDoubleScalar(t);
   }
@@ -321,8 +325,9 @@ void mexVideoReader::shuffle_buffers()
     }
     else // read buffer still has unread frames, wait until all read
     {
-      av_log(NULL,AV_LOG_INFO,"mexVideoReader::shuffle_buffers::more in read buffer\n");
+      av_log(NULL,AV_LOG_INFO,"mexVideoReader::shuffle_buffers::read buffer is full, waiting for main thread to finish reading from the read buffer\n");
       buffer_ready.wait(buffer_guard); // to be woken up by read functions
+      av_log(NULL,AV_LOG_INFO,"mexVideoReader::shuffle_buffers::notified!! resume operation\n");
     }
   }
 }
@@ -357,6 +362,8 @@ void mexVideoReader::readBuffer(int nlhs, mxArray *plhs[], int nrhs, const mxArr
   uint8_t *data = NULL;
   double *ts = NULL;
 
+  av_log(NULL,AV_LOG_INFO,"mexVideoReader::readBuffer::start\n");
+
   // Extract the data arrays from the buffer
   {
     // wait until a buffer is ready
@@ -364,25 +371,35 @@ void mexVideoReader::readBuffer(int nlhs, mxArray *plhs[], int nrhs, const mxArr
     if (!rd_buf->full())
       buffer_ready.wait(buffer_guard);
 
-    // release the buffer data (buffer automatically reallocate new data block)
+  av_log(NULL,AV_LOG_INFO,"mexVideoReader::readBuffer::buffer ready\n");
+
+  // release the buffer data (buffer automatically reallocate new data block)
     nb_frames = rd_buf->release(&data, &ts);
 
-    // notify the stuffer for the buffer availability
+  av_log(NULL,AV_LOG_INFO,"mexVideoReader::readBuffer::buffer data retrieved\n");
+
+  // notify the stuffer for the buffer availability
     buffer_ready.notify_one();
   }
 
+
   // create output array
   mwSize dims[4] = {reader.getWidth(), reader.getHeight(), reader.getPixFmtDescriptor().nb_components, 0};
+  av_log(NULL,AV_LOG_INFO,"mexVideoReader::readBuffer::frame data size obtained: %d, %d, %d\n",dims[0],dims[1],dims[2]);
   plhs[0] = mxCreateNumericArray(4, dims, mxUINT8_CLASS, mxREAL);
+  av_log(NULL,AV_LOG_INFO,"mexVideoReader::readBuffer::empty mxArray created\n");
   dims[3] = nb_frames;
   mxSetDimensions(plhs[0], dims, 4);
+  av_log(NULL,AV_LOG_INFO,"mexVideoReader::readBuffer::assigned mxArray size\n");
   mxSetData(plhs[0], data);
+  av_log(NULL,AV_LOG_INFO,"mexVideoReader::readBuffer::mxArray frame data array created\n");
 
   if (nlhs > 1) // create array for the time stamps if requested
   {
     plhs[1] = mxCreateDoubleMatrix(1, 0, mxREAL);
     mxSetN(plhs[1], nb_frames);
     mxSetPr(plhs[1], ts);
+  av_log(NULL,AV_LOG_INFO,"mexVideoReader::readBuffer::mxArray time array created\n");
   }
   else // if not, free up the memory
   {

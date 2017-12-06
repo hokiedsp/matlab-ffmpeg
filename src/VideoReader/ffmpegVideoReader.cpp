@@ -27,7 +27,7 @@ using namespace ffmpeg;
 VideoReader::VideoReader(const std::string &filename, const std::string &filtdesc, const AVPixelFormat pix_fmt)
     : fmt_ctx(NULL), dec_ctx(NULL), filter_graph(NULL), buffersrc_ctx(NULL), buffersink_ctx(NULL),
       video_stream_index(-1), st(NULL), pix_fmt(AV_PIX_FMT_NONE), filter_descr(""),
-      pts(0), eof(false), firstframe(NULL), buf(NULL),
+      pts(0), eof(false), firstframe(NULL), buf(NULL), buf_start_ts(0),
       killnow(false), reader_status(IDLE), flush_frames(true),
       eptr(NULL)
 {
@@ -49,6 +49,28 @@ const AVPixFmtDescriptor &VideoReader::getPixFmtDescriptor() const
   if (!pix_fmt_desc)
     ffmpegException("Pixel format is unknown.");
   return *pix_fmt_desc;
+}
+
+double VideoReader::getFrameRate() const
+{
+  AVRational fps={0,0};
+  if (buffersink_ctx)
+  {
+    fps = av_buffersink_get_frame_rate(buffersink_ctx);
+    av_log(NULL,AV_LOG_INFO,"Buffer Sink Output Frame Rate: %d/%d\n",fps.den,fps.num);
+  }
+  if (fmt_ctx || !fps.den)
+  {
+    fps = st->avg_frame_rate;
+    av_log(NULL,AV_LOG_INFO,"Decoder Output Frame Rate: %d/%d\n",fps.den,fps.num);
+  }
+  else
+  {
+    av_log(NULL,AV_LOG_INFO,"Frame Rate Unknown\n");
+    return NAN;
+  }
+
+  return double(fps.num) / fps.den;
 }
 
 void VideoReader::open_input_file(const std::string &filename)
@@ -125,7 +147,7 @@ void VideoReader::create_filters(const std::string &filter_description, const AV
   buffersrc_ctx = buffersink_ctx = NULL;
 
   // no filter if description not given
-  if (filter_description.empty() && pix_fmt_rq==AV_PIX_FMT_NONE)
+  if (filter_descr.empty() && filter_description.empty() && pix_fmt_rq==AV_PIX_FMT_NONE)
     return;
 
   if (!dec_ctx)
@@ -191,22 +213,24 @@ void VideoReader::create_filters(const std::string &filter_description, const AV
   inputs->pad_idx = 0;
   inputs->next = NULL;
 
-  if (filter_description.size()) // false if only format change
+  // if new filter given, store it
+  if (filter_description.size())
+    filter_descr = filter_description;
+  if (filter_descr.size()) // false if only format change
   {
     AVFilterInOut *in = inputs.release();
     AVFilterInOut *out = outputs.release();
-    if ((ret = avfilter_graph_parse_ptr(filter_graph, filter_description.c_str(), &in, &out, NULL)) < 0)
+    if ((ret = avfilter_graph_parse_ptr(filter_graph, filter_descr.c_str(), &in, &out, NULL)) < 0)
       throw ffmpegException("filtering_video:create_filters:avfilter_graph_parse_ptr:error: %s", av_err2str(ret));
     inputs.reset(in);
     outputs.reset(out);
-    filter_descr = filter_description;
   }
 
   if (ret = avfilter_graph_config(filter_graph, NULL))
     throw ffmpegException("filtering_video:create_filters:avfilter_graph_config:error: %s", av_err2str(ret));
 }
 
-void VideoReader::setCurrentTimeStamp(const double val)
+void VideoReader::setCurrentTimeStamp(const double val, const bool exact_search)
 {
   if (!isFileOpen())
     throw ffmpegException("No file open.");
@@ -216,16 +240,22 @@ output("Pausing threads");
   pause();
 
 output("Threads paused. Resetting timestamp");
-  // set new time
-  int64_t seek_timestamp = int64_t(val * AV_TIME_BASE);
 
-  if (!(fmt_ctx->iformat->flags & AVFMT_SEEK_TO_PTS) && st->codecpar->video_delay)
-    seek_timestamp -= 3 * AV_TIME_BASE / 23;
+// set new time
+// if filter graph changes frame rate -> convert it to the stream time
+int64_t seek_timestamp = int64_t(val * AV_TIME_BASE);
 
-  if (avformat_seek_file(fmt_ctx, video_stream_index, INT64_MIN, seek_timestamp, seek_timestamp, 0) < 0)
-    throw ffmpegException("Could not seek to position " + std::to_string(val) + " s");
+// seek_timestamp = double(av_rescale_q(pts, (filter_graph) ? tb : st->time_base, AV_TIME_BASE_Q));
+av_log(NULL, AV_LOG_INFO,"ffmpeg::VideoReader::setCurrentTimeStamp::seek_timestamp = %d\n",seek_timestamp);
+if (avformat_seek_file(fmt_ctx, -1, INT64_MIN, seek_timestamp, seek_timestamp, 0) < 0)
+  throw ffmpegException("Could not seek to position " + std::to_string(val) + " s");
 
-  // restart
+// avformat_seek_file() typically under-seeks, if exact_search requested, set buf_start_ts to the 
+// requested timestamp (in output frame's timebase) to make copy_frame_ts() to ignore all the frames prior to the requested
+if (exact_search)
+  buf_start_ts = av_rescale_q(seek_timestamp, AV_TIME_BASE_Q, tb);
+
+// restart
 output("Timestamp reset. Resuming threads");
   resume();
 output("Threads active");
@@ -430,7 +460,7 @@ void VideoReader::read_packets()
     reader_status = FAILED;
     reader_ready.notify_all();
     decoder_ready.notify_all();
-    buffer_flushed.notify_all();
+    buffer_ready.notify_all();
   }
   output("read_packets()::terminated");
 }
@@ -488,7 +518,7 @@ void VideoReader::filter_frames()
         output("filter_frames()::trying_receiving_filtered_frame => " << ret);
         while (!killnow && ret >= 0)
         {
-          copy_frame_ts(filt_frame, buffersink_ctx->inputs[0]->time_base);
+          copy_frame_ts(filt_frame);
           av_frame_unref(filt_frame);
           if (killnow)
             break;
@@ -497,19 +527,22 @@ void VideoReader::filter_frames()
         }
 
         if (ret == AVERROR_EOF) // run copy_frame_ts one last time if EOF to let buffer know
-          copy_frame_ts(NULL, buffersink_ctx->inputs[0]->time_base);
+          copy_frame_ts(NULL);
         else if (!killnow && ret < 0 && ret != AVERROR(EAGAIN))
           throw ffmpegException("Error occurred while retrieving filtered frames: %s", av_err2str(ret));
       }
       else
       {
         // no filtering, buffer immediately
-        copy_frame_ts(last_frame ? NULL : frame, st->time_base);
+        copy_frame_ts(last_frame ? NULL : frame);
       }
 
       // save the timestamp as the last buffered
       if (frame)
-        pts = frame->pts;
+      {
+        pts = frame->best_effort_timestamp;
+        av_log(NULL, AV_LOG_INFO, "ffmpeg::VideoReader::filter_frames::pts= %d\n", uint64_t(pts));
+      }
 
       // clear last_frame flag -or- release frame
       if (last_frame)
@@ -519,6 +552,8 @@ void VideoReader::filter_frames()
         if (flush_frames) // finished flushing, reset buffering flag
         {
           avcodec_flush_buffers(dec_ctx);
+          if (filter_graph) // if filtered, re-create the filtergraph
+            create_filters(); // 
           buffer_flushed.notify_one();
           output("filter_frames()::Buffer flushed");
         }
@@ -540,6 +575,7 @@ void VideoReader::filter_frames()
     killnow = true;
     reader_ready.notify_all();
     decoder_ready.notify_all();
+    buffer_ready.notify_all();
     buffer_flushed.notify_all();
   }
 
@@ -550,34 +586,41 @@ void VideoReader::filter_frames()
   output("filter_frames()::terminated");
 }
 
-void VideoReader::copy_frame_ts(const AVFrame *frame, AVRational time_base)
+void VideoReader::copy_frame_ts(const AVFrame *frame)
 {
   // keep the first frame as the reference
   if (!firstframe)
   {
-    output("copy_frame_ts()::saving_first_frame");
     std::unique_lock<std::mutex> firstframe_guard(firstframe_lock);
     if (frame)
+    {
       firstframe = av_frame_clone(frame);
-    output("copy_frame_ts()::first_frame_saved");
+      tb = (filter_graph) ? buffersink_ctx->inputs[0]->time_base : st->time_base;
+    }
     firstframe_ready.notify_one();
+  }
+
+  // if seeking to a specified pts
+  if (buf_start_ts)
+  {
+    if (frame->best_effort_timestamp < buf_start_ts)
+      return;
+    else
+      buf_start_ts = 0;
   }
 
   std::unique_lock<std::mutex> buffer_guard(buffer_lock);
   // if null, reached the end-of-file (or stopped by user command)
   // copy frame to buffer; if buffer not ready, wait until it is
-  int ret = (buf) ? buf->copy_frame(frame, time_base) : AVERROR(EAGAIN);
-  output("copy_frame_ts()::copying_frame => " << ret);
+  int ret = (buf) ? buf->copy_frame(frame, tb) : AVERROR(EAGAIN);
   while (!(flush_frames || killnow) && (ret == AVERROR(EAGAIN)))
   {
      buffer_ready.wait(buffer_guard);
     if (killnow || flush_frames)
       break;
-    ret = (buf) ? buf->copy_frame(frame, time_base) : AVERROR(EAGAIN);
-    output("copy_frame_ts()::re-copying_frame => " << ret);
+    ret = (buf) ? buf->copy_frame(frame, tb) : AVERROR(EAGAIN);
   }
   if (!killnow)
-    output("copy_frame_ts()::frame_copied");
   
   if (!ret) // if successfully buffered
     buffer_ready.notify_one();

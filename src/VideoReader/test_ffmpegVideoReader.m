@@ -17,8 +17,8 @@ try
       [frames,t] = vrobj.readBuffer();
 %    end
       vrobj
-      vrobj.CurrentTime = 40;
-      [frames1,t1] = vrobj.readBuffer();
+      vrobj.CurrentTime = 100;
+%       [frames1,t1] = vrobj.readBuffer();
 %    frames = zeros(vrobj.Height, vrobj.Width, 3, 10,'uint8');
 %    for n = 1:5
 %       % t(n) = vrobj.CurrentTime;
