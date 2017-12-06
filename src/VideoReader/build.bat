@@ -22,7 +22,7 @@ set MATLAB_INCLUDE_DIR=%MATLAB_EXTERN_DIR%\include
 set MATLAB_LIB_DIR=%MATLAB_EXTERN_DIR%\lib\win64\microsoft
 set MATLAB_LIB_FILES=libmx.lib libmex.lib libmat.lib
 
-set FFMPEG_ROOT_DIR=%USERPROFILE%\Documents\Programming\ffmpeg-3.3.3
+set FFMPEG_ROOT_DIR=%USERPROFILE%\Documents\Programming\ffmpeg-3.4
 set FFMPEG_INCLUDE_DIR=%FFMPEG_ROOT_DIR%\include
 set FFMPEG_LIB_DIR=%FFMPEG_ROOT_DIR%\lib
 set FFMPEG_BIN_DIR=%FFMPEG_ROOT_DIR%\bin
