@@ -12,17 +12,6 @@ extern "C" {
 #include <cstdarg>
 #include <locale>
 
-#include <fstream>
-static std::mutex lockfile;
-static std::ofstream of("mextest.csv");
-#define output(command)                     \
-  \
-{                                        \
-    std::unique_lock<std::mutex>(lockfile); \
-    of << command << std::endl;             \
-  \
-}
-
 // // append transpose filter at the end to show the output in the proper orientation in MATLAB
 
 void mexFFmpegCallback(void *avcl, int level, const char *fmt, va_list argptr)
@@ -32,7 +21,7 @@ void mexFFmpegCallback(void *avcl, int level, const char *fmt, va_list argptr)
     char dest[1024 * 16];
     vsprintf(dest, fmt, argptr);
     mexPrintf(dest);
-    output(dest);
+    // output(dest);
   }
 }
 
@@ -47,6 +36,7 @@ void mexFunction(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[])
 // static
 std::string mexVideoReader::mex_get_filterdesc(const mxArray *obj)
 {
+  // always appends transpose filter so that the video is presented to MATLAB columns first
   std::string tr_filter_descr("transpose=dir=0");
 
   std::string sc_filter_descr("");
@@ -302,8 +292,6 @@ void mexVideoReader::shuffle_buffers()
   {
     if (!rd_buf->available()) // all read
     {
-      av_log(NULL,AV_LOG_INFO,"mexVideoReader::shuffle_buffers::read buffer all read\n");
-
       // done with the read buffer
       rd_buf->reset();
 
@@ -321,19 +309,23 @@ void mexVideoReader::shuffle_buffers()
       // give reader the new buffer
       reader.resetBuffer(&*wr_buf);
 
-      av_log(NULL,AV_LOG_INFO,"mexVideoReader::shuffle_buffers::buffers swapped\n");
     }
     else // read buffer still has unread frames, wait until all read
     {
-      av_log(NULL,AV_LOG_INFO,"mexVideoReader::shuffle_buffers::read buffer is full, waiting for main thread to finish reading from the read buffer\n");
       buffer_ready.wait(buffer_guard); // to be woken up by read functions
-      av_log(NULL,AV_LOG_INFO,"mexVideoReader::shuffle_buffers::notified!! resume operation\n");
     }
   }
 }
 
 void mexVideoReader::readFrame(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[]) //[frame,time] = readFrame(obj, varargin);
 {
+  // if buffer size is 1, use readBuffer() to avoid copying the frame
+  if (buffer_capacity==1)
+  {
+    readBuffer(nlhs,plhs,nrhs,prhs);
+    return;
+  }
+
   mwSize dims[3] = {reader.getWidth(), reader.getHeight(), reader.getPixFmtDescriptor().nb_components};
   plhs[0] = mxCreateNumericArray(3,dims,mxUINT8_CLASS,mxREAL);
   uint8_t *dst = (uint8_t*)mxGetData(plhs[0]);
@@ -362,8 +354,6 @@ void mexVideoReader::readBuffer(int nlhs, mxArray *plhs[], int nrhs, const mxArr
   uint8_t *data = NULL;
   double *ts = NULL;
 
-  av_log(NULL,AV_LOG_INFO,"mexVideoReader::readBuffer::start\n");
-
   // Extract the data arrays from the buffer
   {
     // wait until a buffer is ready
@@ -371,12 +361,8 @@ void mexVideoReader::readBuffer(int nlhs, mxArray *plhs[], int nrhs, const mxArr
     if (!rd_buf->full())
       buffer_ready.wait(buffer_guard);
 
-  av_log(NULL,AV_LOG_INFO,"mexVideoReader::readBuffer::buffer ready\n");
-
   // release the buffer data (buffer automatically reallocate new data block)
     nb_frames = rd_buf->release(&data, &ts);
-
-  av_log(NULL,AV_LOG_INFO,"mexVideoReader::readBuffer::buffer data retrieved\n");
 
   // notify the stuffer for the buffer availability
     buffer_ready.notify_one();

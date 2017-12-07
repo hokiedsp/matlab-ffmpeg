@@ -25,6 +25,7 @@ try
 %       frames(:,:,:,n) = vrobj.readFrame();
 %    end
       vrobj
+      [f,tf] = vrobj.readFrame();
    
 %     pause(1)
    %  disp('deleting the object');
