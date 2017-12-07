@@ -140,32 +140,9 @@ classdef VideoReader < matlab.mixin.SetGet & matlab.mixin.CustomDisplay
          if nargin>1
             set(obj,varargin{2:end});
          end
-         
+
+         % instantiate the MEX backend
          obj.backend = ffmpeg.VideoReader.mex_backend(obj,filename);
-         
-         [obj.Path,obj.Name,ext] = fileparts(filename);
-         obj.Name = [obj.Name ext];
-         
-         %             % If no file name provided.
-         %             if nargin == 0
-         %                 error(message('ffmpeg:VideoReader:noFile'));
-         %             end
-         %
-         %             try
-         %                 validateattributes(fileName, {'char'}, {'row', 'vector'}, 'VideoReader');
-         %             catch ME
-         %                 throwAsCaller(ME);
-         %             end
-         %
-         %             % Initialize the object.
-         %             % The duration of the file needs to be determined before the
-         %             % CurrentTime can be set.
-         %             obj.init(fileName);
-         %
-         %             % Set properties that user passed in.
-         %             if nargin > 1
-         %                 set(obj, varargin{:});
-         %             end
       end
       
       function delete(obj)

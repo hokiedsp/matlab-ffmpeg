@@ -11,12 +11,16 @@ extern "C" {
 
 #include <cstdarg>
 #include <locale>
+// #include <experimental/filesystem> // C++-standard header file name  
+#include <filesystem>
+// using namespace std::experimental::filesystem::v1;  
+namespace fs = std::experimental::filesystem ;
 
 // // append transpose filter at the end to show the output in the proper orientation in MATLAB
 
 void mexFFmpegCallback(void *avcl, int level, const char *fmt, va_list argptr)
 {
-  if (level <= AV_LOG_VERBOSE)//AV_LOG_FATAL || level == AV_LOG_ERROR)
+  if (level <= AV_LOG_VERBOSE) //AV_LOG_FATAL || level == AV_LOG_ERROR)
   {
     char dest[1024 * 16];
     vsprintf(dest, fmt, argptr);
@@ -63,12 +67,12 @@ AVPixelFormat mexVideoReader::mex_get_pixfmt(const mxArray *obj)
     return AV_PIX_FMT_GRAY8; //        Y        ,  8bpp
 
   AVPixelFormat pix_fmt = av_get_pix_fmt(pix_fmt_str.c_str());
-  if (pix_fmt==AV_PIX_FMT_NONE) // just in case
-      mexErrMsgIdAndTxt("ffmpegVideoReader:InvalidInput","Pixel format is unknown.");
+  if (pix_fmt == AV_PIX_FMT_NONE) // just in case
+    mexErrMsgIdAndTxt("ffmpegVideoReader:InvalidInput", "Pixel format is unknown.");
 
   if (!(sws_isSupportedOutput(pix_fmt) && mexComponentBuffer::supportedPixelFormat(pix_fmt)))
-      mexErrMsgIdAndTxt("ffmpegVideoReader:InvalidInput","Pixel format is not supported.");
-  
+    mexErrMsgIdAndTxt("ffmpegVideoReader:InvalidInput", "Pixel format is not supported.");
+
   return pix_fmt;
 }
 
@@ -76,29 +80,36 @@ AVPixelFormat mexVideoReader::mex_get_pixfmt(const mxArray *obj)
 mexVideoReader::mexVideoReader(int nrhs, const mxArray *prhs[])
     : killnow(false)
 {
+  // get absolute path to the file
+  fs::path p = fs::canonical(mexGetString(prhs[1]));
+
   // open the video file
-  reader.openFile(mexGetString(prhs[1]), mex_get_filterdesc(prhs[0]), mex_get_pixfmt(prhs[0]));
+  reader.openFile(p.string(), mex_get_filterdesc(prhs[0]), mex_get_pixfmt(prhs[0]));
 
   // set unspecified properties
-  if (mxIsEmpty(mxGetProperty(prhs[0],0,"FrameRate")))
+  if (mxIsEmpty(mxGetProperty(prhs[0], 0, "Name")))
+    mxSetProperty((mxArray *)prhs[0], 0, "Name", mxCreateString(p.filename().string().c_str()) );
+  if (mxIsEmpty(mxGetProperty(prhs[0], 0, "Path")))
+    mxSetProperty((mxArray *)prhs[0], 0, "Path", mxCreateString(p.parent_path().string().c_str()) );
+  if (mxIsEmpty(mxGetProperty(prhs[0], 0, "FrameRate")))
     mxSetProperty((mxArray *)prhs[0], 0, "FrameRate", mxCreateDoubleScalar((double)reader.getFrameRate()));
-  
-  if (mxGetScalar(mxGetProperty(prhs[0], 0, "Width"))<=0.0)
+
+  if (mxGetScalar(mxGetProperty(prhs[0], 0, "Width")) <= 0.0)
     mxSetProperty((mxArray *)prhs[0], 0, "Width", mxCreateDoubleScalar((double)reader.getHeight()));
 
-  if (mxGetScalar(mxGetProperty(prhs[0], 0, "Height"))<=0.0)
+  if (mxGetScalar(mxGetProperty(prhs[0], 0, "Height")) <= 0.0)
     mxSetProperty((mxArray *)prhs[0], 0, "Height", mxCreateDoubleScalar((double)reader.getWidth()));
 
   if (mxIsEmpty(mxGetProperty(prhs[0], 0, "PixelAspectRatio")))
   {
     mxArray *sar = mxCreateDoubleMatrix(1, 2, mxREAL);
     *mxGetPr(sar) = (double)reader.getSAR().num;
-    *(mxGetPr(sar)+1) = (double)reader.getSAR().den;
+    *(mxGetPr(sar) + 1) = (double)reader.getSAR().den;
     mxSetProperty((mxArray *)prhs[0], 0, "PixelAspectRatio", sar);
   }
 
   // set buffers
-  buffer_capacity = (int)mxGetScalar(mxGetProperty(prhs[0],0,"BufferSize"));
+  buffer_capacity = (int)mxGetScalar(mxGetProperty(prhs[0], 0, "BufferSize"));
   buffers.reserve(2);
   buffers.emplace_back(buffer_capacity, reader.getWidth(), reader.getHeight(), reader.getPixelFormat());
   buffers.emplace_back(buffer_capacity, reader.getWidth(), reader.getHeight(), reader.getPixelFormat());
@@ -122,7 +133,7 @@ mexVideoReader::~mexVideoReader()
     std::unique_lock<std::mutex> buffer_guard(buffer_lock);
     buffer_ready.notify_one();
   }
-  
+
   // start the file reading thread (sets up and idles)
   if (frame_writer.joinable())
     frame_writer.join();
@@ -155,9 +166,9 @@ bool mexVideoReader::static_handler(const std::string &command, int nlhs, mxArra
   }
   if (command == "validate_pixfmt")
   {
-    if (nrhs!=1 || !mxIsChar(prhs[0]))
+    if (nrhs != 1 || !mxIsChar(prhs[0]))
       throw std::runtime_error("validate_pixfmt0() takes one string input argument.");
-    
+
     std::string pixfmt = mexGetString(prhs[0]);
     if (av_get_pix_fmt(pixfmt.c_str()) == AV_PIX_FMT_NONE)
       mexErrMsgIdAndTxt("ffmpeg:VideoReader:validate_pixfmt:invalidFormat", "%s is not a valid FFmpeg Pixel Format", pixfmt.c_str());
@@ -175,7 +186,7 @@ void mexVideoReader::set_prop(const std::string name, const mxArray *value)
     {
       if (!(mxIsNumeric(value) && mxIsScalar(value)) || mxIsComplex(value))
         throw 0;
-      
+
       std::unique_lock<std::mutex> buffer_guard(buffer_lock);
       // this should stop the shuffle_buffer thread when the buffer is not available
 
@@ -308,7 +319,6 @@ void mexVideoReader::shuffle_buffers()
 
       // give reader the new buffer
       reader.resetBuffer(&*wr_buf);
-
     }
     else // read buffer still has unread frames, wait until all read
     {
@@ -320,15 +330,15 @@ void mexVideoReader::shuffle_buffers()
 void mexVideoReader::readFrame(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[]) //[frame,time] = readFrame(obj, varargin);
 {
   // if buffer size is 1, use readBuffer() to avoid copying the frame
-  if (buffer_capacity==1)
+  if (buffer_capacity == 1)
   {
-    readBuffer(nlhs,plhs,nrhs,prhs);
+    readBuffer(nlhs, plhs, nrhs, prhs);
     return;
   }
 
   mwSize dims[3] = {reader.getWidth(), reader.getHeight(), reader.getPixFmtDescriptor().nb_components};
-  plhs[0] = mxCreateNumericArray(3,dims,mxUINT8_CLASS,mxREAL);
-  uint8_t *dst = (uint8_t*)mxGetData(plhs[0]);
+  plhs[0] = mxCreateNumericArray(3, dims, mxUINT8_CLASS, mxREAL);
+  uint8_t *dst = (uint8_t *)mxGetData(plhs[0]);
   double t(NAN);
 
   std::unique_lock<std::mutex> buffer_guard(buffer_lock);
@@ -338,7 +348,7 @@ void mexVideoReader::readFrame(int nlhs, mxArray *plhs[], int nrhs, const mxArra
   buffer_ready.notify_one();
   buffer_guard.unlock();
 
-  if (nlhs>1)
+  if (nlhs > 1)
     plhs[1] = mxCreateDoubleScalar(t);
 }
 
@@ -361,31 +371,25 @@ void mexVideoReader::readBuffer(int nlhs, mxArray *plhs[], int nrhs, const mxArr
     if (!rd_buf->full())
       buffer_ready.wait(buffer_guard);
 
-  // release the buffer data (buffer automatically reallocate new data block)
+    // release the buffer data (buffer automatically reallocate new data block)
     nb_frames = rd_buf->release(&data, &ts);
 
-  // notify the stuffer for the buffer availability
+    // notify the stuffer for the buffer availability
     buffer_ready.notify_one();
   }
 
-
   // create output array
   mwSize dims[4] = {reader.getWidth(), reader.getHeight(), reader.getPixFmtDescriptor().nb_components, 0};
-  av_log(NULL,AV_LOG_INFO,"mexVideoReader::readBuffer::frame data size obtained: %d, %d, %d\n",dims[0],dims[1],dims[2]);
   plhs[0] = mxCreateNumericArray(4, dims, mxUINT8_CLASS, mxREAL);
-  av_log(NULL,AV_LOG_INFO,"mexVideoReader::readBuffer::empty mxArray created\n");
   dims[3] = nb_frames;
   mxSetDimensions(plhs[0], dims, 4);
-  av_log(NULL,AV_LOG_INFO,"mexVideoReader::readBuffer::assigned mxArray size\n");
   mxSetData(plhs[0], data);
-  av_log(NULL,AV_LOG_INFO,"mexVideoReader::readBuffer::mxArray frame data array created\n");
 
   if (nlhs > 1) // create array for the time stamps if requested
   {
     plhs[1] = mxCreateDoubleMatrix(1, 0, mxREAL);
     mxSetN(plhs[1], nb_frames);
     mxSetPr(plhs[1], ts);
-  av_log(NULL,AV_LOG_INFO,"mexVideoReader::readBuffer::mxArray time array created\n");
   }
   else // if not, free up the memory
   {
@@ -393,15 +397,15 @@ void mexVideoReader::readBuffer(int nlhs, mxArray *plhs[], int nrhs, const mxArr
   }
 }
 
-  // else if (name == "FrameRate")
-  // {
-  //   rval = mxCreateDoubleScalar(reader.getFrameRate());
-  // }
-  // else if (name == "Height")
-  // {
-  //   rval = mxCreateDoubleScalar((double)reader.getHeight());
-  // }
-  // else if (name == "Width")
-  // {
-  //   rval = mxCreateDoubleScalar((double)reader.getWidth());
-  // }
+// else if (name == "FrameRate")
+// {
+//   rval = mxCreateDoubleScalar(reader.getFrameRate());
+// }
+// else if (name == "Height")
+// {
+//   rval = mxCreateDoubleScalar((double)reader.getHeight());
+// }
+// else if (name == "Width")
+// {
+//   rval = mxCreateDoubleScalar((double)reader.getWidth());
+// }
