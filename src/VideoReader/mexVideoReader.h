@@ -33,7 +33,7 @@ protected:
 
   static void getFileFormats(int nlhs, mxArray *plhs[]); // formats = getFileFormats();
   static void getVideoFormats(int nlhs, mxArray *plhs[]); // formats = getVideoFormats();
-  static mxArray *buildPixFmtDescStruct(std::vector<const AVPixFmtDescriptor *> &pix_descs);
+  static void getVideoCompressions(int nlhs, mxArray *plhs[]); // formats = getVideoCompressions();
 
 private:
   ffmpeg::VideoReader reader;

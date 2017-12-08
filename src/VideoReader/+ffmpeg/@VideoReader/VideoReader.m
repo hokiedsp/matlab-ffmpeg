@@ -222,6 +222,7 @@ classdef VideoReader < matlab.mixin.SetGet & matlab.mixin.CustomDisplay
       
       formats = getFileFormats()
       formats = getVideoFormats()
+      formats = getVideoCompressions()
    end
    
    methods(Static, Hidden)

@@ -25,7 +25,7 @@ ffmpegsetenv();
 formats = ffmpeg.VideoReader.mex_backend([], 'static', mfilename);
 
 if nargout==0
-   fnames = fieldnames(formats);
+%    fnames = fieldnames(formats);
 %    formats = rmfield(formats,setdiff(fnames,{'Name','RGB','BitsPerPixel','Alpha'}));
    display(struct2table(formats));
    clear formats

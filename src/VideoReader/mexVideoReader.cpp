@@ -183,8 +183,14 @@ bool mexVideoReader::static_handler(const std::string &command, int nlhs, mxArra
   else if (command == "getVideoFormats")
   {
     if (nrhs > 0)
-      throw std::runtime_error("getFileFormats() takes no input argument.");
+      throw std::runtime_error("getVideoFormats() takes no input argument.");
     mexVideoReader::getVideoFormats(nlhs, plhs);
+  }
+  else if (command == "getVideoCompressions")
+  {
+    if (nrhs > 0)
+      throw std::runtime_error("getVideoCompressions() takes no input argument.");
+    mexVideoReader::getVideoCompressions(nlhs, plhs);
   }
   else if (command == "validate_pixfmt")
   {
@@ -290,34 +296,6 @@ mxArray *mexVideoReader::get_prop(const std::string name)
   return rval;
 }
 
-void mexVideoReader::getFileFormats(int nlhs, mxArray *plhs[]) // formats = getFileFormats();
-{
-  ffmpeg::AVInputFormatPtrs ifmtptrs = ffmpeg::Base::get_input_formats_devices(AVMEDIA_TYPE_VIDEO, AVFMT_NOTIMESTAMPS);
-
-  const char *fields[] = {"name", "long_name", "extensions", "mime_type",
-                          "is_file", "need_number", "show_ids", "generic_index",
-                          "ts_discont", "bin_search", "gen_search",
-                          "byte_seek", "seek_to_pts"};
-  plhs[0] = mxCreateStructMatrix(ifmtptrs.size(), 1, 13, fields);
-
-  for (int index = 0; index < ifmtptrs.size(); index++)
-  {
-    mxSetField(plhs[0], index, "name", mxCreateString(ifmtptrs[index]->name));
-    mxSetField(plhs[0], index, "long_name", mxCreateString(ifmtptrs[index]->long_name));
-    mxSetField(plhs[0], index, "extensions", mxCreateString(ifmtptrs[index]->extensions));
-    mxSetField(plhs[0], index, "mime_type", mxCreateString(ifmtptrs[index]->mime_type));
-    mxSetField(plhs[0], index, "is_file", mxCreateLogicalScalar(ifmtptrs[index]->flags & AVFMT_NOFILE));
-    mxSetField(plhs[0], index, "need_number", mxCreateLogicalScalar(ifmtptrs[index]->flags & AVFMT_NEEDNUMBER));
-    mxSetField(plhs[0], index, "show_ids", mxCreateLogicalScalar(ifmtptrs[index]->flags & AVFMT_SHOW_IDS));
-    mxSetField(plhs[0], index, "generic_index", mxCreateLogicalScalar(ifmtptrs[index]->flags & AVFMT_GENERIC_INDEX));
-    mxSetField(plhs[0], index, "ts_discont", mxCreateLogicalScalar(ifmtptrs[index]->flags & AVFMT_TS_DISCONT));
-    mxSetField(plhs[0], index, "bin_search", mxCreateLogicalScalar(!(ifmtptrs[index]->flags & AVFMT_NOBINSEARCH)));
-    mxSetField(plhs[0], index, "gen_search", mxCreateLogicalScalar(!(ifmtptrs[index]->flags & AVFMT_NOGENSEARCH)));
-    mxSetField(plhs[0], index, "byte_seek", mxCreateLogicalScalar(ifmtptrs[index]->flags & AVFMT_NO_BYTE_SEEK));
-    mxSetField(plhs[0], index, "seek_to_pts", mxCreateLogicalScalar(ifmtptrs[index]->flags & AVFMT_SEEK_TO_PTS));
-  }
-}
-
 void mexVideoReader::shuffle_buffers()
 {
   std::unique_lock<std::mutex> buffer_guard(buffer_lock);
@@ -419,6 +397,26 @@ void mexVideoReader::readBuffer(int nlhs, mxArray *plhs[], int nrhs, const mxArr
   }
 }
 
+////////////////////////////////////////////////////////////////////////////////////////////
+
+void mexVideoReader::getFileFormats(int nlhs, mxArray *plhs[]) // formats = getFileFormats();
+{
+  ffmpeg::AVInputFormatPtrs ifmtptrs = ffmpeg::Base::get_input_formats_devices(AVMEDIA_TYPE_VIDEO, AVFMT_NOTIMESTAMPS);
+
+#define NumFileFormatFields 4
+  const char *fieldnames[NumFileFormatFields] = {
+      "Names", "Description", "Extensions", "MIMETypes"};
+  plhs[0] = mxCreateStructMatrix(ifmtptrs.size(), 1, NumFileFormatFields, fieldnames);
+
+  for (int index = 0; index < ifmtptrs.size(); index++)
+  {
+    mxSetField(plhs[0], index, "Names", mxCreateString(ifmtptrs[index]->name));
+    mxSetField(plhs[0], index, "Description", mxCreateString(ifmtptrs[index]->long_name));
+    mxSetField(plhs[0], index, "Extensions", mxCreateString(ifmtptrs[index]->extensions));
+    mxSetField(plhs[0], index, "MIMETypes", mxCreateString(ifmtptrs[index]->mime_type));
+  }
+}
+
 void mexVideoReader::getVideoFormats(int nlhs, mxArray *plhs[]) // formats = getVideoFormats();
 {
   // build a list of pixel format descriptors
@@ -433,10 +431,13 @@ void mexVideoReader::getVideoFormats(int nlhs, mxArray *plhs[]) // formats = get
       pix_descs.push_back(pix_desc);
   }
 
+  std::sort(pix_descs.begin(), pix_descs.end(),
+            [](const AVPixFmtDescriptor *a, const AVPixFmtDescriptor *b) -> bool { return strcmp(a->name, b->name)<0; });
+
   const int nfields = 11;
   const char *fieldnames[11] = {
       "Name", "Alias", "NumberOfComponents", "BitsPerPixel",
-      "RGB", "Alpha", "Palletted", "HWAccel", "Bayer",
+      "RGB", "Alpha", "Paletted", "HWAccel", "Bayer",
       "Log2ChromaW", "Log2ChromaH"
       };
 
@@ -452,10 +453,46 @@ void mexVideoReader::getVideoFormats(int nlhs, mxArray *plhs[]) // formats = get
     mxSetField(plhs[0], j, "Log2ChromaW", mxCreateDoubleScalar(pix_fmt_desc->log2_chroma_w));
     mxSetField(plhs[0], j, "Log2ChromaH", mxCreateDoubleScalar(pix_fmt_desc->log2_chroma_h));
     mxSetField(plhs[0], j, "BitsPerPixel", mxCreateDoubleScalar(av_get_bits_per_pixel(pix_fmt_desc)));
-    mxSetField(plhs[0], j, "Palletted", mxCreateString((pix_fmt_desc->flags & AV_PIX_FMT_FLAG_PAL) ? "on" : (pix_fmt_desc->flags & AV_PIX_FMT_FLAG_PSEUDOPAL) ? "pseudo" : "off"));
+    mxSetField(plhs[0], j, "Paletted", mxCreateString((pix_fmt_desc->flags & AV_PIX_FMT_FLAG_PAL) ? "on" : (pix_fmt_desc->flags & AV_PIX_FMT_FLAG_PSEUDOPAL) ? "pseudo" : "off"));
     mxSetField(plhs[0], j, "HWAccel", mxCreateString((pix_fmt_desc->flags & AV_PIX_FMT_FLAG_HWACCEL) ? "on" : "off"));
     mxSetField(plhs[0], j, "RGB", mxCreateString((pix_fmt_desc->flags & AV_PIX_FMT_FLAG_RGB) ? "on" : "off"));
     mxSetField(plhs[0], j, "Alpha", mxCreateString((pix_fmt_desc->flags & AV_PIX_FMT_FLAG_ALPHA) ? "on" : "off"));
     mxSetField(plhs[0], j, "Bayer", mxCreateString((pix_fmt_desc->flags & AV_PIX_FMT_FLAG_BAYER) ? "on" : "off"));
+  }
+}
+
+void mexVideoReader::getVideoCompressions(int nlhs, mxArray *plhs[]) // formats = getVideoCompressions();
+{
+  // make sure all the codecs are loaded
+  avcodec_register_all();
+
+  // build a list of supported codec descriptors (all the video decoders)
+  std::vector<const AVCodecDescriptor *> codecs;
+  codecs.reserve(256);
+  for (const AVCodecDescriptor *desc = avcodec_descriptor_next(NULL);
+       desc;
+       desc = avcodec_descriptor_next(desc))
+  {
+    if (avcodec_find_decoder(desc->id) && desc->type == AVMEDIA_TYPE_VIDEO && !strstr(desc->name, "_deprecated"))
+      codecs.push_back(desc);
+  }
+
+  std::sort(codecs.begin(), codecs.end(),
+            [](const AVCodecDescriptor *a, const AVCodecDescriptor *b) -> bool { return strcmp(a->name, b->name)<0; });
+
+  const int nfields = 5;
+  const char *fieldnames[5] = {
+      "Name", "Lossless", "Lossy", "IntraframeOnly", "Description"};
+
+  plhs[0] = mxCreateStructMatrix(codecs.size(), 1, nfields, fieldnames);
+
+  for (int j = 0; j < codecs.size(); ++j)
+  {
+    const AVCodecDescriptor *desc = codecs[j];
+    mxSetField(plhs[0], j, "Name", mxCreateString(desc->name));
+    mxSetField(plhs[0], j, "Lossless", mxCreateString((desc->props & AV_CODEC_PROP_LOSSLESS) ? "on" : "off"));
+    mxSetField(plhs[0], j, "Lossy", mxCreateString((desc->props & AV_CODEC_PROP_LOSSY) ? "on" : "off"));
+    mxSetField(plhs[0], j, "IntraframeOnly", mxCreateString((desc->props & AV_CODEC_PROP_INTRA_ONLY) ? "on" : "off"));
+    mxSetField(plhs[0], j, "Description", mxCreateString(desc->long_name ? desc->long_name : ""));
   }
 }
