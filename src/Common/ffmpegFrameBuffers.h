@@ -157,7 +157,7 @@ public:
 
   //virtual int copy_frame(const AVFrame *frame, const AVRational &time_base) = 0; // copy frame to buffer
 
-  int read_frame(uint8_t *dst, double *t = NULL, bool advance = true) // read next frame
+  virtual int read_frame(uint8_t *dst, double *t = NULL, bool advance = true) // read next frame
   {
     if (eof)
       return AVERROR_EOF;
@@ -179,12 +179,12 @@ public:
     return int(frame_data_sz);
   }
 
-  size_t capacity() const { return nb_frames; } // number of frames it can hold
-  size_t frameSize() const { return frame_data_sz; }
-  bool empty() const { return wr_time == time_buf; }           // true if no frame
-  bool full() const { return eof || wr_time == time_buf + nb_frames; } // true if max capacity or reached eof
-  size_t size() const { return wr_time - time_buf; }              // number of frames written
-  size_t available() const { return wr_time - rd_time; } // number of frames remaining to be read
+  virtual size_t capacity() const { return nb_frames; } // number of frames it can hold
+  virtual size_t frameSize() const { return frame_data_sz; }
+  virtual bool empty() const { return wr_time == time_buf; }           // true if no frame
+  virtual bool full() const { return eof || wr_time == time_buf + nb_frames; } // true if max capacity or reached eof
+  virtual size_t size() const { return wr_time - time_buf; }              // number of frames written
+  virtual size_t available() const { return wr_time - rd_time; } // number of frames remaining to be read
 
   virtual void reset(const size_t nframes) // must re-implement to allocate data_buf
   {
@@ -301,7 +301,7 @@ public:
     return ok;
   }
 
-  void reset(const size_t nframes = 0)
+  virtual void reset(const size_t nframes = 0)
   {
     if (pixfmt==AV_PIX_FMT_NONE) // default-constructed unusable empty buffer
     {
@@ -335,7 +335,7 @@ public:
     rd_data = data_buf;
   }
 
-  int copy_frame(const AVFrame *frame, const AVRational &time_base)
+  virtual int copy_frame(const AVFrame *frame, const AVRational &time_base)
   {
     // expects having exclusive access to the user supplied buffer
     if (!nb_frames || full()) // receiving data buffer not set
@@ -383,6 +383,66 @@ private:
   }
 };
 
+template <class Allocator = ffmpegAllocator<uint8_t>>
+class ComponentBufferReverseReader : public ComponentBuffer<Allocator>
+{
+public:
+  ComponentBufferReverseReader():ComponentBuffer()
+  {}
+  ComponentBufferReverseReader(const size_t nframes, const size_t w, const size_t h, const AVPixelFormat fmt)
+      : ComponentBuffer(w, h, fmt)
+  {
+  }
+
+  ComponentBufferReverseReader(const ComponentBuffer &other)
+      : ComponentBuffer(other)
+  {
+    reset(other.nb_frames);
+  }
+
+  virtual size_t available() const { return (wr_time >= rd_time) ? (rd_time - time_buf) : 0; } // number of frames remaining to be read
+
+  virtual void reset(const size_t nframes = 0)
+  {
+    ComponentBuffer::reset(nframes);
+
+    // reset read/write pointer positions to the end of the buffer
+    rd_time = time_buf + nframes;
+    rd_data = data_buf + data_sz;
+  }
+
+  virtual int read_frame(uint8_t *dst, double *t = NULL, bool advance = true) // read next frame
+  {
+    if (rd_time == time_buf)
+    {
+      if (*rd_time==0)
+        return AVERROR_EOF; // actually beginning of the file, but that's ok
+      else
+        return AVERROR_EOB;
+    }
+    else if (wr_time < rd_time)
+      return AVERROR(EAGAIN);
+
+    // move pointers backward by one frame
+    --rd_time;
+    rd_buf -= frame_data_sz;
+
+    if (t)
+      *t = *rd_time;
+    if (dst)
+      std::copy_n(rd_data, frame_data_sz, dst);
+
+    if (!advance)
+    {
+      ++rd_time;
+      rd_data += frame_data_sz;
+    }
+
+    return int(frame_data_sz);
+  }
+
+};
+
 // template <typename Allocator = ffmpegAllocator<uint8_t>>
 // class PlanarBuffer : public FrameBuffer<Allocator>
 // {
@@ -390,3 +450,4 @@ private:
 //   int copy_frame(const AVFrame *frame, const AVRational &time_base); // copy frame to buffer
 // };
 }
+
