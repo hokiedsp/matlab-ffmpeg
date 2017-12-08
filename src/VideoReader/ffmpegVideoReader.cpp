@@ -233,11 +233,28 @@ void VideoReader::setCurrentTimeStamp(const double val, const bool exact_search)
   
   // restart
   resume();
-
-  // wait until the first frame is ready
-  std::unique_lock<std::mutex> firstframe_guard(firstframe_lock);
-  firstframe_ready.wait(firstframe_guard, [&]() { return killnow || eof || firstframe; });
 }
+
+void VideoReader::setFilterGraph(const std::string &filter_desc) // stops 
+{
+  if (!isFileOpen())
+    throw ffmpegException("No file open.");
+
+  // set new filter
+  filter_descr = filter_desc;
+
+  // pause the threads and flush the remaining frames and load the new filter graph
+  pause();
+
+  // reset time
+  eof = false;
+  if (avformat_seek_file(fmt_ctx, -1, INT64_MIN, 0, 0, 0) < 0)
+    throw ffmpegException("Could not rewind.");
+
+  // restart
+  resume();
+}
+
 
 /////////////////////////////////////////////////////////////////////////////////////////////
 // THREAD FUNCTIONS: Read file and send it to the FFmpeg decoder

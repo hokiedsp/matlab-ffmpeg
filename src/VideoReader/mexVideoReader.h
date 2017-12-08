@@ -29,13 +29,16 @@ protected:
 
   void readFrame(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[]);             //    varargout = readFrame(obj, varargin);
   void read(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[]);                  //varargout = read(obj, varargin);
-  static void getFileFormats(int nlhs, mxArray *plhs[]); // formats = getFileFormats();
-
   void readBuffer(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[]);             //    [frames,timestamps] = readFrame(obj);
+
+  static void getFileFormats(int nlhs, mxArray *plhs[]); // formats = getFileFormats();
+  static void getVideoFormats(int nlhs, mxArray *plhs[]); // formats = getVideoFormats();
+  static mxArray *buildPixFmtDescStruct(std::vector<const AVPixFmtDescriptor *> &pix_descs);
+
 private:
   ffmpeg::VideoReader reader;
 
-  size_t nb_components; // number of components
+  size_t nb_components;   // number of components
   size_t buffer_capacity; // in frames
 
   typedef ffmpeg::ComponentBuffer<mexAllocator<uint8_t>> mexComponentBuffer;

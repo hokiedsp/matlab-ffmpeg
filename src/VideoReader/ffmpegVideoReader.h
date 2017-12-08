@@ -51,7 +51,7 @@ public:
 
   AVRational getSAR()
   {
-    return fmt_ctx ? av_guess_sample_aspect_ratio(fmt_ctx, st, firstframe) : AVRational({0, 0});
+    return fmt_ctx ? av_guess_sample_aspect_ratio(fmt_ctx, st, firstframe) : AVRational({0, 1});
   }
 
   double getDuration() const
@@ -119,6 +119,9 @@ public:
     return (fmt_ctx) ? (double(av_rescale_q(pts, (filter_graph) ? buffersink_ctx->inputs[0]->time_base : st->time_base, AV_TIME_BASE_Q) / 100) / (AV_TIME_BASE / 100)) : NAN;
   }
   void setCurrentTimeStamp(const double val, const bool exact_search = true);
+
+  const std::string &getFilterGraph() const { return filter_descr; } // stops
+  void setFilterGraph(const std::string &filter_desc); // stops 
 
   const AVPixelFormat getPixelFormat() const { return pix_fmt; };
   const AVPixFmtDescriptor &getPixFmtDescriptor() const;

@@ -1,5 +1,5 @@
 function formats = getFileFormats()
-%FFMPEG.GETFILEFORMATS   Get supported video formats
+%FFMPEG.GETFILEFORMATS   Get supported video file formats
 %   FORMATS = FFMPEG.VIDEOREADER.GETFILEFORMATS() returns a struct
 %   array of FileFormatInfo objects which are the
 %   formats FFMPEG.VIDEOREADER is known to support on the current
@@ -11,7 +11,7 @@ function formats = getFileFormats()
 %   text description of the file format ContainsVideo - The File Format can
 %   hold video data ContainsAudio - The File Format can hold audio data
 
-ffmpegsetpath();
+ffmpegsetenv();
 formats = ffmpeg.VideoReader.mex_backend([], 'static', mfilename);
 
 if nargout==0

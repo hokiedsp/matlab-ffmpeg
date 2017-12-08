@@ -139,6 +139,16 @@ classdef VideoReader < matlab.mixin.SetGet & matlab.mixin.CustomDisplay
 
          if nargin>1
             set(obj,varargin{2:end});
+            
+            % validate requested video frame dimension change
+            moddim = [obj.Width~=0 obj.Height~=0 ~isempty(obj.PixelAspectRatio)]*[1;2;4];
+            switch moddim
+               case 4 % only PAR changed
+                  warning('Only PixelAspectRatio set. Maintains the original height.');
+               case 7 % all 3
+                  error('Cannot set all 3 of Width, Height, and PixelAspectRatio. Pick 2.');
+            end
+            
          end
 
          % instantiate the MEX backend
@@ -211,6 +221,7 @@ classdef VideoReader < matlab.mixin.SetGet & matlab.mixin.CustomDisplay
       %------------------------------------------------------------------
       
       formats = getFileFormats()
+      formats = getVideoFormats()
    end
    
    methods(Static, Hidden)
@@ -325,7 +336,11 @@ classdef VideoReader < matlab.mixin.SetGet & matlab.mixin.CustomDisplay
       end
       
       function set.CurrentTime(obj, value)
-         ffmpeg.VideoReader.mex_backend(obj.backend,'set','CurrentTime',value);
+         if isempty(obj.backend) % if set during initialization
+            obj.backend.CurrentTime = value;
+         else
+            ffmpeg.VideoReader.mex_backend(obj.backend,'set','CurrentTime',value);
+         end
       end
    end
    
@@ -375,92 +390,6 @@ classdef VideoReader < matlab.mixin.SetGet & matlab.mixin.CustomDisplay
       
       function result = hasVideo(obj)
          result = ffmpeg.VideoReader.mex_backend(obj.backend,'hasVideo');
-      end
-   end
-   
-   methods (Static, Access='private', Hidden)
-      function fileDesc = translateDescToLocale(fileExtension)
-         switch upper(fileExtension)
-            case 'M4V'
-               fileDesc = getString(message('ffmpeg:VideoReader:formatM4V'));
-            case 'MJ2'
-               fileDesc = getString(message('ffmpeg:VideoReader:formatMJ2'));
-            case 'MOV'
-               fileDesc = getString(message('ffmpeg:VideoReader:formatMOV'));
-            case 'MP4'
-               fileDesc = getString(message('ffmpeg:VideoReader:formatMP4'));
-            case 'MPG'
-               fileDesc = getString(message('ffmpeg:VideoReader:formatMPG'));
-            case 'OGV'
-               fileDesc = getString(message('ffmpeg:VideoReader:formatOGV'));
-            case 'WMV'
-               fileDesc = getString(message('ffmpeg:VideoReader:formatWMV'));
-            otherwise
-               % This includes formats such as AVI, ASF, ASX.
-               fileDesc = getString(message('ffmpeg:VideoReader:formatGeneric', upper(fileExtension)));
-         end
-      end
-      
-      function outputFormat = validateOutputFormat(outputFormat, callerFcn)
-         validFormats = {'native', 'default'};
-         outputFormat = validatestring( outputFormat, validFormats, callerFcn,'outputformat');
-      end
-      
-      function outputFrames = convertToOutputFormat( inputFrames, inputFormat, outputFormat, colormap)
-         switch outputFormat
-            case 'default'
-               outputFrames = VideoReader.convertToDefault(inputFrames, inputFormat, colormap);
-            case 'native'
-               outputFrames = VideoReader.convertToNative(inputFrames, inputFormat, colormap);
-            otherwise
-               assert(false, 'Unexpected outputFormat %s', outputFormat);
-         end
-      end
-      
-      function outputFrames = convertToDefault(inputFrames, inputFormat, colormap)
-         if ~ismember(inputFormat, {'Indexed', 'Grayscale'})
-            % No conversion necessary, return the native data
-            outputFrames = inputFrames;
-            return;
-         end
-         
-         % Return 'Indexed' data as RGB24 when asking for
-         % the 'Default' output.  This is done to preserve
-         % RGB24 compatibility for customers using versions of
-         % VideoReader prior to R2013a.
-         outputFrames = zeros(size(inputFrames), 'uint8');
-         
-         if strcmp(inputFormat, 'Grayscale')
-            for ii=1:size(inputFrames, 4)
-               % Indexed to Grayscale Image conversion (ind2gray) is part of IPT
-               % and not base-MATLAB.
-               tempFrame = ind2rgb( inputFrames(:,:,:,ii), colormap);
-               outputFrames(:,:,ii) = tempFrame(:, :, 1);
-            end
-         else
-            outputFrames = repmat(outputFrames, [1, 1, 3, 1]);
-            for ii=1:size(inputFrames, 4)
-               outputFrames(:,:,:,ii) = ind2rgb( inputFrames(:,:,:,ii), colormap);
-            end
-         end
-      end
-      
-      function outputFrames = convertToNative(inputFrames, inputFormat, colormap)
-         if ~ismember(inputFormat, {'Indexed', 'Grayscale'})
-            % No conversion necessary, return the native data
-            outputFrames = inputFrames;
-            return;
-         end
-         
-         % normalize the colormap
-         colormap = double(colormap)/255;
-         
-         numFrames = size(inputFrames, 4);
-         outputFrames(1:numFrames) = struct;
-         for ii = 1:numFrames
-            outputFrames(ii).cdata = inputFrames(:,:,:,ii);
-            outputFrames(ii).colormap = colormap;
-         end
       end
    end
 end
