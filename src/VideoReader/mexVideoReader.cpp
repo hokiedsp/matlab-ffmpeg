@@ -18,6 +18,8 @@ namespace fs = std::experimental::filesystem;
 
 // // append transpose filter at the end to show the output in the proper orientation in MATLAB
 
+#include <fstream>
+std::ofstream output("mextest.csv");
 void mexFFmpegCallback(void *avcl, int level, const char *fmt, va_list argptr)
 {
   if (level <= AV_LOG_VERBOSE) //AV_LOG_FATAL || level == AV_LOG_ERROR)
@@ -25,7 +27,7 @@ void mexFFmpegCallback(void *avcl, int level, const char *fmt, va_list argptr)
     char dest[1024 * 16];
     vsprintf(dest, fmt, argptr);
     mexPrintf(dest);
-    // output(dest);
+    output << dest << std::endl;
   }
 }
 
@@ -53,35 +55,33 @@ std::string mexVideoReader::mex_get_filterdesc(const mxArray *obj)
   int w = (int)mxGetScalar(mxGetProperty(obj, 0, "Width"));
   int h = (int)mxGetScalar(mxGetProperty(obj, 0, "Height"));
   const double *sar = mxGetPr(mxGetProperty(obj, 0, "PixelAspectRatio"));
-
-  if (h > 0 && sar)
+  if (sar)
   {
-    if (h == 1)
-      sc_filter_descr = "scale=in_w*sar*" + std::to_string(int(sar[1])) + "/" + std::to_string(int(sar[0])) + ":in_h,";
-    else
+    if (h > 0) // new H and adjust W to meet new SAR
       sc_filter_descr = "scale=in_w*sar/in_h*" + std::to_string(int(h * sar[1])) + "/" + std::to_string(int(sar[0])) + ":" + std::to_string(h) + ",";
-  }
-  else if (w > 0 && sar)
-  {
-    if (w == 1)
-      sc_filter_descr = "scale=in_w:in_h/sar*" + std::to_string(int(sar[0])) + "/" + std::to_string(int(sar[1])) + ",";
-    else
+    else if (w > 0) // new W and adjust H to meet new SAR
       sc_filter_descr = "scale=" + std::to_string(w) + ":in_h/in_w/sar*" + std::to_string(int(w * sar[0])) + "/" + std::to_string(int(sar[1])) + ",";
+    else if (w < 0) // keep W and adjust H to meet new SAR
+      sc_filter_descr = "scale=in_w:in_h/sar*" + std::to_string(int(sar[0])) + "/" + std::to_string(int(sar[1])) + ",";
+    else // keep H and adjust W to meet new SAR
+      sc_filter_descr = "scale=in_w*sar*" + std::to_string(int(sar[1])) + "/" + std::to_string(int(sar[0])) + ":in_h,";
   }
-  else if (sar)
-  {
-    sc_filter_descr = "scale=in_w*sar*" + std::to_string(int(sar[1])) + "/" + std::to_string(int(sar[0])) + ":in_h,";
-  }
-  else if (h > 0 || w > 0)
-  {
-    if (h > 1 && w > 1)
+  else if (h > 0 && w > 0) // new H and W
       sc_filter_descr = "scale=" + std::to_string(w) + ":" + std::to_string(h) + ",";
-    else if (h == 1)
+  else if (w > 0)
+  {
+    if (h < 0) // new W and adjust H to maintain SAR
       sc_filter_descr = "scale=" + std::to_string(w) + ":" + std::to_string(w) + "/a,";
-    else if (w == 1)
-      sc_filter_descr = "scale=" + std::to_string(h) + "*a:" + std::to_string(h) + ",";
+    else // new W and keep same H
+      sc_filter_descr = "scale=w=" + std::to_string(w) + ",";
   }
-
+  else if (h > 0)
+  {
+    if (w < 0) // new H and adjust W to maintain SAR
+      sc_filter_descr = "scale=" + std::to_string(h) + "*a:" + std::to_string(h) + ",";
+    else
+      sc_filter_descr = "scale=h=" + std::to_string(h) + ",";
+  }
   return filter_descr + sc_filter_descr + tr_filter_descr;
 }
 
@@ -167,6 +167,8 @@ bool mexVideoReader::action_handler(const std::string &command, int nlhs, mxArra
     readBuffer(nlhs, plhs, nrhs, prhs);
   else if (command == "read")
     read(nlhs, plhs, nrhs, prhs);
+  else if (command =="hasFrame")
+    plhs[0] = mxCreateLogicalScalar(!rd_buf->eof());
   else
     return false;
   return true;
@@ -210,33 +212,26 @@ void mexVideoReader::set_prop(const std::string name, const mxArray *value)
 {
   if (name == "CurrentTime")
   {
-    try
-    {
-      if (!(mxIsNumeric(value) && mxIsScalar(value)) || mxIsComplex(value))
-        throw 0;
+    if (!(mxIsNumeric(value) && mxIsScalar(value)) || mxIsComplex(value))
+      throw 0;
 
-      std::unique_lock<std::mutex> buffer_guard(buffer_lock);
-      // this should stop the shuffle_buffer thread when the buffer is not available
+    std::unique_lock<std::mutex> buffer_guard(buffer_lock);
+    // this should stop the shuffle_buffer thread when the buffer is not available
 
-      reader.resetBuffer(NULL);
+    reader.resetBuffer(NULL);
 
-      // set new time
-      reader.setCurrentTimeStamp(mxGetScalar(value));
+    // set new time
+    reader.setCurrentTimeStamp(mxGetScalar(value));
 
-      // reset buffers
-      wr_buf->reset();
-      rd_buf->reset();
+    // reset buffers
+    wr_buf->reset();
+    rd_buf->reset();
 
-      // set write buffer to reader
-      reader.resetBuffer(&*wr_buf);
+    // set write buffer to reader
+    reader.resetBuffer(&*wr_buf);
 
-      // tell  shuffle_buffers thread to resume
-      buffer_ready.notify_one();
-    }
-    catch (...)
-    {
-      throw std::runtime_error("VarA must be a scalar integer between -10 and 10.");
-    }
+    // tell  shuffle_buffers thread to resume
+    buffer_ready.notify_one();
   }
   else
   {
@@ -270,11 +265,15 @@ mxArray *mexVideoReader::get_prop(const std::string name)
     double t(NAN);
 
     std::unique_lock<std::mutex> buffer_guard(buffer_lock);
-    if (!rd_buf->available())
-      buffer_ready.wait(buffer_guard);
-    rd_buf->read_frame(NULL, &t, false);
-    buffer_ready.notify_one();
-
+    if (rd_buf->eof())
+      t = reader.getDuration();
+    else
+    {
+      if (!rd_buf->available())
+        buffer_ready.wait(buffer_guard);
+      rd_buf->read_frame(NULL, &t, false);
+      buffer_ready.notify_one();
+    }
     rval = mxCreateDoubleScalar(t);
   }
   else if (name == "AudioCompression") // integer between -10 and 10
@@ -301,13 +300,18 @@ void mexVideoReader::shuffle_buffers()
   std::unique_lock<std::mutex> buffer_guard(buffer_lock);
   while (!killnow)
   {
-    if (!rd_buf->available()) // all read
+    if (rd_buf->available() || rd_buf->eof()) // read buffer still has unread frames, wait until all read
+    {
+      buffer_ready.wait(buffer_guard); // to be woken up by read functions
+    }
+    else // all read, wait till the other buffer is written then swap
     {
       // done with the read buffer
       rd_buf->reset();
 
       // wait until write buffer is full
       reader.blockTillBufferFull();
+      av_log(NULL,AV_LOG_INFO,"mexVideoReader::shuffle_buffers::buffer written (%d)\n",wr_buf->eof());
       if (killnow)
         break;
 
@@ -319,10 +323,6 @@ void mexVideoReader::shuffle_buffers()
 
       // give reader the new buffer
       reader.resetBuffer(&*wr_buf);
-    }
-    else // read buffer still has unread frames, wait until all read
-    {
-      buffer_ready.wait(buffer_guard); // to be woken up by read functions
     }
   }
 }

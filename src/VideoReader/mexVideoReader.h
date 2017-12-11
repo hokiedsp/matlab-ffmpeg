@@ -41,7 +41,7 @@ private:
   size_t nb_components;   // number of components
   size_t buffer_capacity; // in frames
 
-  typedef ffmpeg::ComponentBuffer<mexAllocator<uint8_t>> mexComponentBuffer;
+  typedef ffmpeg::ComponentBufferBDReader<mexAllocator<uint8_t>> mexComponentBuffer;
   typedef std::vector<mexComponentBuffer,mexAllocator<mexComponentBuffer>> FrameBufferVector;
   FrameBufferVector buffers;
   FrameBufferVector::iterator rd_buf, wr_buf;
