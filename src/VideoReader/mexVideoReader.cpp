@@ -105,7 +105,7 @@ AVPixelFormat mexVideoReader::mex_get_pixfmt(const mxArray *obj)
 
 // mexVideoReader(mobj, filename) (all arguments  pre-validated)
 mexVideoReader::mexVideoReader(int nrhs, const mxArray *prhs[])
-    : killnow(false)
+    : rd_rev(true), killnow(false)
 {
   // get absolute path to the file
   fs::path p = fs::canonical(mexGetString(prhs[1]));
@@ -126,9 +126,10 @@ mexVideoReader::mexVideoReader(int nrhs, const mxArray *prhs[])
 
   // set buffers
   buffer_capacity = (int)mxGetScalar(mxGetProperty(prhs[0], 0, "BufferSize"));
+  rd_rev = mexGetString(mxGetProperty(prhs[0], 0, "Direction")) == "reverse";
   buffers.reserve(2);
-  buffers.emplace_back(buffer_capacity, reader.getWidth(), reader.getHeight(), reader.getPixelFormat());
-  buffers.emplace_back(buffer_capacity, reader.getWidth(), reader.getHeight(), reader.getPixelFormat());
+  buffers.emplace_back(buffer_capacity, reader.getWidth(), reader.getHeight(), reader.getPixelFormat(), !rd_rev);
+  buffers.emplace_back(buffer_capacity, reader.getWidth(), reader.getHeight(), reader.getPixelFormat(), !rd_rev);
   wr_buf = buffers.begin();
   rd_buf = wr_buf + 1;
 
@@ -167,10 +168,13 @@ bool mexVideoReader::action_handler(const std::string &command, int nlhs, mxArra
     readBuffer(nlhs, plhs, nrhs, prhs);
   else if (command == "read")
     read(nlhs, plhs, nrhs, prhs);
-  else if (command =="hasFrame")
+  else if (command == "hasFrame")
+  {
+    std::unique_lock<std::mutex> buffer_guard(buffer_lock);
+    if (!(rd_buf->available() || rd_buf->eof()))
+      buffer_ready.wait(buffer_guard);
     plhs[0] = mxCreateLogicalScalar(!rd_buf->eof());
-  else
-    return false;
+  }
   return true;
 }
 
@@ -220,8 +224,25 @@ void mexVideoReader::set_prop(const std::string name, const mxArray *value)
 
     reader.resetBuffer(NULL);
 
+    // get new time
+    double t = mxGetScalar(value);
+
+    // if reading backwards, set to the time so the last frame in the buffer will be the requested time
+    if (rd_rev)
+    {
+      double T = reader.getDuration();
+      if (t > T) // make sure the last frame read is the last frame
+        t = T - (wr_buf->capacity() - 1) / reader.getFrameRate();
+      else
+      {
+        // buffer time span
+        double Tbuf = (wr_buf->capacity() - 1) / reader.getFrameRate();
+        t -= Tbuf;
+      }
+    }
+
     // set new time
-    reader.setCurrentTimeStamp(mxGetScalar(value));
+    reader.setCurrentTimeStamp(t);
 
     // reset buffers
     wr_buf->reset();
@@ -255,9 +276,7 @@ mxArray *mexVideoReader::get_prop(const std::string name)
     std::string name = reader.getCodecName();
     std::string desc = reader.getCodecDescription();
     if (desc.size())
-    {
       name += " (" + desc + ')';
-    }
     rval = mxCreateString(name.c_str());
   }
   else if (name == "CurrentTime")
@@ -300,26 +319,38 @@ void mexVideoReader::shuffle_buffers()
   std::unique_lock<std::mutex> buffer_guard(buffer_lock);
   while (!killnow)
   {
-    if (rd_buf->available() || rd_buf->eof()) // read buffer still has unread frames, wait until all read
+    if (rd_buf->available() || reader.atEndOfFile()) // read buffer still has unread frames, wait until all read
     {
       buffer_ready.wait(buffer_guard); // to be woken up by read functions
     }
     else // all read, wait till the other buffer is written then swap
     {
-      // done with the read buffer
-      rd_buf->reset();
-
       // wait until write buffer is full
       reader.blockTillBufferFull();
       av_log(NULL,AV_LOG_INFO,"mexVideoReader::shuffle_buffers::buffer written (%d)\n",wr_buf->eof());
       if (killnow)
         break;
 
+      // done with the read buffer
+      rd_buf->reset();
+
       // swap the buffers
       std::swap(wr_buf, rd_buf);
 
       // notify the waiting thread that rd_buf now contains a filled buffer
       buffer_ready.notify_one();
+
+      if (rd_rev) // if reading in reverse direction
+      {
+        // remove the buffer from the reader
+        reader.resetBuffer(NULL);
+
+        // set new timestamp
+        double t;
+        rd_buf->read_frame(NULL, &t, false);
+        t -= wr_buf->capacity() / reader.getFrameRate();
+        reader.setCurrentTimeStamp(t);
+      }
 
       // give reader the new buffer
       reader.resetBuffer(&*wr_buf);

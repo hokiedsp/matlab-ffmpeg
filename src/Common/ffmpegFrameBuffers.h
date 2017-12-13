@@ -27,16 +27,18 @@ public:
 
   virtual int copy_frame(const AVFrame *frame, const AVRational &time_base) = 0; // copy frame to buffer
   virtual int read_frame(uint8_t *dst, double *t = NULL, bool advance = true) = 0; // read next frame
-  
-  virtual size_t capacity() const = 0;                                                // number of frames it can hold
+
+  virtual size_t capacity() const = 0; // number of frames it can hold
   virtual size_t frameSize() const = 0;
   virtual bool readyToWrite() const = 0;
   virtual bool readyToRead() const = 0;
-  virtual bool empty() const = 0;            // true if no frame
-  virtual bool full() const = 0;             // true if max capacity
-  virtual bool eof() const = 0;              // true if last 
-  virtual size_t size() const = 0;              // number of frames written
-  virtual size_t available() const = 0;         // number of frames remaining to be read
+  virtual bool empty() const = 0;       // true if no frame
+  virtual bool full() const = 0;        // true if max capacity
+  virtual bool eof() const = 0;         // true if last
+  virtual size_t size() const = 0;      // number of frames written
+  virtual size_t available() const = 0; // number of frames remaining to be read
+  virtual size_t remaining() const = 0; // remaining available space (in number of frames) to be written
+
   virtual void reset(const size_t nframes) = 0; // must re-implement to allocate data_buf
   virtual size_t release(uint8_t **data, double **time = NULL) = 0;
   virtual void swap(FrameBuffer &other) = 0;
@@ -194,10 +196,11 @@ public:
   virtual bool readyToRead() const { return available() || eof(); }
   virtual bool empty() const { return wr_time == time_buf; }           // true if no frame
   virtual bool full() const { return has_eof || wr_time == time_buf + nb_frames; } // true if max capacity or reached has_eof
-  virtual bool eof() const { return has_eof; };              // true if last 
+  virtual bool eof() const { return has_eof && rd_time==wr_time; };              // true if last 
   virtual size_t size() const { return wr_time - time_buf; }              // number of frames written
   virtual size_t available() const { return wr_time - rd_time; } // number of frames remaining to be read
-  
+  virtual size_t remaining() const { return has_eof ? 0 : nb_frames - (wr_time - time_buf); } // remaining available space (in number of frames) to be written
+
   virtual void reset(const size_t nframes) // must re-implement to allocate data_buf
   {
     if (nframes) 

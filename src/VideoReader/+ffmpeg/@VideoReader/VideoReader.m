@@ -84,6 +84,7 @@ classdef VideoReader < matlab.mixin.SetGet & matlab.mixin.CustomDisplay
       VideoFormat = 'rgb24'    % Video format as it is represented in MATLAB.
       VideoFilter = '' % FFmpeg Video filter chain description
       ReadMode = 'components' % 'components'(default if pixel is byte size) |'planes' (default if pixel is sub-byte size)
+      Direction = 'forward'
       BufferSize = 4  % Underlying frame buffer size
    end
    
@@ -316,6 +317,9 @@ classdef VideoReader < matlab.mixin.SetGet & matlab.mixin.CustomDisplay
       function set.BufferSize(obj,value)
          validateattributes(value,{'double'},{'scalar','real','positive','integer'});
          obj.BufferSize = value;
+      end
+      function set.Direction(obj,value)
+         obj.Direction = validatestring(value,{'forward','backward'},mfilename,'Direction');
       end
 
       %%%%%%%%%%%%%%%%%%%%%%%%%%

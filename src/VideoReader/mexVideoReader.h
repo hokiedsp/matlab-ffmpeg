@@ -37,6 +37,7 @@ protected:
 
 private:
   ffmpeg::VideoReader reader;
+  bool rd_rev = false;  // false to read forward, true to read reverse
 
   size_t nb_components;   // number of components
   size_t buffer_capacity; // in frames
@@ -51,8 +52,8 @@ private:
   std::mutex buffer_lock;
   std::condition_variable buffer_ready;
 
-  void shuffle_buffers();
-
+  void shuffle_buffers(); // read forwards
+  
   static std::string mex_get_filterdesc(const mxArray *obj);
   static AVPixelFormat mex_get_pixfmt(const mxArray *obj);
   static size_t mex_get_numplanes();

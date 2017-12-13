@@ -595,8 +595,16 @@ void VideoReader::copy_frame_ts(const AVFrame *frame)
       break;
     ret = (buf) ? buf->copy_frame(frame, tb) : AVERROR(EAGAIN);
   }
-  if (!(killnow || ret)) // if successfully buffered or object is being destroying
-      buffer_ready.notify_one();
+
+  // if frame is null, mark end-of-file
+  if (!frame)
+    eof = true;
+
+  if (killnow || !ret) // skip only if buffer was not ready
+  {
+    av_log(NULL, AV_LOG_INFO, "ffmpeg::VideoReader::copy_frame_ts::notifying buffer_ready (ret=%d,buf->available()=%d,buf->eof()=%d)\n", ret,buf->available(),buf->eof());
+    buffer_ready.notify_one();
+  }
 }
 
 ////////////////////////////////////////////
@@ -646,7 +654,10 @@ size_t VideoReader::blockTillBufferFull()
   if (!isFileOpen() || !buf)
     return 0;
   std::unique_lock<std::mutex> buffer_guard(buffer_lock);
-  buffer_ready.wait(buffer_guard, [&]() { return killnow || reader_status == IDLE || buf->full(); });
+  buffer_ready.wait(buffer_guard, [&]() { 
+    bool iseof = eof;
+    av_log(NULL,AV_LOG_INFO,"ffmpeg::VideoReader::blockTillBufferFull::waking up to check the predicates: [%d:%d:%d]\n",killnow,iseof,buf->size());
+    return killnow || eof || !buf->remaining(); });
   return buf->size();
 }
 
@@ -655,6 +666,6 @@ size_t VideoReader::blockTillFrameAvail(size_t min_cnt)
   if (!isFileOpen() || !buf)
     return 0;
   std::unique_lock<std::mutex> buffer_guard(buffer_lock);
-  buffer_ready.wait(buffer_guard, [&]() { return killnow || reader_status == IDLE || buf->eof() || buf->available() >= min_cnt; });
+  buffer_ready.wait(buffer_guard, [&]() { return killnow || eof || buf->available() >= min_cnt; });
   return buf->available();
 }

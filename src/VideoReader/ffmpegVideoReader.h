@@ -27,6 +27,7 @@ public:
   ~VideoReader();
 
   bool isFileOpen();
+  bool atEndOfFile() { return eof; }
 
   void openFile(const std::string &filename, const std::string &filtdesc = "", const AVPixelFormat pix_fmt = AV_PIX_FMT_NONE)
   {
