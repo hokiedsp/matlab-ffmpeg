@@ -105,13 +105,20 @@ AVPixelFormat mexVideoReader::mex_get_pixfmt(const mxArray *obj)
 
 // mexVideoReader(mobj, filename) (all arguments  pre-validated)
 mexVideoReader::mexVideoReader(int nrhs, const mxArray *prhs[])
-    : rd_rev(true), killnow(false)
+    : rd_rev(false), killnow(false)
 {
   // get absolute path to the file
   fs::path p = fs::canonical(mexGetString(prhs[1]));
 
   // open the video file
   reader.openFile(p.string(), mex_get_filterdesc(prhs[0]), mex_get_pixfmt(prhs[0]));
+
+  // if read backwards, start from the end
+  buffer_capacity = (int)mxGetScalar(mxGetProperty(prhs[0], 0, "BufferSize"));
+  rd_rev = mexGetString(mxGetProperty(prhs[0], 0, "Direction")) == "backward";
+  av_log(NULL,AV_LOG_INFO,"[rd_rev=%d] Backward playback.\n",rd_rev);
+  if (rd_rev)
+    setCurrentTime(reader.getDuration(), false);
 
   // set unspecified properties
   mxSetProperty((mxArray *)prhs[0], 0, "Name", mxCreateString(p.filename().string().c_str()));
@@ -125,14 +132,11 @@ mexVideoReader::mexVideoReader(int nrhs, const mxArray *prhs[])
   mxSetProperty((mxArray *)prhs[0], 0, "PixelAspectRatio", sar);
 
   // set buffers
-  buffer_capacity = (int)mxGetScalar(mxGetProperty(prhs[0], 0, "BufferSize"));
-  rd_rev = mexGetString(mxGetProperty(prhs[0], 0, "Direction")) == "reverse";
   buffers.reserve(2);
   buffers.emplace_back(buffer_capacity, reader.getWidth(), reader.getHeight(), reader.getPixelFormat(), !rd_rev);
   buffers.emplace_back(buffer_capacity, reader.getWidth(), reader.getHeight(), reader.getPixelFormat(), !rd_rev);
   wr_buf = buffers.begin();
   rd_buf = wr_buf + 1;
-
   reader.resetBuffer(&*wr_buf);
 
   // start the reader thread
@@ -212,38 +216,35 @@ bool mexVideoReader::static_handler(const std::string &command, int nlhs, mxArra
   return true;
 }
 
-void mexVideoReader::set_prop(const std::string name, const mxArray *value)
+void mexVideoReader::setCurrentTime(double t, const bool reset_buffer)
 {
-  if (name == "CurrentTime")
+  std::unique_lock<std::mutex> buffer_guard(buffer_lock, std::defer_lock);
+  // this should stop the shuffle_buffer thread when the buffer is not available
+
+  if (reset_buffer)
   {
-    if (!(mxIsNumeric(value) && mxIsScalar(value)) || mxIsComplex(value))
-      throw 0;
-
-    std::unique_lock<std::mutex> buffer_guard(buffer_lock);
-    // this should stop the shuffle_buffer thread when the buffer is not available
-
+    buffer_guard.lock();
     reader.resetBuffer(NULL);
+  }
 
-    // get new time
-    double t = mxGetScalar(value);
+  // if reading backwards, set to the time so the last frame in the buffer will be the requested time
+  if (rd_rev)
+  {
+    double T = reader.getDuration();
+    double Tbuf = buffer_capacity / reader.getFrameRate();
+    if (t > T) // make sure the last frame read is the last frame
+      t = T - Tbuf;
+    else // buffer time span
+      t -= Tbuf;
+  }
 
-    // if reading backwards, set to the time so the last frame in the buffer will be the requested time
-    if (rd_rev)
-    {
-      double T = reader.getDuration();
-      if (t > T) // make sure the last frame read is the last frame
-        t = T - (wr_buf->capacity() - 1) / reader.getFrameRate();
-      else
-      {
-        // buffer time span
-        double Tbuf = (wr_buf->capacity() - 1) / reader.getFrameRate();
-        t -= Tbuf;
-      }
-    }
+  av_log(NULL,AV_LOG_INFO,"setCurrentTime()::timestamp set to %f\n",t);
 
-    // set new time
-    reader.setCurrentTimeStamp(t);
+  // set new time
+  reader.setCurrentTimeStamp(t);
 
+  if (reset_buffer)
+  {
     // reset buffers
     wr_buf->reset();
     rd_buf->reset();
@@ -253,6 +254,20 @@ void mexVideoReader::set_prop(const std::string name, const mxArray *value)
 
     // tell  shuffle_buffers thread to resume
     buffer_ready.notify_one();
+  }
+}
+
+void mexVideoReader::set_prop(const std::string name, const mxArray *value)
+{
+  if (name == "CurrentTime")
+  {
+    if (!(mxIsNumeric(value) && mxIsScalar(value)) || mxIsComplex(value))
+      throw 0;
+
+    // get new time
+    double t = mxGetScalar(value);
+
+    setCurrentTime(t);
   }
   else
   {
@@ -347,9 +362,13 @@ void mexVideoReader::shuffle_buffers()
 
         // set new timestamp
         double t;
-        rd_buf->read_frame(NULL, &t, false);
-        t -= wr_buf->capacity() / reader.getFrameRate();
-        reader.setCurrentTimeStamp(t);
+        if (AVERROR_EOF == rd_buf->read_first_frame(NULL, &t))
+          t = reader.getDuration();
+
+        av_log(NULL, AV_LOG_INFO, "shuffle_buffer()::setting time to %f\n", t);
+
+        if (t > 0.0)
+          setCurrentTime(t, false);
       }
 
       // give reader the new buffer

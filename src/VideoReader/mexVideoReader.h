@@ -35,9 +35,11 @@ protected:
   static void getVideoFormats(int nlhs, mxArray *plhs[]); // formats = getVideoFormats();
   static void getVideoCompressions(int nlhs, mxArray *plhs[]); // formats = getVideoCompressions();
 
+  void setCurrentTime(double time, const bool reset_buffer = true);
+
 private:
   ffmpeg::VideoReader reader;
-  bool rd_rev = false;  // false to read forward, true to read reverse
+  bool rd_rev;  // false to read forward, true to read reverse
 
   size_t nb_components;   // number of components
   size_t buffer_capacity; // in frames

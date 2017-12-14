@@ -28,6 +28,9 @@ public:
   virtual int copy_frame(const AVFrame *frame, const AVRational &time_base) = 0; // copy frame to buffer
   virtual int read_frame(uint8_t *dst, double *t = NULL, bool advance = true) = 0; // read next frame
 
+  virtual int read_first_frame(uint8_t *dst, double *t = NULL) = 0; // read the last frame in the buffer
+  virtual int read_last_frame(uint8_t *dst, double *t = NULL) = 0; // read the first frame in the buffer
+
   virtual size_t capacity() const = 0; // number of frames it can hold
   virtual size_t frameSize() const = 0;
   virtual bool readyToWrite() const = 0;
@@ -161,6 +164,39 @@ public:
   }
 
   //virtual int copy_frame(const AVFrame *frame, const AVRational &time_base) = 0; // copy frame to buffer
+  virtual int read_first_frame(uint8_t *dst, double *t = NULL) // read the last frame in the buffer
+  {
+    if (wr_time == time_buf) 
+    {
+      if (has_eof) // no data, eof
+        return AVERROR_EOF;
+      else // no data, empty buffer
+        return AVERROR_EOB;
+    }
+
+    if (t)
+        *t = *time_buf;
+    if (dst)
+      std::copy_n(data_buf, frame_data_sz, dst);
+    return 0;
+  }
+
+  virtual int read_last_frame(uint8_t *dst, double *t = NULL) // read the first frame in the buffer
+  {
+    if (wr_time == time_buf) 
+    {
+      if (has_eof) // no data, eof
+        return AVERROR_EOF;
+      else // no data, empty buffer
+        return AVERROR_EOB;
+    }
+
+    if (t)
+      *t = *(wr_time - 1);
+    if (dst)
+      std::copy_n((wr_data - frame_data_sz), frame_data_sz, dst);
+    return 0;
+  }
 
   virtual int read_frame(uint8_t *dst, double *t = NULL, bool advance = true) // read next frame
   {
@@ -298,9 +334,7 @@ public:
 
   ComponentBuffer(const ComponentBuffer &other)
       : FrameBufferBase(other)
-  {
-    reset(other.nb_frames);
-  }
+  { }
 
   static bool supportedPixelFormat(const AVPixelFormat fmt)
   {
@@ -399,65 +433,6 @@ private:
 };
 
 template <class Allocator = ffmpegAllocator<uint8_t>>
-class ComponentBufferReverseReader : public ComponentBuffer<Allocator>
-{
-public:
-  ComponentBufferReverseReader():ComponentBuffer()
-  {}
-  ComponentBufferReverseReader(const size_t nframes, const size_t w, const size_t h, const AVPixelFormat fmt)
-      : ComponentBuffer(w, h, fmt)
-  {
-  }
-
-  ComponentBufferReverseReader(const ComponentBuffer &other)
-      : ComponentBuffer(other)
-  {
-    reset(other.nb_frames);
-  }
-
-  virtual size_t available() const { return (wr_time >= rd_time) ? (rd_time - time_buf) : 0; } // number of frames remaining to be read
-
-  virtual void reset(const size_t nframes = 0)
-  {
-    ComponentBuffer::reset(nframes);
-
-    // reset read/write pointer positions to the end of the buffer
-    rd_time = time_buf + nframes;
-    rd_data = data_buf + data_sz;
-  }
-
-  virtual int read_frame(uint8_t *dst, double *t = NULL, bool advance = true) // read next frame
-  {
-    if (!has_eof && wr_time < time_buf + nb_frames) // forward writer must be done
-      return AVERROR(EAGAIN);
-    else if (rd_time > 0)
-    {
-      // move pointers backward by one frame
-      --rd_time;
-      rd_data -= frame_data_sz;
-
-      if (t)
-        *t = *rd_time;
-      if (dst)
-        std::copy_n(rd_data, frame_data_sz, dst);
-
-      if (!advance)
-      {
-        ++rd_time;
-        rd_data += frame_data_sz;
-      }
-      return int(frame_data_sz);
-    }
-    else if (*rd_time == 0)
-      return AVERROR_EOF;
-    else
-      return AVERROR_EOB;
-  }
-
-};
-
-
-template <class Allocator = ffmpegAllocator<uint8_t>>
 class ComponentBufferBDReader : public ComponentBuffer<Allocator>
 {
 protected:
@@ -469,6 +444,9 @@ public:
   ComponentBufferBDReader(const size_t nframes, const size_t w, const size_t h, const AVPixelFormat fmt, const bool dir = true)
       : ComponentBuffer(nframes, w, h, fmt), rd_fwd(dir)
   {
+    // run reset again if reading backwards (ComponentBuffer already run its version once)
+    if (!rd_fwd)
+      reset();
   }
 
   ComponentBufferBDReader(const ComponentBufferBDReader &other)
@@ -499,14 +477,16 @@ public:
   }
 
   virtual size_t available() const { return (rd_fwd) ? (wr_time - rd_time) : (wr_time >= rd_time) ? (rd_time - time_buf) : 0; } // number of frames remaining to be read
+  virtual bool eof() const { return has_eof && ((rd_fwd) ? (rd_time == wr_time) : (wr_time > time_buf && *time_buf == 0.0)); };     // true if last
 
   virtual void reset(const size_t nframes = 0)
   {
     ComponentBuffer::reset(nframes);
 
     // reset read/write pointer positions to the end of the buffer
-    if (rd_fwd)
+    if (!rd_fwd)
     {
+      av_log(NULL,AV_LOG_INFO,"ffmpeg::ComponentBufferBDReader::reset()::setting read pointers for backward operation.\n");
       rd_time = time_buf + nframes;
       rd_data = data_buf + data_sz;
     }
