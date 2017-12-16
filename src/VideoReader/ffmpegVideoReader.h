@@ -64,7 +64,7 @@ public:
     double secs = NAN;
     if (fmt_ctx->duration != AV_NOPTS_VALUE)
     {
-      int64_t duration = fmt_ctx->duration + (fmt_ctx->duration <= INT64_MAX - 5000 ? 5000 : 0);
+      int64_t duration = fmt_ctx->duration;
       secs = double(duration / 100) / (AV_TIME_BASE / 100);
     }
 

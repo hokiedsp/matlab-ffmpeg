@@ -352,6 +352,7 @@ void mexVideoReader::shuffle_buffers()
       // swap the buffers
       std::swap(wr_buf, rd_buf);
 
+        av_log(NULL, AV_LOG_INFO, "shuffle_buffer()::swapped, available frames in rd_buf:%d\n", rd_buf->available());
       // notify the waiting thread that rd_buf now contains a filled buffer
       buffer_ready.notify_one();
 

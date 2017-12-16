@@ -252,8 +252,6 @@ public:
 
   size_t release(uint8_t **data, double **time = NULL)
   {
-    av_log(NULL, AV_LOG_INFO, "releasing frame buffer\n");
-
     size_t rval = wr_time - time_buf; // save the # of frames in releasing buffer
     if (data)
     {
@@ -374,10 +372,7 @@ public:
 
     // allocate data
     if (nframes || !data_buf)
-    {
-      av_log(NULL, AV_LOG_INFO, "allocating data buffer [nb_frames=%d,data_sz=%d]\n", nb_frames, data_sz);
       data_buf = allocator.allocate(data_sz, data_buf);
-    }
 
     // reset read/write pointer positions
     wr_data = data_buf;
@@ -477,7 +472,7 @@ public:
   }
 
   virtual size_t available() const { return (rd_fwd) ? (wr_time - rd_time) : (wr_time >= rd_time) ? (rd_time - time_buf) : 0; } // number of frames remaining to be read
-  virtual bool eof() const { return has_eof && ((rd_fwd) ? (rd_time == wr_time) : (wr_time > time_buf && *time_buf == 0.0)); };     // true if last
+  virtual bool eof() const { return has_eof && ((rd_fwd) ? (rd_time == wr_time) : (wr_time > time_buf && *time_buf == 0.0)); };     // true if next read is the last
 
   virtual void reset(const size_t nframes = 0)
   {
@@ -486,10 +481,23 @@ public:
     // reset read/write pointer positions to the end of the buffer
     if (!rd_fwd)
     {
-      av_log(NULL,AV_LOG_INFO,"ffmpeg::ComponentBufferBDReader::reset()::setting read pointers for backward operation.\n");
-      rd_time = time_buf + nframes;
+      rd_time = time_buf + nb_frames;
       rd_data = data_buf + data_sz;
     }
+  }
+
+  virtual int copy_frame(const AVFrame *frame, const AVRational &time_base)
+  {
+    int ret = ComponentBuffer::copy_frame(frame,time_base);
+
+    // if EOF and reading backward, adjust read pointers to the end of buffer
+    if (has_eof && !rd_fwd)
+    {
+      rd_time = wr_time;
+      rd_data = wr_data;
+    }
+
+    return ret;
   }
 
   virtual int read_frame(uint8_t *dst, double *t = NULL, bool advance = true) // read next frame

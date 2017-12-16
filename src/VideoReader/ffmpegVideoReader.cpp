@@ -294,31 +294,31 @@ void VideoReader::start()
 void VideoReader::pause()
 {
   // already idle
+  std::unique_lock<std::mutex> reader_guard(reader_lock);
   if (reader_status == IDLE)
     return;
+  reader_guard.unlock();
+
+  std::unique_lock<std::mutex> buffer_guard(buffer_lock);
+  std::unique_lock<std::mutex> decoder_guard(decoder_lock);
 
   flush_frames = true; // don't block even if buffer full, drop remaining blocks
   reader_status = PAUSE_RQ;
 
   // set to flush pipeline
-  {
-    std::unique_lock<std::mutex> decoder_guard(buffer_lock);
-    decoder_ready.notify_all();
-  }
-  {
-    std::unique_lock<std::mutex> buffer_guard(buffer_lock);
-    buffer_ready.notify_all();
-    // wait until all remaining frames are processed
-    if (flush_frames)
-      buffer_flushed.wait(buffer_guard);
-  }
+  decoder_ready.notify_all();
+  decoder_guard.unlock();
+
+  buffer_ready.notify_all();
+  // wait until all remaining frames are processed
+  if (flush_frames)
+    buffer_flushed.wait(buffer_guard);
+  buffer_guard.unlock();
 
   // wait until reader thread is IDLE
+  reader_guard.lock();
   while (reader_status != IDLE)
-  {
-    std::unique_lock<std::mutex> reader_guard(reader_lock);
     reader_ready.wait(reader_guard);
-  }
 }
 
 void VideoReader::resume()
@@ -331,6 +331,9 @@ void VideoReader::resume()
 
 void VideoReader::stop()
 {
+  // pause all the thread
+  pause();
+
   // make sure no thread is stuck on a wait state
   killnow = true;
 
@@ -341,10 +344,6 @@ void VideoReader::stop()
   {
     std::unique_lock<std::mutex> decoder_guard(decoder_lock);
     decoder_ready.notify_all();
-  }
-  {
-    std::unique_lock<std::mutex> buffer_guard(buffer_lock);
-    buffer_ready.notify_all();
   }
 
   // start the file reading thread (sets up and idles)
@@ -371,6 +370,7 @@ void VideoReader::read_packets()
       // wait until a file is opened and the reader is unleashed
       if (reader_status == IDLE)
       {
+av_log(NULL,AV_LOG_INFO,"ffmpeg::VideoReader::read_packets()::turned off\n");
         std::unique_lock<std::mutex> reader_guard(reader_lock);
         reader_ready.notify_one();
         reader_ready.wait(reader_guard);
@@ -378,6 +378,7 @@ void VideoReader::read_packets()
         if (killnow)
           break;
         last_frame = false;
+av_log(NULL,AV_LOG_INFO,"ffmpeg::VideoReader::read_packets()::turned on\n");
       }
 
       if (reader_status == PAUSE_RQ)
@@ -391,10 +392,7 @@ void VideoReader::read_packets()
         if ((ret = av_read_frame(fmt_ctx, &packet)) < 0)
         {
           if (ret == AVERROR_EOF) // reached end of the file
-          {
             last_frame = true;
-            av_log(NULL,AV_LOG_INFO,"ffmpeg::VideoReader::read_packets::Encountered EOF\n");
-          }
           else
             throw ffmpegException("Error while reading a packet: %s", av_err2str(ret));
         }
@@ -408,6 +406,8 @@ void VideoReader::read_packets()
       std::unique_lock<std::mutex> decoder_guard(decoder_lock);
       if (!last_frame)
       {
+        // av_log(NULL,AV_LOG_INFO,"ffmpeg::VideoReader::read_packets::read t=%d\n",packet.pts);
+
         // decoder input buffer is full, wait until space available
         ret = avcodec_send_packet(dec_ctx, &packet);
         while (!killnow && (ret == AVERROR(EAGAIN)) && (reader_status != PAUSE_RQ))
@@ -432,11 +432,16 @@ void VideoReader::read_packets()
 
       // if just completed EOF flushing, done
       if (last_frame)
+      {
+        std::unique_lock<std::mutex> reader_guard(reader_lock);
         reader_status = IDLE;
+      }
     }
   }
   catch (...)
   {
+    av_log(NULL,AV_LOG_FATAL,"read_packet() thread threw exception.\n");
+
     // log the exception
     eptr = std::current_exception();
 
@@ -473,15 +478,12 @@ void VideoReader::filter_frames()
       if (killnow)
         break;
       if (ret == AVERROR_EOF)
-      {
         last_frame = true;
-        av_log(NULL, AV_LOG_INFO, "ffmpeg::VideoReader::filter_frames::Encountered EOF\n");
-      }
       else if (ret < 0)
         throw ffmpegException("Error while receiving a frame from the decoder: %s", av_err2str(ret));
       else
         frame->pts = av_frame_get_best_effort_timestamp(frame);
-
+        
       if (filter_graph)
       {
         if (last_frame)
@@ -545,6 +547,8 @@ void VideoReader::filter_frames()
   }
   catch (...)
   {
+    av_log(NULL,AV_LOG_FATAL,"filter_frames() thread threw exception.\n");
+
     // log the exception
     eptr = std::current_exception();
 
@@ -578,10 +582,12 @@ void VideoReader::copy_frame_ts(const AVFrame *frame)
     if (buf_start_ts)
     {
       if (frame->best_effort_timestamp < buf_start_ts)
-        return;
+      {  av_log(NULL,AV_LOG_INFO,"ffmpeg::VideoReader::copy_frame_ts::dropping t=%d < %d\n",frame->best_effort_timestamp,buf_start_ts);
+        return;}
       else
         buf_start_ts = 0;
     }
+    // av_log(NULL,AV_LOG_INFO,"ffmpeg::VideoReader::copy_frame_ts::buffering t=%d\n",frame->best_effort_timestamp);
   }
 
   std::unique_lock<std::mutex> buffer_guard(buffer_lock);
@@ -601,10 +607,7 @@ void VideoReader::copy_frame_ts(const AVFrame *frame)
     eof = true;
 
   if (killnow || !ret) // skip only if buffer was not ready
-  {
-    av_log(NULL, AV_LOG_INFO, "ffmpeg::VideoReader::copy_frame_ts::notifying buffer_ready (ret=%d,buf->available()=%d,buf->eof()=%d)\n", ret,buf->available(),buf->eof());
     buffer_ready.notify_one();
-  }
 }
 
 ////////////////////////////////////////////
@@ -654,10 +657,7 @@ size_t VideoReader::blockTillBufferFull()
   if (!isFileOpen() || !buf)
     return 0;
   std::unique_lock<std::mutex> buffer_guard(buffer_lock);
-  buffer_ready.wait(buffer_guard, [&]() { 
-    bool iseof = eof;
-    av_log(NULL,AV_LOG_INFO,"ffmpeg::VideoReader::blockTillBufferFull::waking up to check the predicates: [%d:%d:%d]\n",killnow,iseof,buf->size());
-    return killnow || eof || !buf->remaining(); });
+  buffer_ready.wait(buffer_guard, [&]() { return killnow || eof || !buf->remaining(); });
   return buf->size();
 }
 
