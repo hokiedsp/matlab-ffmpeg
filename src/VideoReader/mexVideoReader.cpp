@@ -334,15 +334,19 @@ void mexVideoReader::shuffle_buffers()
   std::unique_lock<std::mutex> buffer_guard(buffer_lock);
   while (!killnow)
   {
-    if (rd_buf->available() || reader.atEndOfFile()) // read buffer still has unread frames, wait until all read
+    if (rd_buf->readyToRead()) // read buffer still has unread frames, wait until all read
     {
+      av_log(NULL,AV_LOG_INFO,"mexVideoReader::shuffle_buffers::waiting till rd_buf completely read\n");
       buffer_ready.wait(buffer_guard); // to be woken up by read functions
+      av_log(NULL,AV_LOG_INFO,"mexVideoReader::shuffle_buffers::rd_buf read\n");
     }
     else // all read, wait till the other buffer is written then swap
     {
+      // reader.atEndOfFile()
       // wait until write buffer is full
+      av_log(NULL,AV_LOG_INFO,"mexVideoReader::shuffle_buffers::waiting till wr_buf filled\n");
       reader.blockTillBufferFull();
-      av_log(NULL,AV_LOG_INFO,"mexVideoReader::shuffle_buffers::buffer written (%d)\n",wr_buf->eof());
+      av_log(NULL,AV_LOG_INFO,"mexVideoReader::shuffle_buffers::wr_buf filled (%d)\n",wr_buf->eof());
       if (killnow)
         break;
 
@@ -352,7 +356,7 @@ void mexVideoReader::shuffle_buffers()
       // swap the buffers
       std::swap(wr_buf, rd_buf);
 
-        av_log(NULL, AV_LOG_INFO, "shuffle_buffer()::swapped, available frames in rd_buf:%d\n", rd_buf->available());
+        av_log(NULL, AV_LOG_INFO, "mexVideoReader::shuffle_buffers::swapped, available frames in rd_buf:%d\n", rd_buf->full());
       // notify the waiting thread that rd_buf now contains a filled buffer
       buffer_ready.notify_one();
 
@@ -366,7 +370,7 @@ void mexVideoReader::shuffle_buffers()
         if (AVERROR_EOF == rd_buf->read_first_frame(NULL, &t))
           t = reader.getDuration();
 
-        av_log(NULL, AV_LOG_INFO, "shuffle_buffer()::setting time to %f\n", t);
+        av_log(NULL, AV_LOG_INFO, "mexVideoReader::shuffle_buffers::setting time to %f\n", t);
 
         if (t > 0.0)
           setCurrentTime(t, false);

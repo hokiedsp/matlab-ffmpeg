@@ -582,8 +582,8 @@ void VideoReader::copy_frame_ts(const AVFrame *frame)
     if (buf_start_ts)
     {
       if (frame->best_effort_timestamp < buf_start_ts)
-      {  av_log(NULL,AV_LOG_INFO,"ffmpeg::VideoReader::copy_frame_ts::dropping t=%d < %d\n",frame->best_effort_timestamp,buf_start_ts);
-        return;}
+      // {  av_log(NULL,AV_LOG_INFO,"ffmpeg::VideoReader::copy_frame_ts::dropping t=%d < %d\n",frame->best_effort_timestamp,buf_start_ts);
+        return;
       else
         buf_start_ts = 0;
     }
@@ -606,8 +606,8 @@ void VideoReader::copy_frame_ts(const AVFrame *frame)
   if (!frame)
     eof = true;
 
-  if (killnow || !ret) // skip only if buffer was not ready
-    buffer_ready.notify_one();
+  // if (killnow || !ret) // skip only if buffer was not ready
+  buffer_ready.notify_one();
 }
 
 ////////////////////////////////////////////
