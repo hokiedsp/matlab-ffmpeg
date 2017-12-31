@@ -105,7 +105,7 @@ AVPixelFormat mexVideoReader::mex_get_pixfmt(const mxArray *obj)
 
 // mexVideoReader(mobj, filename) (all arguments  pre-validated)
 mexVideoReader::mexVideoReader(int nrhs, const mxArray *prhs[])
-    : rd_rev(false), killnow(false)
+    : rd_rev(false), eof(true), killnow(false)
 {
   // get absolute path to the file
   fs::path p = fs::canonical(mexGetString(prhs[1]));
@@ -145,19 +145,24 @@ mexVideoReader::mexVideoReader(int nrhs, const mxArray *prhs[])
 
 mexVideoReader::~mexVideoReader()
 {
+  // av_log(NULL, AV_LOG_INFO, "mexVideoReader::~mexVideoReader::destruction started\n");
   killnow = true;
 
-  // close the file before buffers are destroyed
-  reader.closeFile();
-
+  // stop shuffle_buffers thread if it is waiting for read buffer to be read
   {
     std::unique_lock<std::mutex> buffer_guard(buffer_lock);
     buffer_ready.notify_one();
   }
 
+  // close the file before buffers are destroyed
+  reader.closeFile();
+  // av_log(NULL, AV_LOG_INFO, "mexVideoReader::~mexVideoReader::file closed\n");
+
   // start the file reading thread (sets up and idles)
   if (frame_writer.joinable())
     frame_writer.join();
+
+  // av_log(NULL, AV_LOG_INFO, "mexVideoReader::~mexVideoReader::destruction completed\n");
 }
 
 bool mexVideoReader::action_handler(const std::string &command, int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[])
@@ -175,9 +180,18 @@ bool mexVideoReader::action_handler(const std::string &command, int nlhs, mxArra
   else if (command == "hasFrame")
   {
     std::unique_lock<std::mutex> buffer_guard(buffer_lock);
-    if (!(rd_buf->available() || rd_buf->eof()))
-      buffer_ready.wait(buffer_guard);
-    plhs[0] = mxCreateLogicalScalar(!rd_buf->eof());
+    if (rd_rev)
+    {
+      if (!(rd_buf->available() || rd_buf->eof()))
+        buffer_ready.wait(buffer_guard);
+      plhs[0] = mxCreateLogicalScalar(!rd_buf->eof());
+    }
+    else
+    {
+      if (!(reader.atEndOfFile() || rd_buf->available() || rd_buf->eof()))
+        buffer_ready.wait(buffer_guard);
+      plhs[0] = mxCreateLogicalScalar(!rd_buf->eof());
+    }
   }
   return true;
 }
@@ -228,14 +242,22 @@ void mexVideoReader::setCurrentTime(double t, const bool reset_buffer)
   }
 
   // if reading backwards, set to the time so the last frame in the buffer will be the requested time
+  double T = reader.getDuration();
   if (rd_rev)
   {
-    double T = reader.getDuration();
-    double Tbuf = buffer_capacity / reader.getFrameRate();
-    if (t > T) // make sure the last frame read is the last frame
-      t = T - Tbuf;
-    else // buffer time span
-      t -= Tbuf;
+    eof = t <= 0.0;
+    if (!eof)
+    {
+      double Tbuf = buffer_capacity / reader.getFrameRate();
+      if (t > T) // make sure the last frame read is the last frame
+        t = T - Tbuf;
+      else // buffer time span
+        t -= Tbuf;
+    }
+  }
+  else
+  {
+    eof = t >= T;
   }
 
   av_log(NULL,AV_LOG_INFO,"setCurrentTime()::timestamp set to %f\n",t);
@@ -334,19 +356,26 @@ void mexVideoReader::shuffle_buffers()
   std::unique_lock<std::mutex> buffer_guard(buffer_lock);
   while (!killnow)
   {
-    if (rd_buf->readyToRead()) // read buffer still has unread frames, wait until all read
+    if (eof || rd_buf->readyToRead()) // read buffer still has unread frames, wait until all read
     {
-      av_log(NULL,AV_LOG_INFO,"mexVideoReader::shuffle_buffers::waiting till rd_buf completely read\n");
+      av_log(NULL,AV_LOG_INFO,"mexVideoReader::shuffle_buffers()::waiting till rd_buf completely read\n");
       buffer_ready.wait(buffer_guard); // to be woken up by read functions
-      av_log(NULL,AV_LOG_INFO,"mexVideoReader::shuffle_buffers::rd_buf read\n");
+      av_log(NULL,AV_LOG_INFO,"mexVideoReader::shuffle_buffers()::rd_buf read\n");
     }
     else // all read, wait till the other buffer is written then swap
     {
+      // if eof, stop till setCurrentTime() call
+      if (!rd_rev && reader.atEndOfFile())
+      {
+        eof = true;
+        continue;
+      }
+
       // reader.atEndOfFile()
       // wait until write buffer is full
-      av_log(NULL,AV_LOG_INFO,"mexVideoReader::shuffle_buffers::waiting till wr_buf filled\n");
+      av_log(NULL,AV_LOG_INFO,"mexVideoReader::shuffle_buffers()::waiting till wr_buf filled\n");
       reader.blockTillBufferFull();
-      av_log(NULL,AV_LOG_INFO,"mexVideoReader::shuffle_buffers::wr_buf filled (%d)\n",wr_buf->eof());
+      av_log(NULL,AV_LOG_INFO,"mexVideoReader::shuffle_buffers()::wr_buf filled (%d)\n",wr_buf->size());
       if (killnow)
         break;
 
@@ -356,7 +385,7 @@ void mexVideoReader::shuffle_buffers()
       // swap the buffers
       std::swap(wr_buf, rd_buf);
 
-        av_log(NULL, AV_LOG_INFO, "mexVideoReader::shuffle_buffers::swapped, available frames in rd_buf:%d\n", rd_buf->full());
+        // av_log(NULL, AV_LOG_INFO, "mexVideoReader::shuffle_buffers()::swapped, available frames in rd_buf:%d\n", rd_buf->full());
       // notify the waiting thread that rd_buf now contains a filled buffer
       buffer_ready.notify_one();
 
@@ -370,16 +399,22 @@ void mexVideoReader::shuffle_buffers()
         if (AVERROR_EOF == rd_buf->read_first_frame(NULL, &t))
           t = reader.getDuration();
 
-        av_log(NULL, AV_LOG_INFO, "mexVideoReader::shuffle_buffers::setting time to %f\n", t);
+        if (t <= 0.0)
+        {
+          eof = true;
+          continue;
+        }
 
-        if (t > 0.0)
-          setCurrentTime(t, false);
+        // av_log(NULL, AV_LOG_INFO, "mexVideoReader::shuffle_buffers()::setting time to %f\n", t);
+
+        setCurrentTime(t, false);
       }
 
       // give reader the new buffer
       reader.resetBuffer(&*wr_buf);
     }
   }
+  // av_log(NULL, AV_LOG_INFO, "mexVideoReader::shuffle_buffers()::exiting\n");
 }
 
 void mexVideoReader::readFrame(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[]) //[frame,time] = readFrame(obj, varargin);
@@ -424,12 +459,16 @@ void mexVideoReader::readBuffer(int nlhs, mxArray *plhs[], int nrhs, const mxArr
     // wait until a buffer is ready
     std::unique_lock<std::mutex> buffer_guard(buffer_lock);
     if (!rd_buf->full())
+    {
+      av_log(NULL, AV_LOG_INFO, "mexVideoReader::readBuffer()::rd_buf not full, waiting for a full buffer\n");
       buffer_ready.wait(buffer_guard);
-
+      av_log(NULL, AV_LOG_INFO, "mexVideoReader::readBuffer()::a full buffer available\n");
+    }
     // release the buffer data (buffer automatically reallocate new data block)
     nb_frames = rd_buf->release(&data, &ts);
 
     // notify the stuffer for the buffer availability
+      av_log(NULL, AV_LOG_INFO, "mexVideoReader::readBuffer()::buffer read\n");
     buffer_ready.notify_one();
   }
 

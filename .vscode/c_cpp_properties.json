@@ -15,7 +15,11 @@
                     "${workspaceRoot}"
                 ]
             },
-            "intelliSenseMode": "clang-x64"
+            "intelliSenseMode": "clang-x64",
+            "macFrameworkPath": [
+                "/System/Library/Frameworks",
+                "/Library/Frameworks"
+            ]
         },
         {
             "name": "Linux",
@@ -37,24 +41,30 @@
         {
             "name": "Win32",
             "includePath": [
-                "C:/Program Files (x86)/Microsoft Visual Studio 14.0/VC/include",
-                "C:/Program Files/MATLAB/R2016b/extern/include",
-                "D:/Users/Kesh/Documents/Programming/ffmpeg-3.2.4/include",
-                "D:/Users/Kesh/Documents/Programming/msinttypes-r26"
+                "C:/Program Files (x86)/Microsoft Visual Studio/2017/BuildTools/VC/Tools/MSVC/14.12.25827/include",
+                "C:/Program Files (x86)/Windows Kits/10/Include/10.0.16299.0/shared",
+                "C:/Program Files (x86)/Windows Kits/10/Include/10.0.16299.0/ucrt",
+                "C:/Program Files (x86)/Windows Kits/10/Include/10.0.16299.0/um",
+                "C:/Program Files/MATLAB/R2017a/extern/include",
+                "${USERPROFILE}/Documents/Programming/ffmpeg-3.4.1/include",
+                "${workspaceRoot}"
             ],
             "browse": {
                 "limitSymbolsToIncludedHeaders": true,
                 "databaseFilename": "",
                 "path": [
-                    "C:/Program Files (x86)/Microsoft Visual Studio 14.0/VC/include",
-                    "C:/Program Files/MATLAB/R2016b/extern/include",
-                    "D:/Users/Kesh/Documents/Programming/ffmpeg-3.2.4/include",
-                    "D:/Users/Kesh/Documents/Programming/msinttypes-r26",
+                    "C:/Program Files (x86)/Microsoft Visual Studio/2017/BuildTools/VC/Tools/MSVC/14.12.25827/lib/x64",
+                    "C:/Program Files (x86)/Windows Kits/10/Include/10.0.16299.0/shared",
+                    "C:/Program Files (x86)/Windows Kits/10/Include/10.0.16299.0/ucrt",
+                    "C:/Program Files (x86)/Windows Kits/10/Include/10.0.16299.0/um",
+                    "C:/Program Files/MATLAB/R2017a/extern/include",
+                    "${USERPROFILE}/Documents/Programming/ffmpeg-3.4.1/include",
+                    "${workspaceRoot}/Common",
                     "${workspaceRoot}"
                 ]
             },
             "intelliSenseMode": "msvc-x64"
         }
     ],
-    "version": 2
+    "version": 3
 }

@@ -27,14 +27,11 @@ public:
   ~VideoReader();
 
   bool isFileOpen();
-  bool atEndOfFile() { return eof; }
+  bool atEndOfFile() { return filter_status == IDLE; }
 
   void openFile(const std::string &filename, const std::string &filtdesc = "", const AVPixelFormat pix_fmt = AV_PIX_FMT_NONE)
   {
     open_input_file(filename);
-
-    av_log(fmt_ctx, AV_LOG_INFO, "filename=%s\n",fmt_ctx->filename);
-
     create_filters(filtdesc, pix_fmt);
     reader_status = ACTIVE;
     start();
@@ -174,7 +171,6 @@ private:
   std::string filter_descr;
 
   std::atomic<int64_t> pts; // presentation timestamp of the last buffered
-  std::atomic<bool> eof;
 
   AVRational tb; // timebase
   AVFrame *firstframe;
@@ -192,16 +188,17 @@ private:
   std::mutex buffer_lock;
   std::condition_variable buffer_ready;
 
-  enum READER_STATUS
+  enum THREAD_STATUS
   {
     FAILED = -1, //
     IDLE,
     ACTIVE,
     PAUSE_RQ, // requested to stop reading and flush the pipeline
+    INACTIVE  // state after last frame is processed until entering IDLE state
   };     // non-zero to idle
-  std::atomic<READER_STATUS> reader_status;
+  std::atomic<THREAD_STATUS> reader_status;
+  std::atomic<THREAD_STATUS> filter_status;
 
-  std::atomic<bool> flush_frames; // true to discard all new frames
   std::condition_variable buffer_flushed;
 
   // THREAD 1: responsible to read packet and send it to ffMPEG decoder

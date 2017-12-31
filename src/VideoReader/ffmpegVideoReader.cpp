@@ -15,8 +15,8 @@ using namespace ffmpeg;
 VideoReader::VideoReader(const std::string &filename, const std::string &filtdesc, const AVPixelFormat pix_fmt)
     : fmt_ctx(NULL), dec_ctx(NULL), filter_graph(NULL), buffersrc_ctx(NULL), buffersink_ctx(NULL),
       video_stream_index(-1), st(NULL), pix_fmt(AV_PIX_FMT_NONE), filter_descr(""),
-      pts(0), eof(false), tb{0, 1}, firstframe(NULL), buf(NULL), buf_start_ts(0),
-      killnow(false), reader_status(IDLE), flush_frames(true),
+      pts(0), tb{0, 1}, firstframe(NULL), buf(NULL), buf_start_ts(0),
+      killnow(false), reader_status(INACTIVE), filter_status(INACTIVE),
       eptr(NULL)
 {
   if (!filename.empty())
@@ -221,8 +221,6 @@ void VideoReader::setCurrentTimeStamp(const double val, const bool exact_search)
   // pause the threads and flush the remaining frames
   pause();
 
-  eof = false;
-
   // set new time
   // if filter graph changes frame rate -> convert it to the stream time
   int64_t seek_timestamp = int64_t(val * AV_TIME_BASE);
@@ -230,8 +228,8 @@ void VideoReader::setCurrentTimeStamp(const double val, const bool exact_search)
   if (ret = avformat_seek_file(fmt_ctx, -1, INT64_MIN, seek_timestamp, seek_timestamp, 0) < 0)
     throw ffmpegException("Could not seek to position " + std::to_string(val) + " s");
 
-  av_log(NULL,AV_LOG_INFO,"ffmpeg::VideoReader::setCurrentTimeStamp::seeking %d\n",seek_timestamp);
-  av_log(NULL,AV_LOG_INFO,"ffmpeg::VideoReader::setCurrentTimeStamp::avformat_seek_file() returned %d\n",ret);
+  // av_log(NULL,AV_LOG_INFO,"ffmpeg::VideoReader::setCurrentTimeStamp::seeking %d\n",seek_timestamp);
+  // av_log(NULL,AV_LOG_INFO,"ffmpeg::VideoReader::setCurrentTimeStamp::avformat_seek_file() returned %d\n",ret);
 
   // avformat_seek_file() typically under-seeks, if exact_search requested, set buf_start_ts to the
   // requested timestamp (in output frame's timebase) to make copy_frame_ts() to ignore all the frames prior to the requested
@@ -254,7 +252,6 @@ void VideoReader::setFilterGraph(const std::string &filter_desc) // stops
   pause();
 
   // reset time
-  eof = false;
   if (avformat_seek_file(fmt_ctx, -1, INT64_MIN, 0, 0, 0) < 0)
     throw ffmpegException("Could not rewind.");
 
@@ -279,7 +276,7 @@ void VideoReader::start()
 
   // wait until the first frame is ready
   std::unique_lock<std::mutex> firstframe_guard(firstframe_lock);
-  firstframe_ready.wait(firstframe_guard, [&]() { return killnow || eof || firstframe; });
+  firstframe_ready.wait(firstframe_guard, [&]() { return killnow || firstframe; });
 
   av_log(dec_ctx, AV_LOG_INFO, "frame[%d]:width=%d,height=%d,format=%s,key_frame=%d,pict_type=%c,SAR=%d/%d,pts=%d,display_picture_number=%d\n",
          firstframe->best_effort_timestamp, firstframe->width, firstframe->height, av_get_pix_fmt_name((AVPixelFormat)firstframe->format),
@@ -293,38 +290,40 @@ void VideoReader::start()
 
 void VideoReader::pause()
 {
-  // already idle
+  // lock all mutexes
+  // av_log(dec_ctx, AV_LOG_INFO, "ffmpeg::VideoReader::pause()::start\n");
   std::unique_lock<std::mutex> reader_guard(reader_lock);
-  if (reader_status == IDLE)
-    return;
-  reader_guard.unlock();
-
   std::unique_lock<std::mutex> buffer_guard(buffer_lock);
-  std::unique_lock<std::mutex> decoder_guard(decoder_lock);
 
-  flush_frames = true; // don't block even if buffer full, drop remaining blocks
-  reader_status = PAUSE_RQ;
+  // if not already idling
+  if (reader_status != IDLE || filter_status != IDLE)
+  {
+    // command threads to pause
+    if (reader_status != IDLE)
+      reader_status = PAUSE_RQ;
+    if (filter_status != IDLE)
+      filter_status = PAUSE_RQ; // don't block even if buffer full, drop remaining blocks
 
-  // set to flush pipeline
-  decoder_ready.notify_all();
-  decoder_guard.unlock();
+    // release the filter_frames thread
+    buffer_guard.unlock();
+    buffer_ready.notify_one();
 
-  buffer_ready.notify_all();
-  // wait until all remaining frames are processed
-  if (flush_frames)
-    buffer_flushed.wait(buffer_guard);
-  buffer_guard.unlock();
+    // wait until reader thread is IDLE
+    while (reader_status != IDLE)
+      reader_ready.wait(reader_guard);
 
-  // wait until reader thread is IDLE
-  reader_guard.lock();
-  while (reader_status != IDLE)
-    reader_ready.wait(reader_guard);
+    // wait until all remaining frames are processed
+    buffer_guard.lock();
+    if (filter_status != IDLE)
+      buffer_flushed.wait(buffer_guard);
+  }
+  // av_log(dec_ctx, AV_LOG_INFO, "ffmpeg::VideoReader::pause()::paused\n");
 }
 
 void VideoReader::resume()
 {
   std::unique_lock<std::mutex> reader_guard(reader_lock);
-  flush_frames = false;
+  filter_status = IDLE;
   reader_status = ACTIVE;
   reader_ready.notify_all();
 }
@@ -333,6 +332,13 @@ void VideoReader::stop()
 {
   // pause all the thread
   pause();
+
+  // wait until packet_reader to reach the idle state
+  {
+    std::unique_lock<std::mutex> reader_guard(reader_lock);
+    if (reader_status!=IDLE)
+      reader_ready.wait(reader_guard);
+  }
 
   // make sure no thread is stuck on a wait state
   killnow = true;
@@ -345,6 +351,10 @@ void VideoReader::stop()
     std::unique_lock<std::mutex> decoder_guard(decoder_lock);
     decoder_ready.notify_all();
   }
+  // {
+    // std::unique_lock<std::mutex> buffer_guard(buffer_lock);
+    // buffer_ready.notify_all();
+  // }
 
   // start the file reading thread (sets up and idles)
   if (packet_reader.joinable())
@@ -368,17 +378,18 @@ void VideoReader::read_packets()
     while (!killnow)
     {
       // wait until a file is opened and the reader is unleashed
-      if (reader_status == IDLE)
+      if (reader_status == INACTIVE)
       {
-av_log(NULL,AV_LOG_INFO,"ffmpeg::VideoReader::read_packets()::turned off\n");
+// av_log(NULL,AV_LOG_INFO,"ffmpeg::VideoReader::read_packets()::turned off\n");
         std::unique_lock<std::mutex> reader_guard(reader_lock);
+        reader_status = IDLE;
         reader_ready.notify_one();
         reader_ready.wait(reader_guard);
         reader_guard.unlock();
         if (killnow)
           break;
         last_frame = false;
-av_log(NULL,AV_LOG_INFO,"ffmpeg::VideoReader::read_packets()::turned on\n");
+// av_log(NULL,AV_LOG_INFO,"ffmpeg::VideoReader::read_packets()::turned on\n");
       }
 
       if (reader_status == PAUSE_RQ)
@@ -434,7 +445,8 @@ av_log(NULL,AV_LOG_INFO,"ffmpeg::VideoReader::read_packets()::turned on\n");
       if (last_frame)
       {
         std::unique_lock<std::mutex> reader_guard(reader_lock);
-        reader_status = IDLE;
+        reader_status = INACTIVE;
+// av_log(NULL,AV_LOG_INFO,"ffmpeg::VideoReader::read_packets()::reader_ready notified after last frame\n");
       }
     }
   }
@@ -448,10 +460,11 @@ av_log(NULL,AV_LOG_INFO,"ffmpeg::VideoReader::read_packets()::turned on\n");
     // flag the exception
     killnow = true;
     reader_status = FAILED;
-    reader_ready.notify_all();
     decoder_ready.notify_all();
     buffer_ready.notify_all();
   }
+// av_log(NULL,AV_LOG_INFO,"ffmpeg::VideoReader::read_packets()::exiting\n");
+  av_packet_unref(&packet);
 }
 
 void VideoReader::filter_frames()
@@ -459,7 +472,7 @@ void VideoReader::filter_frames()
   int ret;
   AVFrame *frame = av_frame_alloc();
   AVFrame *filt_frame = av_frame_alloc();
-  bool last_frame = false;
+  bool last_frame = false; 
   try
   {
     /* read all packets */
@@ -477,20 +490,25 @@ void VideoReader::filter_frames()
 
       if (killnow)
         break;
-      if (ret == AVERROR_EOF)
-        last_frame = true;
-      else if (ret < 0)
-        throw ffmpegException("Error while receiving a frame from the decoder: %s", av_err2str(ret));
-      else
-        frame->pts = av_frame_get_best_effort_timestamp(frame);
-        
+
+      if (filter_status != ACTIVE && filter_status != PAUSE_RQ)
+        filter_status = ACTIVE;
+      last_frame = ret == AVERROR_EOF;
+      if (!last_frame)
+      {
+        if (ret < 0)
+          throw ffmpegException("Error while receiving a frame from the decoder: %s", av_err2str(ret));
+        else
+          // set frame PTS to be the best effort timestamp for the frame
+          frame->pts = av_frame_get_best_effort_timestamp(frame);
+      }
       if (filter_graph)
       {
         if (last_frame)
         {
           av_buffersrc_add_frame_flags(buffersrc_ctx, NULL, AV_BUFFERSRC_FLAG_KEEP_REF);
         }
-        else
+        else // if not decoding in progress -> EOF
         {
           /* pull filtered frames from the filtergraph */
           ret = av_buffersrc_add_frame_flags(buffersrc_ctx, frame, AV_BUFFERSRC_FLAG_KEEP_REF);
@@ -524,18 +542,21 @@ void VideoReader::filter_frames()
       if (frame)
         pts = frame->best_effort_timestamp;
 
-      // clear last_frame flag -or- release frame
+      // clear last_decoded_frame flag -or- release frame
       if (last_frame)
       {
-        last_frame = false;
+// av_log(NULL,AV_LOG_INFO,"ffmpeg::VideoReader::filter_frames()::decoding completed\n");
         avcodec_flush_buffers(dec_ctx); // so decoder doesn't return AVERROR_EOF again
         if (filter_graph)               // if filtered, re-create the filtergraph
           create_filters();             //
 
-        if (flush_frames)
+        std::unique_lock<std::mutex> buffer_guard(buffer_lock);
+        bool pause_rq = filter_status = PAUSE_RQ;
+        filter_status = IDLE;
+
+        if (pause_rq)
         {
-          std::unique_lock<std::mutex> buffer_guard(buffer_lock);
-          flush_frames = false;
+// av_log(NULL,AV_LOG_INFO,"ffmpeg::VideoReader::filter_frames()::notifying buffer_flushed\n");
           buffer_flushed.notify_one();
         }
       }
@@ -547,7 +568,7 @@ void VideoReader::filter_frames()
   }
   catch (...)
   {
-    av_log(NULL,AV_LOG_FATAL,"filter_frames() thread threw exception.\n");
+    av_log(NULL,AV_LOG_FATAL,"ffmpeg::VideoReader::filter_frames() thread threw exception.\n");
 
     // log the exception
     eptr = std::current_exception();
@@ -563,6 +584,8 @@ void VideoReader::filter_frames()
   // release the frames
   av_frame_free(&frame);
   av_frame_free(&filt_frame);
+
+  // av_log(NULL, AV_LOG_FATAL, "ffmpeg::VideoReader::filter_frames()::exiting.\n");
 }
 
 void VideoReader::copy_frame_ts(const AVFrame *frame)
@@ -587,14 +610,14 @@ void VideoReader::copy_frame_ts(const AVFrame *frame)
       else
         buf_start_ts = 0;
     }
-    // av_log(NULL,AV_LOG_INFO,"ffmpeg::VideoReader::copy_frame_ts::buffering t=%d\n",frame->best_effort_timestamp);
   }
 
   std::unique_lock<std::mutex> buffer_guard(buffer_lock);
   // if null, reached the end-of-file (or stopped by user command)
   // copy frame to buffer; if buffer not ready, wait until it is
   int ret = (buf) ? buf->copy_frame(frame, tb) : AVERROR(EAGAIN);
-  while (!(flush_frames || killnow) && (ret == AVERROR(EAGAIN)))
+  bool flush_frames;
+  while (!((flush_frames = filter_status == PAUSE_RQ) || killnow) && (ret == AVERROR(EAGAIN)))
   {
     buffer_ready.wait(buffer_guard);
     if (killnow || flush_frames)
@@ -602,9 +625,8 @@ void VideoReader::copy_frame_ts(const AVFrame *frame)
     ret = (buf) ? buf->copy_frame(frame, tb) : AVERROR(EAGAIN);
   }
 
-  // if frame is null, mark end-of-file
-  if (!frame)
-    eof = true;
+  // if (!flush_frames)
+  //   av_log(NULL, AV_LOG_INFO, "ffmpeg::VideoReader::copy_frame_ts::buffering t=%d\n", eof ? -1 : frame->pts);
 
   // if (killnow || !ret) // skip only if buffer was not ready
   buffer_ready.notify_one();
@@ -657,7 +679,7 @@ size_t VideoReader::blockTillBufferFull()
   if (!isFileOpen() || !buf)
     return 0;
   std::unique_lock<std::mutex> buffer_guard(buffer_lock);
-  buffer_ready.wait(buffer_guard, [&]() { return killnow || eof || !buf->remaining(); });
+  buffer_ready.wait(buffer_guard, [&]() { return killnow || !buf->remaining(); });
   return buf->size();
 }
 
@@ -666,6 +688,6 @@ size_t VideoReader::blockTillFrameAvail(size_t min_cnt)
   if (!isFileOpen() || !buf)
     return 0;
   std::unique_lock<std::mutex> buffer_guard(buffer_lock);
-  buffer_ready.wait(buffer_guard, [&]() { return killnow || eof || buf->available() >= min_cnt; });
+  buffer_ready.wait(buffer_guard, [&]() { return killnow || buf->eof() || buf->available() >= min_cnt; });
   return buf->available();
 }

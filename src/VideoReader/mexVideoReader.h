@@ -40,6 +40,7 @@ protected:
 private:
   ffmpeg::VideoReader reader;
   bool rd_rev;  // false to read forward, true to read reverse
+  bool eof;
 
   size_t nb_components;   // number of components
   size_t buffer_capacity; // in frames
