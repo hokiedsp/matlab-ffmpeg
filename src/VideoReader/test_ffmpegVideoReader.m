@@ -16,9 +16,16 @@ try
    %    vrobj.CurrentTime = 2.0;
    %       fprintf('New CurrentTime = %g\n',vrobj.CurrentTime);
    %    disp('Reading the first frame');
+   t = [];
+   while (vrobj.hasFrame)
+       t_last = t;
       [frames,t] = vrobj.readBuffer();
-      [frames1,t1] = vrobj.readBuffer();
-      vrobj
+   end
+   vrobj.hasFrame
+%       pause(1)
+%       [frames1,t1] = vrobj.readBuffer();
+%       T = vrobj.Duration;
+%       fs = vrobj.FrameRate;
 %    vrobj.CurrentTime = 0;
 %       [frames1,t1] = vrobj.readBuffer();
 %    vrobj

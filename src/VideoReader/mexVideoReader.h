@@ -27,6 +27,7 @@ protected:
   void set_prop(const std::string name, const mxArray *value);
   mxArray *get_prop(const std::string name);
 
+  bool hasFrame();
   void readFrame(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[]);             //    varargout = readFrame(obj, varargin);
   void read(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[]);                  //varargout = read(obj, varargin);
   void readBuffer(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[]);             //    [frames,timestamps] = readFrame(obj);
@@ -40,8 +41,14 @@ protected:
 private:
   ffmpeg::VideoReader reader;
   bool rd_rev;  // false to read forward, true to read reverse
-  bool eof;
 
+  enum
+  {
+    ON,   // video frame buffering is in progress
+    LAST, // working on the last buffer
+    OFF   // state after last frame is processed until entering IDLE state
+  } state; // reader's buffering state
+  
   size_t nb_components;   // number of components
   size_t buffer_capacity; // in frames
 
