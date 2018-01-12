@@ -41,14 +41,16 @@ protected:
 private:
   ffmpeg::VideoReader reader;
   bool rd_rev;  // false to read forward, true to read reverse
-
+  
   enum
   {
     ON,   // video frame buffering is in progress
     LAST, // working on the last buffer
     OFF   // state after last frame is processed until entering IDLE state
   } state; // reader's buffering state
-  
+
+  double rd_rev_t_last; // set when state=LAST
+
   size_t nb_components;   // number of components
   size_t buffer_capacity; // in frames
 

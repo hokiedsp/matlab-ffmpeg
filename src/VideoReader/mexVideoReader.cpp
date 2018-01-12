@@ -116,9 +116,11 @@ mexVideoReader::mexVideoReader(int nrhs, const mxArray *prhs[])
   // if read backwards, start from the end
   buffer_capacity = (int)mxGetScalar(mxGetProperty(prhs[0], 0, "BufferSize"));
   rd_rev = mexGetString(mxGetProperty(prhs[0], 0, "Direction")) == "backward";
-  av_log(NULL,AV_LOG_INFO,"[rd_rev=%d] Backward playback.\n",rd_rev);
+  av_log(NULL,AV_LOG_INFO,"[rd_rev=%d] %s playback.\n",rd_rev,rd_rev?"Backward":"Forward");
   if (rd_rev)
     setCurrentTime(reader.getDuration(), false);
+  else
+    state = ON;
 
   // set unspecified properties
   mxSetProperty((mxArray *)prhs[0], 0, "Name", mxCreateString(p.filename().string().c_str()));
@@ -348,7 +350,10 @@ void mexVideoReader::shuffle_buffers()
   {
     if (state == OFF || rd_buf->readyToRead()) // read buffer still has unread frames, wait until all read
     {
-      av_log(NULL,AV_LOG_INFO,"mexVideoReader::shuffle_buffers()::waiting till rd_buf completely read\n");
+      if (state==OFF)
+        av_log(NULL,AV_LOG_INFO,"mexVideoReader::shuffle_buffers()::waiting till CurrentTime changed\n");
+      else
+        av_log(NULL,AV_LOG_INFO,"mexVideoReader::shuffle_buffers()::waiting till rd_buf completely read\n");
       buffer_ready.wait(buffer_guard); // to be woken up by read functions
       av_log(NULL,AV_LOG_INFO,"mexVideoReader::shuffle_buffers()::rd_buf read\n");
     }
@@ -358,7 +363,7 @@ void mexVideoReader::shuffle_buffers()
       // wait until write buffer is full
       av_log(NULL,AV_LOG_INFO,"mexVideoReader::shuffle_buffers()::waiting till wr_buf filled\n");
       reader.blockTillBufferFull();
-      av_log(NULL,AV_LOG_INFO,"mexVideoReader::shuffle_buffers()::wr_buf filled (%d)\n",wr_buf->size());
+      av_log(NULL,AV_LOG_INFO,"mexVideoReader::shuffle_buffers()::wr_buf filled (%d|%d)\n",wr_buf->size(),wr_buf->last());
       if (killnow)
         break;
 
@@ -368,14 +373,12 @@ void mexVideoReader::shuffle_buffers()
       // swap the buffers
       std::swap(wr_buf, rd_buf);
 
-        // av_log(NULL, AV_LOG_INFO, "mexVideoReader::shuffle_buffers()::swapped, available frames in rd_buf:%d\n", rd_buf->full());
-      // notify the waiting thread that rd_buf now contains a filled buffer
-      buffer_ready.notify_one();
-
       if (rd_rev) // if reading in reverse direction
       {
         if (state == LAST)
+        {
           state = OFF;
+        }
         else
         { // set new timestamp
           double t;
@@ -389,12 +392,19 @@ void mexVideoReader::shuffle_buffers()
           // override setCurrentTime's state
           if (state == OFF)
             state = LAST;
+          else
+            rd_rev_t_last = t;
         }
       }
-      else if (reader.atEndOfFile())
+      else if (rd_buf->last())
       { // if eof, stop till setCurrentTime() call
-        state = ON;
+      av_log(NULL,AV_LOG_INFO,"mexVideoReader::shuffle_buffers()::reached EOF\n");
+        state = OFF;
       }
+
+      // av_log(NULL, AV_LOG_INFO, "mexVideoReader::shuffle_buffers()::swapped, available frames in rd_buf:%d\n", rd_buf->full());
+      // notify the waiting thread that rd_buf now contains a filled buffer
+      buffer_ready.notify_one();
 
       // if more to read, give reader the new buffer
       if (state == ON)
@@ -480,7 +490,15 @@ void mexVideoReader::readBuffer(int nlhs, mxArray *plhs[], int nrhs, const mxArr
   plhs[0] = mxCreateNumericArray(4, dims, mxUINT8_CLASS, mxREAL);
   if (has_frame)
   {
-    dims[3] = nb_frames;
+    //if (state==OFF) // last buffer
+    if (rd_rev && ts[0]==0.0) // last buffer
+    {
+      av_log(NULL, AV_LOG_INFO, "rd_rev_t_last = %f\n",rd_rev_t_last);
+      auto tend = std::find_if(ts, ts + nb_frames, [&](const double &t) -> bool { return t >= rd_rev_t_last; });
+      dims[3] = tend - ts;
+    }
+    else
+      dims[3] = nb_frames;
     mxSetData(plhs[0], data);
   }
   mxSetDimensions(plhs[0], dims, 4);
@@ -490,7 +508,7 @@ void mexVideoReader::readBuffer(int nlhs, mxArray *plhs[], int nrhs, const mxArr
     plhs[1] = mxCreateDoubleMatrix(1, 0, mxREAL);
     if (has_frame)
     {
-      mxSetN(plhs[1], nb_frames);
+      mxSetN(plhs[1], dims[3]);
       mxSetPr(plhs[1], ts);
     }
   }

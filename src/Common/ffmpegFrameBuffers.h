@@ -25,11 +25,11 @@ class FrameBuffer
 public:
   virtual ~FrameBuffer() {}
 
-  virtual int copy_frame(const AVFrame *frame, const AVRational &time_base) = 0; // copy frame to buffer
+  virtual int copy_frame(const AVFrame *frame, const AVRational &time_base) = 0;   // copy frame to buffer
   virtual int read_frame(uint8_t *dst, double *t = NULL, bool advance = true) = 0; // read next frame
 
   virtual int read_first_frame(uint8_t *dst, double *t = NULL) = 0; // read the last frame in the buffer
-  virtual int read_last_frame(uint8_t *dst, double *t = NULL) = 0; // read the first frame in the buffer
+  virtual int read_last_frame(uint8_t *dst, double *t = NULL) = 0;  // read the first frame in the buffer
 
   virtual size_t capacity() const = 0; // number of frames it can hold
   virtual size_t frameSize() const = 0;
@@ -37,7 +37,8 @@ public:
   virtual bool readyToRead() const = 0;
   virtual bool empty() const = 0;       // true if no frame
   virtual bool full() const = 0;        // true if max capacity
-  virtual bool eof() const = 0;         // true if last
+  virtual bool eof() const = 0;         // true if no more frame
+  virtual bool last() const = 0;        // true if last set of frames (could be empty buffer)
   virtual size_t size() const = 0;      // number of frames written
   virtual size_t available() const = 0; // number of frames remaining to be read
   virtual size_t remaining() const = 0; // remaining available space (in number of frames) to be written
@@ -62,9 +63,7 @@ public:
   }
 
   // default constructor => INVALID object
-  FrameBufferBase() : FrameBufferBase(1, 1, AV_PIX_FMT_NONE)
-  {
-  }; 
+  FrameBufferBase() : FrameBufferBase(1, 1, AV_PIX_FMT_NONE){};
 
   // copy constructor
   FrameBufferBase(const FrameBufferBase &other)
@@ -84,8 +83,8 @@ public:
 
   // move constructor
   FrameBufferBase(FrameBufferBase &&other) noexcept
-      : width(other.width), height(other.height), pixfmt(other.pixfmt), nb_frames(other.nb_frames), 
-        time_buf(other.time_buf), frame_data_sz(other.frame_data_sz), data_sz(other.data_sz), data_buf(other.data_buf), 
+      : width(other.width), height(other.height), pixfmt(other.pixfmt), nb_frames(other.nb_frames),
+        time_buf(other.time_buf), frame_data_sz(other.frame_data_sz), data_sz(other.data_sz), data_buf(other.data_buf),
         has_eof(other.has_eof), wr_time(other.wr_time), wr_data(other.wr_data), rd_time(other.rd_time), rd_data(other.rd_data)
   {
     // reset other
@@ -166,7 +165,7 @@ public:
   //virtual int copy_frame(const AVFrame *frame, const AVRational &time_base) = 0; // copy frame to buffer
   virtual int read_first_frame(uint8_t *dst, double *t = NULL) // read the last frame in the buffer
   {
-    if (wr_time == time_buf) 
+    if (wr_time == time_buf)
     {
       if (has_eof) // no data, eof
         return AVERROR_EOF;
@@ -175,7 +174,7 @@ public:
     }
 
     if (t)
-        *t = *time_buf;
+      *t = *time_buf;
     if (dst)
       std::copy_n(data_buf, frame_data_sz, dst);
     return 0;
@@ -183,7 +182,7 @@ public:
 
   virtual int read_last_frame(uint8_t *dst, double *t = NULL) // read the first frame in the buffer
   {
-    if (wr_time == time_buf) 
+    if (wr_time == time_buf)
     {
       if (has_eof) // no data, eof
         return AVERROR_EOF;
@@ -230,18 +229,19 @@ public:
   virtual size_t frameSize() const { return frame_data_sz; }
   virtual bool readyToWrite() const { return !full(); }
   virtual bool readyToRead() const { return available() || eof(); }
-  virtual bool empty() const { return wr_time == time_buf; }           // true if no frame
-  virtual bool full() const { return has_eof || wr_time == time_buf + nb_frames; } // true if max capacity or reached has_eof
-  virtual bool eof() const { return has_eof && rd_time==wr_time; };              // true if last 
-  virtual size_t size() const { return wr_time - time_buf; }              // number of frames written
-  virtual size_t available() const { return wr_time - rd_time; } // number of frames remaining to be read
+  virtual bool empty() const { return wr_time == time_buf; }                                  // true if no frame
+  virtual bool full() const { return has_eof || wr_time == time_buf + nb_frames; }            // true if max capacity or reached has_eof
+  virtual bool eof() const { return has_eof && rd_time == wr_time; };                         // true if last
+  virtual bool last() const { return has_eof; };                                              // true if last set of frames (could be empty buffer)
+  virtual size_t size() const { return wr_time - time_buf; }                                  // number of frames written
+  virtual size_t available() const { return wr_time - rd_time; }                              // number of frames remaining to be read
   virtual size_t remaining() const { return has_eof ? 0 : nb_frames - (wr_time - time_buf); } // remaining available space (in number of frames) to be written
 
   virtual void reset(const size_t nframes) // must re-implement to allocate data_buf
   {
-    if (nframes) 
+    if (nframes)
       nb_frames = nframes;
-   
+
     if (nframes || !time_buf) // reallocate only if the buffer size changes or previous memory was released
       time_buf = (double *)allocator.allocate(nb_frames * sizeof(double), (uint8_t *)time_buf);
 
@@ -271,7 +271,7 @@ public:
   }
   virtual void swap(FrameBuffer &o)
   {
-    FrameBufferBase &other = (FrameBufferBase&)o;
+    FrameBufferBase &other = (FrameBufferBase &)o;
     std::swap(pixfmt, other.pixfmt);
     std::swap(desc, other.desc);
     std::swap(nb_frames, other.nb_frames);
@@ -316,7 +316,8 @@ class ComponentBuffer : public FrameBufferBase<Allocator>
 {
 public:
   ComponentBuffer() : FrameBufferBase()
-  {}
+  {
+  }
   ComponentBuffer(const size_t nframes, const size_t w, const size_t h, const AVPixelFormat fmt)
       : FrameBufferBase(w, h, fmt)
   {
@@ -332,7 +333,8 @@ public:
 
   ComponentBuffer(const ComponentBuffer &other)
       : FrameBufferBase(other)
-  { }
+  {
+  }
 
   static bool supportedPixelFormat(const AVPixelFormat fmt)
   {
@@ -350,13 +352,13 @@ public:
 
   virtual void reset(const size_t nframes = 0)
   {
-    if (pixfmt==AV_PIX_FMT_NONE) // default-constructed unusable empty buffer
+    if (pixfmt == AV_PIX_FMT_NONE) // default-constructed unusable empty buffer
     {
       if (nframes > 0)
         throw ffmpegException("This buffer is default-constructed and thus unusable.");
       return;
     }
-    
+
     FrameBufferBase::reset(nframes);
 
     if (!frame_data_sz)
@@ -400,6 +402,7 @@ public:
     }
     else
     {
+      av_log(NULL, AV_LOG_INFO, "ffmpeg::ComponentBuffer::copy_frame()::EOF marked [%d]\n", eof());
       has_eof = true;
     }
     return 0;
@@ -434,8 +437,9 @@ protected:
   bool rd_fwd;
 
 public:
-  ComponentBufferBDReader():ComponentBuffer()
-  {}
+  ComponentBufferBDReader() : ComponentBuffer()
+  {
+  }
   ComponentBufferBDReader(const size_t nframes, const size_t w, const size_t h, const AVPixelFormat fmt, const bool dir = true)
       : ComponentBuffer(nframes, w, h, fmt), rd_fwd(dir)
   {
@@ -472,7 +476,7 @@ public:
   }
 
   virtual size_t available() const { return (rd_fwd) ? (wr_time - rd_time) : (wr_time >= rd_time) ? (rd_time - time_buf) : 0; } // number of frames remaining to be read
-  virtual bool eof() const { return has_eof && ((rd_fwd) ? (rd_time == wr_time) : (wr_time > time_buf && *time_buf == 0.0)); };     // true if next read is the last
+  virtual bool eof() const { return has_eof && ((rd_fwd) ? (rd_time == wr_time) : (wr_time > time_buf && *time_buf == 0.0)); }; // true if next read is the last
 
   virtual void reset(const size_t nframes = 0)
   {
@@ -488,7 +492,7 @@ public:
 
   virtual int copy_frame(const AVFrame *frame, const AVRational &time_base)
   {
-    int ret = ComponentBuffer::copy_frame(frame,time_base);
+    int ret = ComponentBuffer::copy_frame(frame, time_base);
 
     // if EOF and reading backward, adjust read pointers to the end of buffer
     if (has_eof && !rd_fwd)
@@ -539,4 +543,3 @@ public:
 //   int copy_frame(const AVFrame *frame, const AVRational &time_base); // copy frame to buffer
 // };
 }
-

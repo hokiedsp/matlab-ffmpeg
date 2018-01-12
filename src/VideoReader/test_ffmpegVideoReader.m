@@ -4,7 +4,7 @@ clear; close all; drawnow
 % ffmpeg.VideoReader.getFileFormats
 % ffmpegtranscode('xylophone.mp4','test.mp4')
 try
-   vrobj = ffmpeg.VideoReader('xylophone.mp4','VideoFormat','rgb24','BufferSize',4,'Direction','backward');
+   vrobj = ffmpeg.VideoReader('xylophone.mp4','VideoFormat','rgb24','BufferSize',3,'Direction','forward');
    %    vrobj = ffmpeg.VideoReader('..\test.mp4','VideoFormat','rgb24')
    %    vrobj = ffmpeg.VideoReader('..\test.mp4','VideoFormat','rgb24','Width',320/240*120,'Height',120)
    %    vrobj = ffmpeg.VideoReader('..\test.mp4','VideoFormat','rgb24','PixelAspectRatio',[2 1],'Height',120)
@@ -16,6 +16,7 @@ try
    %    vrobj.CurrentTime = 2.0;
    %       fprintf('New CurrentTime = %g\n',vrobj.CurrentTime);
    %    disp('Reading the first frame');
+   [~,t1] = vrobj.readBuffer();
    t = [];
    while (vrobj.hasFrame)
        t_last = t;

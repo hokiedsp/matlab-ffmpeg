@@ -45,7 +45,7 @@
                 "${env:ProgramFiles(x86)}/Windows Kits/10/Include/10.0.16299.0/shared",
                 "${env:ProgramFiles(x86)}/Windows Kits/10/Include/10.0.16299.0/ucrt",
                 "${env:ProgramFiles(x86)}/Windows Kits/10/Include/10.0.16299.0/um",
-                "${env:ProgramFiles}/MATLAB/R2017b/extern/include",
+                "${env:ProgramFiles}/MATLAB/R2017a/extern/include",
                 "${workspaceRoot}/../Common",
                 "${env:USERPROFILE}/Documents/Programming/ffmpeg-3.4.1/include"
             ],
@@ -57,7 +57,7 @@
                     "${env:ProgramFiles(x86)}/Windows Kits/10/Include/10.0.16299.0/shared",
                     "${env:ProgramFiles(x86)}/Windows Kits/10/Include/10.0.16299.0/ucrt",
                     "${env:ProgramFiles(x86)}/Windows Kits/10/Include/10.0.16299.0/um",
-                    "${env:ProgramFiles}/MATLAB/R2017b/extern/include",
+                    "${env:ProgramFiles}/MATLAB/R2017a/extern/include",
                     "${env:USERPROFILE}/Documents/Programming/ffmpeg-3.4.1/include",
                     "${workspaceRoot}/../Common",
                     "${workspaceRoot}"

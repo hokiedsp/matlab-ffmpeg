@@ -16,7 +16,7 @@ REM set MEX_NAME=filtering_video
 REM set MEX_SRC_FILES=filtering_video.cpp
 
 set MEX_EXT=.mexw64
-set MATLAB_ROOT_DIR=%ProgramFiles%\MATLAB\R2017b
+set MATLAB_ROOT_DIR=%ProgramFiles%\MATLAB\R2017a
 set MATLAB_EXTERN_DIR=%MATLAB_ROOT_DIR%\extern
 set MATLAB_INCLUDE_DIR=%MATLAB_EXTERN_DIR%\include
 set MATLAB_LIB_DIR=%MATLAB_EXTERN_DIR%\lib\win64\microsoft
