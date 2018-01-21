@@ -1,4 +1,4 @@
-function varargout = readFrame(obj, outputformat)
+function varargout = readFrame(obj, varargin)
 %READFRAME Read the next available frame from a video file
 %
 %   VIDEO = READFRAME(OBJ) reads the next available video frame from the
@@ -65,7 +65,7 @@ function varargout = readFrame(obj, outputformat)
 %       
 %       % Read video frames until available
 %       while hasFrame(vidObj)
-%           vidFrame = readFrame(vidObj);
+%           VIDEO = readFrame(vidObj);
 %           image(vidFrame, 'Parent', currAxes);
 %           currAxes.Visible = 'off';
 %           pause(1/vidObj.FrameRate);
@@ -73,46 +73,46 @@ function varargout = readFrame(obj, outputformat)
 %
 %   See also AUDIOVIDEO, MOVIE, VIDEOREADER,VIDEOREADER/HASFRAME, MMFILEINFO.
 
-%    Copyright 2013-2017 The MathWorks, Inc.
+[varargout{1:nargout}] = obj.mex_backend(obj.backend,mfilename);
 
-if length(obj) > 1
-    error(message('MATLAB:audiovideo:VideoReader:nonscalar'));
-end
-
-% ensure that we pass in 1 or 2 arguments only
-narginchk(1, 2);
-
-% ensure that we pass out only 1 output argument
-nargoutchk(0, 1);
-
-if nargin < 2
-    outputformat = 'default';
-end
-
-try
-    outputformat = VideoReader.validateOutputFormat(outputformat, 'VideoReader.readFrame');
-catch ME
-    throwAsCaller(ME);
-end
-
-if obj.IsFrameBased
-    error( message('MATLAB:audiovideo:VideoReader:NotSupportedFramesCounted', 'READFRAME', 'READFRAME') );
-end
-
-readFrameOC = onCleanup( @() set(obj, 'IsStreamingBased', 'true') );
-
-if ~hasFrame(obj)
-    error(message('MATLAB:audiovideo:VideoReader:EndOfFile'));
-end
-
-try
-    videoFrame = readFrame( getImpl(obj) );
-catch exception
-    VideoReader.handleImplException(exception);
-end
-
-varargout{1} = VideoReader.convertToOutputFormat( videoFrame, ...
-                                                  get(obj, 'VideoFormat'), ...
-                                                  outputformat, ...
-                                                  get(getImpl(obj), 'colormap') );
-                                              
+% if length(obj) > 1
+%     error(message('FFmpeg:VideoReader:nonscalar'));
+% end
+% 
+% % ensure that we pass in 1 or 2 arguments only
+% narginchk(1, 2);
+% 
+% % ensure that we pass out only 1 output argument
+% nargoutchk(0, 1);
+% 
+% if nargin < 2
+%     outputformat = 'default';
+% end
+% 
+% try
+%     outputformat = VideoReader.validateOutputFormat(outputformat, 'VideoReader.readFrame');
+% catch ME
+%     throwAsCaller(ME);
+% end
+% 
+% if obj.IsFrameBased
+%     error( message('FFmpeg:VideoReader:NotSupportedFramesCounted', 'READFRAME', 'READFRAME') );
+% end
+% 
+% readFrameOC = onCleanup( @() set(obj, 'IsStreamingBased', 'true') );
+% 
+% if ~hasFrame(obj)
+%     error(message('FFmpeg:VideoReader:EndOfFile'));
+% end
+% 
+% try
+%     videoFrame = readFrame( getImpl(obj) );
+% catch exception
+%     VideoReader.handleImplException(exception);
+% end
+% 
+% varargout{1} = VideoReader.convertToOutputFormat( videoFrame, ...
+%                                                   get(obj, 'VideoFormat'), ...
+%                                                   outputformat, ...
+%                                                   get(getImpl(obj), 'colormap') );
+%                                               

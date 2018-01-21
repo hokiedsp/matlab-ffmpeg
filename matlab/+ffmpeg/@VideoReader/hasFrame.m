@@ -26,22 +26,4 @@ function flag = hasFrame(obj)
 %
 %   See also AUDIOVIDEO, MOVIE, VIDEOREADER,VIDEOREADER/READFRAME, MMFILEINFO.
 
-%    Copyright 2013-2014 The MathWorks, Inc.
-
-if obj.IsFrameBased
-    error( message('MATLAB:audiovideo:VideoReader:NotSupportedFramesCounted', 'HASFRAME', 'HASFRAME') );
-end
-
-% ensure that we pass in only 1 argument
-narginchk(1, 1);
-
-% ensure that we pass out only 1 output argument
-nargoutchk(0, 1);
-
-obj.IsStreamingBased = true;
-
-try
-    flag = hasFrame( getImpl(obj) );
-catch ME
-    VideoReader.handleImplException(ME);
-end
+flag = obj.mex_backend(obj.backend,mfilename);

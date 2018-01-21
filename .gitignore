@@ -2,6 +2,9 @@
 Thumbs.db
 ehthumbs.db
 
+#CMake BUILD directory content
+build/*
+
 # binaries
 *.mexw64
 *.exe
@@ -50,4 +53,4 @@ $RECYCLE.BIN/
 Network Trash Folder
 Temporary Items
 .apdisk
-src/VideoReader/filtering_video.mexw64
+

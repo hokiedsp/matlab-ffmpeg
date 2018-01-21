@@ -1,4 +1,4 @@
-function varargout = read(obj, index, outputformat)
+function varargout = read(obj, varargin)
 %READ Read a video file. 
 %   READ will be removed in a future release. Use READFRAME instead.
 %
@@ -94,100 +94,99 @@ function varargout = read(obj, index, outputformat)
 %
 %   See also AUDIOVIDEO, MOVIE, VIDEOREADER, VIDEOREADER/READFRAME, VIDEOREADER/HASFRAME, MMFILEINFO.
 
-%    NCH DTL
-%    Copyright 2005-2017 The MathWorks, Inc.
+[varargout{1:nargout}] = obj.mex_backend(obj.backend,'read',varargin{:});
 
-if length(obj) > 1
-    error(message('MATLAB:audiovideo:VideoReader:nonscalar'));
-end
-
-% ensure that we pass in 1, 2 or 3 arguments only
-narginchk(1, 3);
-
-% ensure that we pass out only 1 output argument
-nargoutchk(0, 1);
-
-% Verify that the index argument is of numeric type
-if nargin < 2
-    index = [1 inf];
-    outputformat = 'default';
-elseif nargin < 3 && ischar(index)
-    outputformat = index;
-    index = [1 inf];
-elseif nargin < 3
-    outputformat = 'default';
-end
-
-validateattributes( ...
-    index, ...
-    {'numeric'}, {'vector'}, ...
-    'VideoReader.read', 'index');
-index = double(index);
-
-try
-    outputformat = VideoReader.validateOutputFormat(outputformat, 'VideoReader.read');
-catch ME
-    throwAsCaller(ME);
-end
-
-if obj.IsStreamingBased
-    error( message('MATLAB:audiovideo:VideoReader:ReadNotAllowed') );
-end
-
-warnState = warning('off', 'MATLAB:audiovideo:VideoReader:unknownNumFrames');
-oc = onCleanup( @() warning(warnState) );
-
-% Frame-based operations need to know the NumberOfFrames before reading.
-% As frame-counting is not performed during object construction, it has to
-% be performed before the first call to read.
-numFrames = get(obj, 'NumberOfFrames');
-
-try
-    if nargin == 1
-        frameIndex = [1 Inf];
-        % Dimensions of data returned is HxWx3xN
-        videoFrames = read(getImpl(obj));
-    elseif nargin >= 2
-        % Dimensions of data returned is HxWx3xN
-        videoFrames = read(getImpl(obj), index);
-        if isscalar(index)
-            frameIndex = [index index];
-        else
-            frameIndex = index;
-        end
-    end
-catch err
-    VideoReader.handleImplException(err);
-end
-
-% Update the frameIndex only if the total number of frames in the video can
-% be determined after the read operation
-if( ~isempty( numFrames ) )
-    frameIndex(frameIndex == Inf) = numFrames;
-end
-
-% Check that read was complete only if the frame indices to be read have
-% been accurately determined.
-if ~any(frameIndex == Inf)
-    checkIncompleteRead(size(videoFrames, 4), frameIndex);
-end
-
-videoFrames = VideoReader.convertToOutputFormat( videoFrames, ...
-                                                 get(obj, 'VideoFormat'), ...
-                                                 outputformat, ...
-                                                 get(getImpl(obj), 'colormap'));
-
-% Video is the output argument.
-varargout{1} = videoFrames;
-
-obj.IsFrameBased = true;
-
-end
-
-function checkIncompleteRead(actNum, index)
-expNum = index(2) - index(1) + 1;
-if actNum < expNum
-    warning(message('MATLAB:audiovideo:VideoReader:incompleteRead', ...
-        index(1), index(1)+actNum-1));
-end
-end
+% if length(obj) > 1
+%     error(message('FFmpeg:VideoReader:nonscalar'));
+% end
+% 
+% % ensure that we pass in 1, 2 or 3 arguments only
+% narginchk(1, 3);
+% 
+% % ensure that we pass out only 1 output argument
+% nargoutchk(0, 1);
+% 
+% % Verify that the index argument is of numeric type
+% if nargin < 2
+%     index = [1 inf];
+%     outputformat = 'default';
+% elseif nargin < 3 && ischar(index)
+%     outputformat = index;
+%     index = [1 inf];
+% elseif nargin < 3
+%     outputformat = 'default';
+% end
+% 
+% validateattributes( ...
+%     index, ...
+%     {'numeric'}, {'vector'}, ...
+%     'VideoReader.read', 'index');
+% index = double(index);
+% 
+% try
+%     outputformat = VideoReader.validateOutputFormat(outputformat, 'VideoReader.read');
+% catch ME
+%     throwAsCaller(ME);
+% end
+% 
+% if obj.IsStreamingBased
+%     error( message('FFmpeg:VideoReader:ReadNotAllowed') );
+% end
+% 
+% warnState = warning('off', 'FFmpeg:VideoReader:unknownNumFrames');
+% oc = onCleanup( @() warning(warnState) );
+% 
+% % Frame-based operations need to know the NumberOfFrames before reading.
+% % As frame-counting is not performed during object construction, it has to
+% % be performed before the first call to read.
+% numFrames = get(obj, 'NumberOfFrames');
+% 
+% try
+%     if nargin == 1
+%         frameIndex = [1 Inf];
+%         % Dimensions of data returned is HxWx3xN
+%         videoFrames = read(getImpl(obj));
+%     elseif nargin >= 2
+%         % Dimensions of data returned is HxWx3xN
+%         videoFrames = read(getImpl(obj), index);
+%         if isscalar(index)
+%             frameIndex = [index index];
+%         else
+%             frameIndex = index;
+%         end
+%     end
+% catch err
+%     VideoReader.handleImplException(err);
+% end
+% 
+% % Update the frameIndex only if the total number of frames in the video can
+% % be determined after the read operation
+% if( ~isempty( numFrames ) )
+%     frameIndex(frameIndex == Inf) = numFrames;
+% end
+% 
+% % Check that read was complete only if the frame indices to be read have
+% % been accurately determined.
+% if ~any(frameIndex == Inf)
+%     checkIncompleteRead(size(videoFrames, 4), frameIndex);
+% end
+% 
+% videoFrames = VideoReader.convertToOutputFormat( videoFrames, ...
+%                                                  get(obj, 'VideoFormat'), ...
+%                                                  outputformat, ...
+%                                                  get(getImpl(obj), 'colormap'));
+% 
+% % Video is the output argument.
+% varargout{1} = videoFrames;
+% 
+% obj.IsFrameBased = true;
+% 
+% end
+% 
+% function checkIncompleteRead(actNum, index)
+% expNum = index(2) - index(1) + 1;
+% if actNum < expNum
+%     warning(message('FFmpeg:VideoReader:incompleteRead', ...
+%         index(1), index(1)+actNum-1));
+% end
+% end
