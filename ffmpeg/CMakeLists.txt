@@ -14,11 +14,9 @@ else()
   file(GLOB FFMPEG_SRCS "*.cpp")
   
   # remove source files not quite ready
+  # list(REMOVE_ITEM FFMPEG_SRCS "${CMAKE_CURRENT_SOURCE_DIR}/ffmpegMediaReader.cpp")
   list(REMOVE_ITEM FFMPEG_SRCS "${CMAKE_CURRENT_SOURCE_DIR}/ffmpegFilterGraph.cpp")
-  list(REMOVE_ITEM FFMPEG_SRCS "${CMAKE_CURRENT_SOURCE_DIR}/ffmpegMediaReader.cpp")
   list(REMOVE_ITEM FFMPEG_SRCS "${CMAKE_CURRENT_SOURCE_DIR}/ffmpegUtil.cpp")
-
-  message("FFMPEG_SRCS=" ${FFMPEG_SRCS})
 
   include_directories(${FFMPEG_INCLUDE_DIR})
   add_library(${LIBFFMPEG} OBJECT ${FFMPEG_SRCS})

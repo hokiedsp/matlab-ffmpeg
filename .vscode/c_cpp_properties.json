@@ -1,16 +1,24 @@
 {
-    "configurations": [
-        {
-            "name": "null",
-            "includePath": [],
-            "defines": [],
-            "browse": {
-                "path": [],
-                "limitSymbolsToIncludedHeaders": true,
-                "databaseFilename": ""
-            },
-            "intelliSenseMode": "msvc-x64"
-        }
-    ],
-    "version": 3
+  "configurations": [
+    {
+      "name": "null",
+      "includePath": [
+        "D:/Users/TakeshiIkuma/Documents/Programming/ffmpeg-3.4.1/include",
+        "C:/Program Files/MATLAB/R2017a/extern/include",
+        "D:/Users/TakeshiIkuma/Documents/GitHub/matlab-ffmpeg/ffmpeg"
+      ],
+      "defines": [],
+      "browse": {
+        "path": [
+          "D:/Users/TakeshiIkuma/Documents/Programming/ffmpeg-3.4.1/include",
+          "C:/Program Files/MATLAB/R2017a/extern/include",
+          "D:/Users/TakeshiIkuma/Documents/GitHub/matlab-ffmpeg/ffmpeg"
+        ],
+        "limitSymbolsToIncludedHeaders": true,
+        "databaseFilename": ""
+      },
+      "intelliSenseMode": "msvc-x64"
+    }
+  ],
+  "version": 3
 }
