@@ -1,4 +1,4 @@
-#include "ffmpegInputStream.h"
+#include "ffmpegStreamInput.h"
 #include "ffmpegException.h"
 
 extern "C" {
@@ -12,14 +12,13 @@ using namespace ffmpeg;
 /**
  * \brief Class to manage AVStream
  */
-InputStream::InputStream(AVStream *s, IAVFrameSink *buf) : st(NULL), ctx(NULL), sink(buf), buf_start_ts(0), pts(0)
+InputStream::InputStream(AVStream *s, IAVFrameSink *buf) : sink(buf), buf_start_ts(0)
 {
   if (st) open(st);
 }
 
 InputStream::~InputStream()
 {
-  if (ctx) close();
 }
 
 bool InputStream::ready() { return ctx && sink; }
@@ -53,19 +52,6 @@ void InputStream::open(AVStream *s)
   st->discard = AVDISCARD_NONE;
 }
 
-void InputStream::close()
-{
-  // if no stream is associated, nothing to do
-  if (!ctx) return;
-
-  // free up the context
-  avcodec_free_context(&ctx);
-
-  st->discard = AVDISCARD_ALL;
-  st = NULL;
-  ctx = NULL;
-}
-
 IAVFrameSink *InputStream::setgetBuffer(IAVFrameSink *other_buf) { std::swap(sink, other_buf); return other_buf; }
 void InputStream::swapBuffer(IAVFrameSink *&other_buf) { std::swap(sink, other_buf); }
 void InputStream::setBuffer(IAVFrameSink *new_buf) { sink = new_buf; }
@@ -74,11 +60,6 @@ IAVFrameSink *InputStream::releaseBuffer() { IAVFrameSink *rval = sink; sink = N
 
 void InputStream::setStartTime(const int64_t timestamp) { buf_start_ts = timestamp; }
         
-int InputStream::reset()
-{
-  return avcodec_send_packet(ctx, NULL);
-}
-
 int InputStream::processPacket(AVPacket *packet)
 {
   int ret; // FFmpeg return error code
@@ -112,20 +93,3 @@ int InputStream::processPacket(AVPacket *packet)
   
   return ret;
 }
-
-///////////////////////////////////////////////////////
-
-AVStream *InputStream::getAVStream() const { return st; }
-int InputStream::getId() const { return st?st->index : -1; }
-
-std::string InputStream::getCodecName() const
-{
-  return (ctx && ctx->codec && ctx->codec->name) ? ctx->codec->name : "";
-}
-std::string InputStream::getCodecDescription() const
-{
-  return (ctx && ctx->codec && ctx->codec->long_name) ? ctx->codec->long_name : "";
-}
-
-AVRational InputStream::getTimeBase() const { return (st)?st->time_base:AVRational({0,0}); }
-int64_t InputStream::getLastFrameTimeStamp() const { return pts; }

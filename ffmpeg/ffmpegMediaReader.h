@@ -2,8 +2,8 @@
 
 #include "ThreadBase.h"
 #include "ffmpegBase.h"
-#include "ffmpegAvRedefine.h"
-#include "ffmpegInputStream.h"
+// #include "ffmpegAvRedefine.h"
+#include "ffmpegStreamInput.h"
 
 extern "C" {
 #include <libavcodec/avcodec.h>

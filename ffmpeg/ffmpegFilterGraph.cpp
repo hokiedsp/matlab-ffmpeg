@@ -1,439 +1,539 @@
-#include "ffmpegVideoReader.h"
-#include "ffmpegException.h"
-#include "ffmpegPtrs.h"
-#include "ffmpegAvRedefine.h"
+#include "ffmpegFilterGraph.h"
+
+// #include <stdint.h>
 
 extern "C" {
-#include <libavfilter/buffersink.h>
-#include <libavfilter/buffersrc.h>
-#include <libavutil/opt.h>
-#include <libavfilter/avfilter.h>
+// #include "libavfilter/avfilter.h"
+// #include "libavfilter/buffersink.h"
+// #include "libavfilter/buffersrc.h"
+
+// #include "libavresample/avresample.h"
+
+// #include "libavutil/avassert.h"
+// #include "libavutil/avstring.h"
+// #include "libavutil/bprint.h"
+// #include "libavutil/channel_layout.h"
+// #include "libavutil/display.h"
+// #include "libavutil/opt.h"
+// #include "libavutil/pixdesc.h"
+// #include "libavutil/pixfmt.h"
+// #include "libavutil/imgutils.h"
+// #include "libavutil/samplefmt.h"
 }
 
 using namespace ffmpeg;
 
-FilterGraph::FilterGraph(const std::string &filtdesc, const AVPixelFormat pix_fmt)
-    : filter_graph(NULL), buffersrc_ctx(NULL), buffersink_ctx(NULL),
-      video_stream_index(-1), st(NULL), pix_fmt(AV_PIX_FMT_NONE), filter_descr(""),
-      pts(0), tb{0, 1}, firstframe(NULL), buf(NULL), buf_start_ts(0),
-      killnow(false), reader_status(INACTIVE), filter_status(INACTIVE),
-      eptr(NULL)
+std::string OutputVideoFilter::choose_pix_fmts()
+// static char *choose_pix_fmts(OutputFilter *ofilter)
 {
-}
+  if (!ost)
+    return "";
 
-FilterGraph::~FilterGraph()
-{
-}
+  std::string rval;
 
-////////////////////////////////////////////////////////////////////////////////////////////////
+  AVPixelFormats fmts = dynamic_cast<OutputVideoStream *>(ost)->choose_pix_fmts();
 
-const AVPixFmtDescriptor &FilterGraph::getPixFmtDescriptor() const
-{
-  const AVPixFmtDescriptor *pix_fmt_desc = av_pix_fmt_desc_get(pix_fmt);
-  if (!pix_fmt_desc)
-    throw ffmpegException("Pixel format is unknown.");
-  return *pix_fmt_desc;
-}
-
-double FilterGraph::getFrameRate() const
-{
-  AVRational fps = {0, 0};
-  if (buffersink_ctx)
-    fps = av_buffersink_get_frame_rate(buffersink_ctx);
-  if (fmt_ctx || !fps.den)
-    fps = st->avg_frame_rate;
+  if (size(fmts) == 1 && fmts[0] == AV_PIX_FMT_NONE) // use as propagated
+  {
+    avfilter_graph_set_auto_convert(graph->graph, AVFILTER_AUTO_CONVERT_NONE);
+    rval = av_get_pix_fmt_name(ost->getPixelFormat());
+  }
   else
-    return NAN; // unknown
-
-  return double(fps.num) / fps.den;
-}
-
-void FilterGraph::destroy_filters()
-{
-  if (filter_graph)
-    avfilter_graph_free(&filter_graph);
-}
-
-void FilterGraph::create_filters(const std::string &filter_description, const AVPixelFormat pix_fmt_rq)
-{
-
-  // destroy existing filter graph
-  if (!filter_graph)
-    avfilter_graph_free(&filter_graph);
-
-  // clear source and sink context pointers
-  buffersrc_ctx = buffersink_ctx = NULL;
-
-  // no filter if description not given
-  if (filter_descr.empty() && filter_description.empty() && pix_fmt_rq == AV_PIX_FMT_NONE)
   {
-    tb = st->time_base;
-    return;
-  }
-
-  if (!dec_ctx)
-    throw ffmpegException("Decoder must be already open to create new filter graph.");
-
-  int ret = 0;
-
-  filter_graph = avfilter_graph_alloc();
-  ffmpeg::AVFilterInOutPtr outputs(avfilter_inout_alloc(), ffmpeg::delete_filter_inout);
-  ffmpeg::AVFilterInOutPtr inputs(avfilter_inout_alloc(), ffmpeg::delete_filter_inout);
-  if (!outputs || !inputs || !filter_graph)
-    throw ffmpegException("Failed to allocate the filter context or its AVFilterInOut's");
-
-  /* buffer video source: the decoded frames from the decoder will be inserted here. */
-  AVFilter *buffersrc = avfilter_get_by_name("buffer");
-  char args[512];
-  AVRational time_base = st->time_base;
-  snprintf(args, sizeof(args),
-           "video_size=%dx%d:pix_fmt=%d:time_base=%d/%d:pixel_aspect=%d/%d",
-           dec_ctx->width, dec_ctx->height, dec_ctx->pix_fmt,
-           time_base.num, time_base.den,
-           dec_ctx->sample_aspect_ratio.num, dec_ctx->sample_aspect_ratio.den);
-  ret = avfilter_graph_create_filter(&buffersrc_ctx, buffersrc, "in", args, NULL, filter_graph);
-  if (ret < 0)
-    throw ffmpegException("Cannot create buffer source: %s\n", av_err2str(ret));
-
-  /* buffer video sink: to terminate the filter chain. */
-  AVFilter *buffersink = avfilter_get_by_name("buffersink");
-  ret = avfilter_graph_create_filter(&buffersink_ctx, buffersink, "out", NULL, NULL, filter_graph);
-  if (ret < 0)
-    throw ffmpegException("Cannot create buffer sink: %s", av_err2str(ret));
-
-  AVPixelFormat pix_fmts[] = {pix_fmt_rq, AV_PIX_FMT_NONE};
-  ret = av_opt_set_int_list(buffersink_ctx, "pix_fmts", pix_fmts, AV_PIX_FMT_NONE, AV_OPT_SEARCH_CHILDREN);
-  if (ret < 0)
-    throw ffmpegException("Cannot set output pixel format: %s", av_err2str(ret));
-
-  if (pix_fmt_rq != AV_PIX_FMT_NONE)
-    pix_fmt = pix_fmt_rq;
-
-  /*
-     * Set the endpoints for the filter graph. The filter_graph will
-     * be linked to the graph described by filters_descr.
-     */
-
-  /*
-     * The buffer source output must be connected to the input pad of
-     * the first filter described by filters_descr; since the first
-     * filter input label is not specified, it is set to "in" by
-     * default.
-     */
-  outputs->name = av_strdup("in");
-  outputs->filter_ctx = buffersrc_ctx;
-  outputs->pad_idx = 0;
-  outputs->next = NULL;
-
-  /*
-     * The buffer sink input must be connected to the output pad of
-     * the last filter described by filters_descr; since the last
-     * filter output label is not specified, it is set to "out" by
-     * default.
-     */
-  inputs->name = av_strdup("out");
-  inputs->filter_ctx = buffersink_ctx;
-  inputs->pad_idx = 0;
-  inputs->next = NULL;
-
-  // if new filter given, store it
-  if (filter_description.size())
-    filter_descr = filter_description;
-  if (filter_descr.size()) // false if only format change
-  {
-    AVFilterInOut *in = inputs.release();
-    AVFilterInOut *out = outputs.release();
-    if ((ret = avfilter_graph_parse_ptr(filter_graph, filter_descr.c_str(), &in, &out, NULL)) < 0)
-      throw ffmpegException("filtering_video:create_filters:avfilter_graph_parse_ptr:error: %s", av_err2str(ret));
-    inputs.reset(in);
-    outputs.reset(out);
-  }
-
-  if (ret = avfilter_graph_config(filter_graph, NULL))
-    throw ffmpegException("filtering_video:create_filters:avfilter_graph_config:error: %s", av_err2str(ret));
-
-  // use filter output sink's the time-base
-  if (buffersink_ctx->inputs[0]->time_base.num)
-    tb = buffersink_ctx->inputs[0]->time_base;
-}
-
-void FilterGraph::setFilterGraph(const std::string &filter_desc, const AVPixelFormat pix_fmt) // stops
-{
-  if (!isFileOpen())
-    throw ffmpegException("No file open.");
-
-  // pause the threads and flush the remaining frames and load the new filter graph
-  pause();
-
-  // set new filter
-  create_filters(filter_desc,pix_fmt);
-
-  // reset time
-  if (avformat_seek_file(fmt_ctx, -1, INT64_MIN, 0, 0, 0) < 0)
-    throw ffmpegException("Could not rewind.");
-
-  // restart
-  resume();
-}
-
-/////////////////////////////////////////////////////////////////////////////////////////////
-// THREAD FUNCTIONS: Read file and send it to the FFmpeg decoder
-
-void FilterGraph::start()
-{
-  killnow = false;
-
-  // start the file reading thread (sets up and idles)
-  frame_filter = std::thread(&FilterGraph::filter_frames, this);
-
-  //start reading immediately
-  resume();
-
-  // wait until the first frame is ready
-  std::unique_lock<std::mutex> firstframe_guard(firstframe_lock);
-  firstframe_ready.wait(firstframe_guard, [&]() { return killnow || firstframe; });
-
-  // av_log(dec_ctx, AV_LOG_INFO, "frame[%d]:width=%d,height=%d,format=%s,key_frame=%d,pict_type=%c,SAR=%d/%d,pts=%d,display_picture_number=%d\n",
-  //        firstframe->best_effort_timestamp, firstframe->width, firstframe->height, av_get_pix_fmt_name((AVPixelFormat)firstframe->format),
-  //        firstframe->key_frame, av_get_picture_type_char(firstframe->pict_type), firstframe->sample_aspect_ratio.num, firstframe->sample_aspect_ratio.den,
-  //        firstframe->pts, firstframe->display_picture_number);
-  // av_log(dec_ctx, AV_LOG_INFO, "frame[%d]:repeat_pict=%d',interlaced_frame=%d,top_field_first=%d,top_field_first=%d, palette_has_changed=%d\n",
-  //        firstframe->best_effort_timestamp, firstframe->repeat_pict, firstframe->interlaced_frame, firstframe->top_field_first, firstframe->palette_has_changed);
-  // for (int i = 0; firstframe->linesize[i]; ++i) // for each planar component
-  //   av_log(dec_ctx, AV_LOG_INFO, "frame[%d]:plane[%d]:linesize=%d\n", firstframe->best_effort_timestamp, i, firstframe->linesize[i]);
-}
-
-void FilterGraph::pause()
-{
-  // lock all mutexes
-  // av_log(dec_ctx, AV_LOG_INFO, "ffmpeg::FilterGraph::pause()::start\n");
-  std::unique_lock<std::mutex> buffer_guard(buffer_lock);
-
-  // if not already idling
-  if (filter_status != IDLE)
-  {
-    // command threads to pause
-    if (filter_status != IDLE)
-      filter_status = PAUSE_RQ; // don't block even if buffer full, drop remaining blocks
-
-    // release the filter_frames thread
-    buffer_guard.unlock();
-    buffer_ready.notify_one();
-
-    // wait until all remaining frames are processed
-    buffer_guard.lock();
-    if (filter_status != IDLE)
-      buffer_flushed.wait(buffer_guard);
-  }
-  // av_log(dec_ctx, AV_LOG_INFO, "ffmpeg::FilterGraph::pause()::paused\n");
-}
-
-void FilterGraph::resume()
-{
-  filter_status = IDLE;
-}
-
-void FilterGraph::stop()
-{
-  // pause all the thread
-  pause();
-
-  // make sure no thread is stuck on a wait state
-  killnow = true;
-
-  // {
-  // std::unique_lock<std::mutex> buffer_guard(buffer_lock);
-  // buffer_ready.notify_all();
-  // }
-
-  // start the file reading thread (sets up and idles)
-  if (frame_filter.joinable())
-    frame_filter.join();
-}
-
-void FilterGraph::filter_frames()
-{
-  int ret;
-  AVFrame *frame = av_frame_alloc();
-  AVFrame *filt_frame = av_frame_alloc();
-  bool last_frame = false;
-  try
-  {
-    /* read all packets */
-    while (!killnow)
+    auto p = fmts.begin();
+    rval = av_get_pix_fmt_name(*p);
+    for (++p; p < fmts.end() && *p != AV_PIX_FMT_NONE; ++p)
     {
-      std::unique_lock<std::mutex> decoder_guard(decoder_lock);
-      ret = avcodec_receive_frame(dec_ctx, frame);
-      while (!killnow && (ret == AVERROR(EAGAIN)))
-      { /* receive decoded frames from decoder (wait until there is one available) */
-        decoder_ready.wait(decoder_guard);
-        ret = avcodec_receive_frame(dec_ctx, frame);
-      }
-      decoder_ready.notify_one(); // notify the packet_reader thread that decoder may be available now
-      decoder_guard.unlock();
-
-      if (killnow)
-        break;
-
-      // av_log(NULL, AV_LOG_INFO, "ffmpeg::FilterGraph::filter_frames()::new decoded frame t=%d\n", frame->pts);
-      if (filter_status != ACTIVE && filter_status != PAUSE_RQ)
-        filter_status = ACTIVE;
-      last_frame = ret == AVERROR_EOF;
-      if (!last_frame)
-      {
-        if (ret < 0)
-          throw ffmpegException("Error while receiving a frame from the decoder: %s", av_err2str(ret));
-        else
-          // set frame PTS to be the best effort timestamp for the frame
-          frame->pts = av_frame_get_best_effort_timestamp(frame);
-      }
-        if (last_frame)
-        {
-          av_buffersrc_add_frame_flags(buffersrc_ctx, NULL, AV_BUFFERSRC_FLAG_KEEP_REF);
-        }
-        else // if not decoding in progress -> EOF
-        {
-          /* pull filtered frames from the filtergraph */
-          ret = av_buffersrc_add_frame_flags(buffersrc_ctx, frame, AV_BUFFERSRC_FLAG_KEEP_REF);
-          if (ret < 0)
-            throw ffmpegException("Error occurred while sending a frame to the filter graph: %s", av_err2str(ret));
-        }
-
-        // try to retrieve the buffer
-        ret = av_buffersink_get_frame(buffersink_ctx, filt_frame);
-        while (!killnow && ret >= 0)
-        {
-          copy_frame_ts(filt_frame);
-          av_frame_unref(filt_frame);
-          if (killnow)
-            break;
-          ret = av_buffersink_get_frame(buffersink_ctx, filt_frame);
-        }
-
-        if (ret == AVERROR_EOF) // run copy_frame_ts one last time if EOF to let buffer know
-          copy_frame_ts(NULL);
-        else if (!killnow && ret < 0 && ret != AVERROR(EAGAIN))
-          throw ffmpegException("Error occurred while retrieving filtered frames: %s", av_err2str(ret));
-
-      // save the timestamp as the last buffered
-      if (frame)
-        pts = frame->pts;
-
-      // clear last_decoded_frame flag -or- release frame
-      if (last_frame)
-      {
-        if (filter_graph)               // if filtered, re-create the filtergraph
-          create_filters();             //
-
-        std::unique_lock<std::mutex> buffer_guard(buffer_lock);
-        bool pause_rq = filter_status = PAUSE_RQ;
-        filter_status = IDLE;
-
-        if (pause_rq)
-        {
-          // av_log(NULL,AV_LOG_INFO,"ffmpeg::FilterGraph::filter_frames()::notifying buffer_flushed\n");
-          buffer_flushed.notify_one();
-        }
-      }
-      else if (ret != AVERROR(EAGAIN))
-      {
-        av_frame_unref(frame);
-      }
-    }
-  }
-  catch (...)
-  {
-    av_log(NULL, AV_LOG_FATAL, "ffmpeg::FilterGraph::filter_frames() thread threw exception.\n");
-
-    // log the exception
-    eptr = std::current_exception();
-
-    // flag the exception
-    killnow = true;
-    buffer_ready.notify_all();
-    buffer_flushed.notify_all();
-  }
-
-  // release the frames
-  av_frame_free(&frame);
-  av_frame_free(&filt_frame);
-
-  // av_log(NULL, AV_LOG_FATAL, "ffmpeg::FilterGraph::filter_frames()::exiting.\n");
-}
-
-void FilterGraph::copy_frame_ts(const AVFrame *frame)
-{
-  if (frame)
-  {
-    if (!firstframe)
-    {
-      // keep the first frame as the reference
-      std::unique_lock<std::mutex> firstframe_guard(firstframe_lock);
-      firstframe = av_frame_clone(frame);
-      firstframe_ready.notify_one();
-    }
-
-    // if seeking to a specified pts
-    if (buf_start_ts)
-    {
-      if (frame->best_effort_timestamp < buf_start_ts)
-        // {  av_log(NULL,AV_LOG_INFO,"ffmpeg::FilterGraph::copy_frame_ts::dropping t=%d < %d\n",frame->best_effort_timestamp,buf_start_ts);
-        return;
-      else
-        buf_start_ts = 0;
+      rval += "|";
+      rval += av_get_pix_fmt_name(*p);
     }
   }
 
-  std::unique_lock<std::mutex> buffer_guard(buffer_lock);
-  // if null, reached the end-of-file (or stopped by user command)
-  // copy frame to buffer; if buffer not ready, wait until it is
-  int ret = (buf) ? buf->copy_frame(frame, tb) : AVERROR(EAGAIN);
-  bool flush_frames;
-  while (!((flush_frames = filter_status == PAUSE_RQ) || killnow) && (ret == AVERROR(EAGAIN)))
-  {
-    buffer_ready.wait(buffer_guard);
-    if (killnow || flush_frames)
-      break;
-    ret = (buf) ? buf->copy_frame(frame, tb) : AVERROR(EAGAIN);
-  }
-
-  // if (!flush_frames)
-  //   av_log(NULL, AV_LOG_INFO, "ffmpeg::FilterGraph::copy_frame_ts::buffering t=%d\n", frame ? frame->pts : -1);
-
-  // if (killnow || !ret) // skip only if buffer was not ready
-  buffer_ready.notify_one();
-}
-
-////////////////////////////////////////////
-
-void FilterGraph::resetBuffer(FrameBuffer *new_buf)
-{
-  std::unique_lock<std::mutex> buffer_guard(buffer_lock);
-  buf = new_buf;
-  buffer_ready.notify_one();
-}
-
-FrameBuffer *FilterGraph::releaseBuffer()
-{
-  FrameBuffer *rval = buf;
-  resetBuffer(NULL);
   return rval;
 }
 
-size_t FilterGraph::blockTillBufferFull()
-{
-  if (!isFileOpen() || !buf)
-    return 0;
-  std::unique_lock<std::mutex> buffer_guard(buffer_lock);
-  buffer_ready.wait(buffer_guard, [&]() { return killnow || !buf->remaining(); });
-  return buf->size();
+/* Define a function for building a string containing a list of
+ * allowed formats. */
+#define DEF_CHOOSE_FORMAT(suffix, type, var, supported_list, none, get_name) \
+  \
+std::string OutputAudioFilter::choose_##suffix()                             \
+  \
+{                                                                         \
+    if (var != none)                                                         \
+    {                                                                        \
+      get_name(var);                                                         \
+      return name;                                                           \
+    }                                                                        \
+    else if (supported_list)                                                 \
+    {                                                                        \
+      const type *p;                                                         \
+      std::string ret;                                                       \
+                                                                             \
+      p = supported_list;                                                    \
+      if (*p != none)                                                        \
+      {                                                                      \
+        ret = get_name(*p);                                                  \
+        for (++p; *p != none; ++p)                                           \
+        {                                                                    \
+          ret += '|';                                                        \
+          ret += get_name(*p);                                               \
+        }                                                                    \
+      }                                                                      \
+      return ret;                                                            \
+    }                                                                        \
+    else                                                                     \
+      return "";                                                             \
+  \
 }
 
-size_t FilterGraph::blockTillFrameAvail(size_t min_cnt)
+//DEF_CHOOSE_FORMAT(pix_fmts, enum AVPixelFormat, format, formats, AV_PIX_FMT_NONE,
+//                  GET_PIX_FMT_NAME)
+
+DEF_CHOOSE_FORMAT(sample_fmts, AVSampleFormat, format, formats,
+                  AV_SAMPLE_FMT_NONE, GET_SAMPLE_FMT_NAME)
+
+DEF_CHOOSE_FORMAT(sample_rates, int, sample_rate, sample_rates, 0,
+                  GET_SAMPLE_RATE_NAME)
+
+DEF_CHOOSE_FORMAT(channel_layouts, uint64_t, channel_layout, channel_layouts, 0,
+                  GET_CH_LAYOUT_NAME)
+
+int FilterGraph::init_simple_filtergraph(InputStream &ist, OutputStream &ost)
 {
-  if (!isFileOpen() || !buf)
-    return 0;
-  std::unique_lock<std::mutex> buffer_guard(buffer_lock);
-  buffer_ready.wait(buffer_guard, [&]() { return killnow || buf->eof() || buf->available() >= min_cnt; });
-  return buf->available();
+  switch (ost.getAVMediaType())
+  {
+  case AVMEDIA_TYPE_VIDEO:
+    outputs.push_back(new OutputVideoFilter(graph, ost));
+    break;
+  case AVMEDIA_TYPE_AUDIO:
+    outputs.push_back(new OutputAudioFilter(graph, ost));
+    break;
+  default:
+    throw ffmpegException("Only video and audio filters supported currently.");
+  }
+
+  switch (ist.getAVMediaType())
+  {
+  case AVMEDIA_TYPE_VIDEO:
+    inputs.push_back(new InputVideoFilter(graph, ist));
+    break;
+  case AVMEDIA_TYPE_AUDIO:
+    inputs.push_back(new InputAudioFilter(graph, ist));
+    break;
+  default:
+    throw ffmpegException("Only video and audio filters supported currently.");
+  }
+
+  return 0;
+}
+
+std::string FilterGraph::describe_filter_link(AVFilterInOut *inout, int in)
+{
+  AVFilterContext *ctx = inout->filter_ctx;
+  AVFilterPad *pads = in ? ctx->input_pads : ctx->output_pads;
+  int nb_pads = in ? ctx->nb_inputs : ctx->nb_outputs;
+
+  std::string res = ctx->filter->name;
+  if (nb_pads > 1)
+  {
+    res += ':';
+    res += avfilter_pad_get_name(pads, inout->pad_idx);
+  }
+  return res;
+}
+
+void FilterGraph::init_input_filter(AVFilterInOut *in, InputStream &ist)
+{
+  AVMediaType type = avfilter_pad_get_type(in->filter_ctx->input_pads, in->pad_idx);
+  int i;
+
+  // TODO: support other filter types
+  if (type != AVMEDIA_TYPE_VIDEO && type != AVMEDIA_TYPE_AUDIO)
+    throw ffmpegException("Only video and audio filters supported currently.");
+  if (type != ist.getAVMediaType())
+    throw ffmpegException("Media type mismatch between AVFilterInOut and InputStream.");
+
+  switch (ist.getAVMediaType())
+  {
+  case AVMEDIA_TYPE_VIDEO:
+    inputs.push_back(new InputVideoFilter(graph, ist));
+    break;
+  case AVMEDIA_TYPE_AUDIO:
+    inputs.push_back(new InputAudioFilter(graph, ist));
+    break;
+  default:
+    throw ffmpegException("Only video and audio filters supported currently.");
+  }
+  // fg->inputs[fg->nb_inputs - 1]->ist = ist;
+  // fg->inputs[fg->nb_inputs - 1]->graph = fg;
+  // fg->inputs[fg->nb_inputs - 1]->format = -1;
+}
+
+void FilterGraph::init_complex_filtergraph(const std::string &new_desc = "")
+{
+  AVFilterInOut *in, *out, *cur;
+  AVFilterGraph *test_graph;
+  int ret = 0;
+
+  /* this graph is only used for determining the kinds of inputs
+     * and outputs we have, and is discarded on exit from this function */
+  test_graph = avfilter_graph_alloc();
+  if (!test_graph)
+    throw ffmpegException(AVERROR(ENOMEM));
+
+  ret = avfilter_graph_parse2(test_graph, (new_desc.size()) ? new_desc.c_str() : graph_desc.c_str(), &in, &out);
+  if (ret < 0)
+    throw ffmpegException("Failed to parse filter graph description.");
+
+  try
+  {
+    // create input endpoints
+    for (cur = in; cur; cur = cur->next)
+      init_input_filter(cur);
+
+    // create output endpoints
+    for (cur = out; cur;)
+    {
+      switch (avfilter_pad_get_type(cur->filter_ctx->output_pads, cur->pad_idx))
+      {
+      case AVMEDIA_TYPE_VIDEO:
+      outputs.push_back(new OutputVideoFilter;
+      break;
+    case AVMEDIA_TYPE_AUDIO:
+      outputs.push_back(new OutputAudioFilter);
+      break;
+    default:
+      throw ffmpegException("Only video and audio filters supported currently.");
+      }
+      // OutputFilter *of = outputs.back();
+      // of->graph = fg;
+      // of->out_tmp = cur;
+      // of->type = ;
+      // of->name = describe_filter_link(cur, 0);
+      // cur = cur->next;
+      // of->out_tmp->next = NULL;
+    }
+  }
+  catch
+  {
+    avfilter_inout_free(&in);
+    avfilter_graph_free(&graph);
+  }
+  avfilter_inout_free(&in);
+  avfilter_graph_free(&graph);
+}
+
+// used to append filters for autorotate feature
+int FilterGraph::insert_filter(AVFilterContext *&last_filter, int &pad_idx,
+                               const std::string &filter_name, const std::string &args)
+{
+  AVFilterGraph *graph = last_filter->graph;
+  AVFilterContext *ctx;
+  int ret;
+
+  ret = avfilter_graph_create_filter(&ctx,
+                                     avfilter_get_by_name(filter_name.c_str()),
+                                     filter_name.c_str(), args.c_str(), NULL, graph);
+  if (ret < 0)
+    return ret;
+
+  ret = avfilter_link(last_filter, pad_idx, ctx, 0);
+  if (ret < 0)
+    return ret;
+
+  last_filter = ctx;
+  pad_idx = 0;
+  return 0;
+}
+
+OutputFilter* configure_output_filter(AVFilterInOut *out)
+{
+  switch (avfilter_pad_get_type(out->filter_ctx->output_pads, out->pad_idx))
+  {
+  case AVMEDIA_TYPE_VIDEO:
+    return new OutputVideoFilter();
+  case AVMEDIA_TYPE_AUDIO:
+    return new OutputAudioFilter();
+  default:
+    av_assert0(0);
+  }
+}
+
+void check_filter_outputs()
+{
+  for (auto output = outputs.begin(); output < outputs.end(); ++output)
+  {
+    if (!output->sink)
+      throw ffmpegException("Filter %s has an unconnected output\n", output->name);
+  }
+}
+
+InputFilter *FilterGraph::configure_input_filter(AVFilterInOut *in)
+{
+  switch (avfilter_pad_get_type(in->filter_ctx->input_pads, in->pad_idx))
+  {
+  case AVMEDIA_TYPE_VIDEO:
+    return InputVideoFilter(fg);
+  case AVMEDIA_TYPE_AUDIO:
+    return InputAudioFilter(fg);
+  default:
+    av_assert0(0);
+  }
+}
+
+void FilterGraph::cleanup()
+{
+  for (auto it = outputs.begin(); it<outputs.end(); ++it) delete *it;
+  outputs.clear();
+  for (auto it = inputs.begin(); it<inputs.end(); ++it) delete *it;
+  inputs.clear();
+  avfilter_graph_free(&graph);
+}
+
+void FilterGraph::configure()
+{
+  AVFilterInOut *inputs, *outputs, *cur;
+  int ret, i, simple = filtergraph_is_simple(fg);
+  const char *graph_desc = simple ? fg->outputs[0]->ost->avfilter : fg->graph_desc;
+
+  cleanup_filtergraph(fg);
+  if (!(fg->graph = avfilter_graph_alloc()))
+    return AVERROR(ENOMEM);
+
+  if (simple)
+  {
+    OutputStream *ost = fg->outputs[0]->ost;
+    char args[512];
+    AVDictionaryEntry *e = NULL;
+
+    fg->graph->nb_threads = filter_nbthreads;
+
+    args[0] = 0;
+    while ((e = av_dict_get(ost->sws_dict, "", e,
+                            AV_DICT_IGNORE_SUFFIX)))
+    {
+      av_strlcatf(args, sizeof(args), "%s=%s:", e->key, e->value);
+    }
+    if (strlen(args))
+      args[strlen(args) - 1] = 0;
+    fg->graph->scale_sws_opts = av_strdup(args);
+
+    args[0] = 0;
+    while ((e = av_dict_get(ost->swr_opts, "", e,
+                            AV_DICT_IGNORE_SUFFIX)))
+    {
+      av_strlcatf(args, sizeof(args), "%s=%s:", e->key, e->value);
+    }
+    if (strlen(args))
+      args[strlen(args) - 1] = 0;
+    av_opt_set(fg->graph, "aresample_swr_opts", args, 0);
+
+    args[0] = '\0';
+    while ((e = av_dict_get(fg->outputs[0]->ost->resample_opts, "", e,
+                            AV_DICT_IGNORE_SUFFIX)))
+    {
+      av_strlcatf(args, sizeof(args), "%s=%s:", e->key, e->value);
+    }
+    if (strlen(args))
+      args[strlen(args) - 1] = '\0';
+
+    e = av_dict_get(ost->encoder_opts, "threads", NULL, 0);
+    if (e)
+      av_opt_set(fg->graph, "threads", e->value, 0);
+  }
+  else
+  {
+    fg->graph->nb_threads = filter_complex_nbthreads;
+  }
+
+  if ((ret = avfilter_graph_parse2(fg->graph, graph_desc, &inputs, &outputs)) < 0)
+    goto fail;
+
+  if (filter_hw_device || hw_device_ctx)
+  {
+    AVBufferRef *device = filter_hw_device ? filter_hw_device->device_ref
+                                           : hw_device_ctx;
+    for (i = 0; i < fg->graph->nb_filters; i++)
+    {
+      fg->graph->filters[i]->hw_device_ctx = av_buffer_ref(device);
+      if (!fg->graph->filters[i]->hw_device_ctx)
+      {
+        ret = AVERROR(ENOMEM);
+        goto fail;
+      }
+    }
+  }
+
+  if (simple && (!inputs || inputs->next || !outputs || outputs->next))
+  {
+    const char *num_inputs;
+    const char *num_outputs;
+    if (!outputs)
+    {
+      num_outputs = "0";
+    }
+    else if (outputs->next)
+    {
+      num_outputs = ">1";
+    }
+    else
+    {
+      num_outputs = "1";
+    }
+    if (!inputs)
+    {
+      num_inputs = "0";
+    }
+    else if (inputs->next)
+    {
+      num_inputs = ">1";
+    }
+    else
+    {
+      num_inputs = "1";
+    }
+    av_log(NULL, AV_LOG_ERROR, "Simple filtergraph '%s' was expected "
+                               "to have exactly 1 input and 1 output."
+                               " However, it had %s input(s) and %s output(s)."
+                               " Please adjust, or use a complex filtergraph (-filter_complex) instead.\n",
+           graph_desc, num_inputs, num_outputs);
+    ret = AVERROR(EINVAL);
+    goto fail;
+  }
+
+  for (cur = inputs, i = 0; cur; cur = cur->next, i++)
+    if ((ret = configure_input_filter(fg, fg->inputs[i], cur)) < 0)
+    {
+      avfilter_inout_free(&inputs);
+      avfilter_inout_free(&outputs);
+      goto fail;
+    }
+  avfilter_inout_free(&inputs);
+
+  for (cur = outputs, i = 0; cur; cur = cur->next, i++)
+    fg->outputs[i] = configure_output_filter(fg, cur);
+  avfilter_inout_free(&outputs);
+
+  if ((ret = avfilter_graph_config(fg->graph, NULL)) < 0)
+    goto fail;
+
+  /* limit the lists of allowed formats to the ones selected, to
+     * make sure they stay the same if the filtergraph is reconfigured later */
+  for (i = 0; i < fg->nb_outputs; i++)
+  {
+    OutputFilter *ofilter = fg->outputs[i];
+    AVFilterContext *sink = ofilter->filter;
+
+    ofilter->format = av_buffersink_get_format(sink);
+
+    ofilter->width = av_buffersink_get_w(sink);
+    ofilter->height = av_buffersink_get_h(sink);
+
+    ofilter->sample_rate = av_buffersink_get_sample_rate(sink);
+    ofilter->channel_layout = av_buffersink_get_channel_layout(sink);
+  }
+
+  fg->reconfiguration = 1;
+
+  for (i = 0; i < fg->nb_outputs; i++)
+  {
+    OutputStream *ost = fg->outputs[i]->ost;
+    if (!ost->enc)
+    {
+      /* identical to the same check in ffmpeg.c, needed because
+               complex filter graphs are initialized earlier */
+      av_log(NULL, AV_LOG_ERROR, "Encoder (codec %s) not found for output stream #%d:%d\n",
+             avcodec_get_name(ost->st->codecpar->codec_id), ost->file_index, ost->index);
+      ret = AVERROR(EINVAL);
+      goto fail;
+    }
+    if (ost->enc->type == AVMEDIA_TYPE_AUDIO &&
+        !(ost->enc->capabilities & AV_CODEC_CAP_VARIABLE_FRAME_SIZE))
+      av_buffersink_set_frame_size(ost->filter->filter,
+                                   ost->enc_ctx->frame_size);
+  }
+
+  for (i = 0; i < fg->nb_inputs; i++)
+  {
+    while (av_fifo_size(fg->inputs[i]->frame_queue))
+    {
+      AVFrame *tmp;
+      av_fifo_generic_read(fg->inputs[i]->frame_queue, &tmp, sizeof(tmp), NULL);
+      ret = av_buffersrc_add_frame(fg->inputs[i]->filter, tmp);
+      av_frame_free(&tmp);
+      if (ret < 0)
+        goto fail;
+    }
+  }
+
+  /* send the EOFs for the finished inputs */
+  for (i = 0; i < fg->nb_inputs; i++)
+  {
+    if (fg->inputs[i]->eof)
+    {
+      ret = av_buffersrc_add_frame(fg->inputs[i]->filter, NULL);
+      if (ret < 0)
+        goto fail;
+    }
+  }
+
+  /* process queued up subtitle packets */
+  for (i = 0; i < fg->nb_inputs; i++)
+  {
+    InputStream *ist = fg->inputs[i]->ist;
+    if (ist->sub2video.sub_queue && ist->sub2video.frame)
+    {
+      while (av_fifo_size(ist->sub2video.sub_queue))
+      {
+        AVSubtitle tmp;
+        av_fifo_generic_read(ist->sub2video.sub_queue, &tmp, sizeof(tmp), NULL);
+        sub2video_update(ist, &tmp);
+        avsubtitle_free(&tmp);
+      }
+    }
+  }
+
+  return 0;
+
+fail:
+  cleanup_filtergraph(fg);
+  return ret;
+}
+
+int ifilter_parameters_from_frame(InputFilter *ifilter, const AVFrame *frame)
+{
+  av_buffer_unref(&ifilter->hw_frames_ctx);
+
+  ifilter->format = frame->format;
+
+  ifilter->width = frame->width;
+  ifilter->height = frame->height;
+  ifilter->sample_aspect_ratio = frame->sample_aspect_ratio;
+
+  ifilter->sample_rate = frame->sample_rate;
+  ifilter->channels = frame->channels;
+  ifilter->channel_layout = frame->channel_layout;
+
+  if (frame->hw_frames_ctx)
+  {
+    ifilter->hw_frames_ctx = av_buffer_ref(frame->hw_frames_ctx);
+    if (!ifilter->hw_frames_ctx)
+      return AVERROR(ENOMEM);
+  }
+
+  return 0;
+}
+
+int ist_in_filtergraph(FilterGraph *fg, InputStream *ist)
+{
+  int i;
+  for (i = 0; i < fg->nb_inputs; i++)
+    if (fg->inputs[i]->ist == ist)
+      return 1;
+  return 0;
+}
+
+int filtergraph_is_simple(FilterGraph *fg)
+{
+  return !fg->graph_desc;
 }

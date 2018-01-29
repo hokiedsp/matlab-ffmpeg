@@ -1,5 +1,4 @@
 #include "ffmpegMediaReader.h"
-#include "ffmpegInputStream.h"
 
 #include "ffmpegException.h"
 #include "ffmpegPtrs.h"

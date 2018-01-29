@@ -1,4 +1,4 @@
-#include "ffmpegInputStream.h"
+#include "ffmpegStreamInput.h"
 
 using namespace ffmpeg;
 
