@@ -11,8 +11,10 @@ namespace ffmpeg
 class AVFrameQueue : virtual public AVFrameSinkBase, virtual public AVFrameSourceBase
 {
 public:
-  AVFrameQueue(size_t N = 2) : max_size(N) {} // queue size
+  AVFrameQueue(AVMediaType media, size_t N = 2) : type(media), max_size(N) {} // queue size
   virtual ~AVFrameQueue() {}
+
+  AVMediaType getMediaType() const { return type; };
 
 protected:
   bool readyToPush_threadunsafe() // declared in AVFrameSinkBase
@@ -42,6 +44,7 @@ protected:
   }
 
 private:
+  AVMediaType type;
   size_t max_size;
   std::queue<AVFrame *> Q; // queue containing
 };

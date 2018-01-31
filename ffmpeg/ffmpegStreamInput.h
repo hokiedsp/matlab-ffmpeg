@@ -52,16 +52,26 @@ public:
 
   AVRational getAvgFrameRate() const;
 
-  // AVRational getSAR() const;
+  int getWidth() const;
+  int getHeight() const;
+  AVPixelFormat getPixelFormat() const;
+  AVRational getSAR() const;
 
   // int getBitsPerPixel() const;
 
   // const AVPixFmtDescriptor *getPixFmtDescriptor() const;
   // size_t getNbPixelComponents() const;
 
-  // size_t getWidth() const;
-  // size_t getHeight() const;
   // size_t getFrameSize() const;
 };
 
+class InputAudioStream : public InputStream
+{
+public:
+  InputAudioStream(AVStream *st = NULL, IAVFrameSink *buf = NULL);
+  virtual ~InputAudioStream();
+  AVSampleFormat getSampleFormat() const;
+  int getChannels() const;
+  uint64_t getChannelLayout() const;
+};
 }

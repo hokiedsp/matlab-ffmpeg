@@ -5,8 +5,8 @@
 #include "ffmpegAVFrameBufferInterfaces.h"
 
 extern "C" {
-#include <libavformat/avformat.h>
-#include <libavcodec/avcodec.h>
+// #include <libavformat/avformat.h>
+// #include <libavcodec/avcodec.h>
 // #include <libavutil/pixdesc.h>
 }
 
@@ -24,8 +24,8 @@ public:
 
   virtual bool ready();
 
-  // virtual AVStream *st open();
-  // virtual void close();
+  virtual AVStream * open();
+  virtual void close() {}
 
   IAVFrameSource *setgetBuffer(IAVFrameSource *other_buf);
   void swapBuffer(IAVFrameSource *&other_buf);
@@ -33,7 +33,7 @@ public:
   IAVFrameSource *getBuffer() const;
   IAVFrameSource *releaseBuffer();
 
-  // virtual int reset(); // reset decoder states
+  virtual int reset() { return 0; } // reset decoder states
   virtual int OutputStream::processFrame(AVPacket *packet);
 
 protected:
@@ -46,14 +46,26 @@ typedef std::vector<OutputStream*> OutputStreamPtrs;
 class OutputVideoStream : public OutputStream
 {
 public:
-  OutputStream(IAVFrameSource *buf = NULL);
-  virtual ~OutputStream();
+  OutputVideoStream(IAVFrameSource *buf = NULL);
+  virtual ~OutputVideoStream();
 
+  AVStream *open() { return NULL; }
+
+  AVPixelFormats getPixelFormats() const;
   AVPixelFormat getPixelFormat() const;
 
   AVPixelFormat choose_pixel_fmt(AVPixelFormat target) const;
   AVPixelFormats choose_pix_fmts() const;
 private:
   bool keep_pix_fmt;
+};
+
+class OutputAudioStream : public OutputStream
+{
+public:
+  OutputAudioStream(IAVFrameSource *buf = NULL) {}
+  virtual ~OutputAudioStream() {}
+  AVStream *open() { return NULL; }
+private:
 };
 }

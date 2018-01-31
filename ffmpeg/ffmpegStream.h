@@ -25,19 +25,22 @@ public:
 
   virtual bool ready();
 
-  virtual void open(AVStream *st)=0;
   virtual void close();
 
   virtual int reset(); // reset decoder states
   
   AVStream *getAVStream() const;
   int getId() const;
-  AVMediaType getAVMediaType() const;
+  AVMediaType getMediaType() const;
+  std::string getMediaTypeString() const;
 
   const AVCodec *getAVCodec() const;
   std::string getCodecName() const;
   std::string getCodecDescription() const;
   bool getCodecFlags(const int mask = ~0) const;
+
+  int getCodecFrameSize() const;
+
   AVRational getTimeBase() const;
   int64_t getLastFrameTimeStamp() const;
 

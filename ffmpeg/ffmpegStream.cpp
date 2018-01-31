@@ -1,13 +1,6 @@
 #include "ffmpegStream.h"
 #include "ffmpegException.h"
 
-extern "C" {
-#include <libavcodec/avcodec.h>
-#include <libavutil/pixdesc.h>
-// #include <libavformat/avformat.h>
-// #include <libavutil/opt.h>
-}
-
 using namespace ffmpeg;
 
 /**
@@ -45,7 +38,8 @@ int BaseStream::reset()
 
 AVStream *BaseStream::getAVStream() const { return st; }
 int BaseStream::getId() const { return st?st->index : -1; }
-AVMediaType getAVMediaType() const { return ctx ? ctx->codec_type : AVMEDIA_TYPE_UNKNOWN; }
+AVMediaType BaseStream::getMediaType() const { return ctx ? ctx->codec_type : AVMEDIA_TYPE_UNKNOWN; }
+std::string BaseStream::getMediaTypeString() const { return av_get_media_type_string(getMediaType()); }
 const AVCodec *BaseStream::getAVCodec() const { return ctx ? ctx->codec : NULL; }
 std::string BaseStream::getCodecName() const
 {
@@ -56,7 +50,9 @@ std::string BaseStream::getCodecDescription() const
   return (ctx && ctx->codec && ctx->codec->long_name) ? ctx->codec->long_name : "";
 }
 bool BaseStream::getCodecFlags(const int mask) const { return ctx->flags & mask; }
- 
+
+int BaseStream::getCodecFrameSize() const { return ctx ? ctx->frame_size : 0; }
+
 AVRational BaseStream::getTimeBase() const { return (st)?st->time_base:AVRational({0,0}); }
 int64_t BaseStream::getLastFrameTimeStamp() const { return pts; }
 

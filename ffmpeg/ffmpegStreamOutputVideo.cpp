@@ -1,9 +1,17 @@
 #include "ffmpegStreamOutput.h"
 
+extern "C" {
+// #include <libavformat/avformat.h>
+// #include <libavcodec/avcodec.h>
+#include <libavutil/pixdesc.h>
+}
+
 using namespace ffmpeg;
 
-OutputVideoStream(IAVFrameSource *buf) : OutputStream(buf), keep_pix_fmt(true) {}
-virtual ~OutputVideoStream();
+OutputVideoStream::OutputVideoStream(IAVFrameSource *buf) : OutputStream(buf), keep_pix_fmt(true) {}
+OutputVideoStream::~OutputVideoStream() {}
+
+AVPixelFormat OutputVideoStream::getPixelFormat() const { return ctx ? ctx->pix_fmt : AV_PIX_FMT_NONE; }
 
 AVPixelFormat OutputVideoStream::choose_pixel_fmt(AVPixelFormat target) const
 {
@@ -46,15 +54,15 @@ AVPixelFormat OutputVideoStream::choose_pixel_fmt(AVPixelFormat target) const
   return target;
 }
 
-AVPixelFormats OutputVideoStream::choose_pix_fmts()
+AVPixelFormats OutputVideoStream::choose_pix_fmts() const
 // static char *choose_pix_fmts(OutputFilter *ofilter)
 {
   AVPixelFormats ret;
 
-  AVDictionaryEntry *strict_dict = av_dict_get(encoder_opts, "strict", NULL, 0);
-  if (strict_dict)
-    // used by choose_pixel_fmt() and below
-    av_opt_set(ctx, "strict", strict_dict->value, 0);
+  // AVDictionaryEntry *strict_dict = av_dict_get(encoder_opts, "strict", NULL, 0);
+  // if (strict_dict)
+  //   // used by choose_pixel_fmt() and below
+  //   av_opt_set(ctx, "strict", strict_dict->value, 0);
 
   // no change if keep_pix_fmt flag is set
   if (keep_pix_fmt)
@@ -63,23 +71,26 @@ AVPixelFormats OutputVideoStream::choose_pix_fmts()
     return ret;
   }
 
-  const AVCodec *enc = getAVCodec();
-
   if (ctx->pix_fmt != AV_PIX_FMT_NONE)
   {
-    ret.push_back(choose_pixel_fmt(st, ctx, enc, ctx->pix_fmt));
+    ret.push_back(choose_pixel_fmt(ctx->pix_fmt));
+    return ret;
   }
-  else if (enc && enc->pix_fmts)
+
+  return getPixelFormats();
+}
+
+AVPixelFormats OutputVideoStream::getPixelFormats() const
+{
+  AVPixelFormats ret;
+  const AVCodec *enc = getAVCodec();
+  if (enc && enc->pix_fmts)
   {
-    const AVPixelFormat *p;
-
-    p = enc->pix_fmts;
-    if (ctx->strict_std_compliance <= FF_COMPLIANCE_UNOFFICIAL)
-      p = get_compliance_unofficial_pix_fmts(ctx->codec_id, p);
-
-    for (; *p != AV_PIX_FMT_NONE; p++)
+    for (const AVPixelFormat *p = enc->pix_fmts; *p != AV_PIX_FMT_NONE; p++)
       ret.push_back(*p);
-  }
 
+    if (ctx->strict_std_compliance <= FF_COMPLIANCE_UNOFFICIAL)
+      ret = get_compliance_unofficial_pix_fmts(ctx->codec_id, ret);
+  }
   return ret;
 }

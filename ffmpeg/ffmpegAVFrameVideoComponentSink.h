@@ -117,6 +117,8 @@ public:
     allocator.deallocate(data_buf, data_sz);
   }
 
+  AVMediaType getMediaType() const { return AVMEDIA_TYPE_VIDEO; };
+    
   void reset(const size_t nframes = 0) // must re-implement to allocate data_buf
   {
     std::unique_lock<std::mutex> l_rx(m);

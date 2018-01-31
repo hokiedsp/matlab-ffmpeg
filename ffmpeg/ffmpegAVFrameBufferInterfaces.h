@@ -13,6 +13,7 @@ class IAVFrameSink
     virtual bool readyToPush() = 0;
     virtual int push(AVFrame *frame) = 0;
 
+    virtual AVMediaType getMediaType() const = 0;
     virtual AVRational getTimeBase() const = 0;
     virtual void setTimeBase(const AVRational &tb) = 0;
 };

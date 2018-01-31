@@ -12,7 +12,7 @@ using namespace ffmpeg;
 /**
  * \brief Class to manage AVStream
  */
-OutputStream::OutputStream(IAVFrameSink *buf) : src(buf), encoder_opts(NULL)
+OutputStream::OutputStream(IAVFrameSource *buf) : src(buf), encoder_opts(NULL)
 {}
 
 OutputStream::~OutputStream()
@@ -27,16 +27,14 @@ AVStream *OutputStream::open()
   // if codec already open, close first
   if (ctx)
     close();
-
+  return NULL;
 }
 
-IAVFrameSource *OutputStream::setgetBuffer(IAVFrameSource *other_buf) { std::swap(sink, other_buf); return other_buf; }
-void OutputStream::swapBuffer(IAVFrameSource *&other_buf) { std::swap(sink, other_buf); }
-void OutputStream::setBuffer(IAVFrameSource *new_buf) { sink = new_buf; }
-IAVFrameSource *OutputStream::getBuffer() const { return sink; }
-IAVFrameSource *OutputStream::releaseBuffer() { IAVFrameSource *rval = sink; sink = NULL; return rval; }
-
-AVPixelFormat OutputSteram::getPixelFormat() const { ctx?ctx->pix_fmt:AV_PIX_FMT_NONE; }
+IAVFrameSource *OutputStream::setgetBuffer(IAVFrameSource *other_buf) { std::swap(src, other_buf); return other_buf; }
+void OutputStream::swapBuffer(IAVFrameSource *&other_buf) { std::swap(src, other_buf); }
+void OutputStream::setBuffer(IAVFrameSource *new_buf) { src = new_buf; }
+IAVFrameSource *OutputStream::getBuffer() const { return src; }
+IAVFrameSource *OutputStream::releaseBuffer() { IAVFrameSource *rval = src; src = NULL; return rval; }
 
 int OutputStream::processFrame(AVPacket *packet)
 {
@@ -71,4 +69,3 @@ int OutputStream::processFrame(AVPacket *packet)
   
   return ret;
 }
-
