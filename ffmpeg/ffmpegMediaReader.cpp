@@ -259,6 +259,7 @@ void MediaReader::thread_fcn()
 
         if (killnow || status == PAUSE_RQ)
           continue;
+        status = ACTIVE;
       }
 
       // end of status management::unlock the mutex guard
@@ -300,7 +301,7 @@ void MediaReader::thread_fcn()
   }
   catch (...)
   {
-    av_log(NULL, AV_LOG_FATAL, "read_packet() thread threw exception.\n");
+    av_log(NULL, AV_LOG_FATAL, "MediaReader::thread_fcn() thread threw exception.\n");
 
     // log the exception
     eptr = std::current_exception();

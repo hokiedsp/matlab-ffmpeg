@@ -33,6 +33,21 @@ void SinkBase::link(AVFilterContext *other, const unsigned otherpad, const unsig
   Base::link(other, otherpad, pad, issrc);
 }
 
+bool SinkBase::processFrame()
+{
+  AVFrame *frame;
+  int ret = av_buffersink_get_frame(buffersink_ctx, frame);
+
+  bool eof = (ret == AVERROR_EOF);
+  bool again = (ret == AVERROR(EAGAIN));
+  if (sink && (ret>=0 || eof))
+    sink->push(eof ? NULL : frame);
+  else if (!again)
+    throw ffmpegException("Failed to get frame from a buffersink.");
+
+  return !again;
+}
+
 ////////////////////////////////
 VideoSink::VideoSink(Graph &fg)  : SinkBase(fg, AVMEDIA_TYPE_VIDEO) {}
 VideoSink::VideoSink(Graph &fg, OutputStream &ost)  : SinkBase(fg, dynamic_cast<OutputVideoStream&>(ost), AVMEDIA_TYPE_VIDEO) {}

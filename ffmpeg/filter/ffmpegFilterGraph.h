@@ -61,7 +61,7 @@ public:
 protected:
   // thread function: responsible to read packet and send it to ffmpeg decoder
   void thread_fcn();
-
+  
   template <typename F, typename M>
   static F *find_filter(M &map, AVMediaType type);
   template <typename EP, typename VEP, typename AEP, typename... Args>
@@ -87,6 +87,12 @@ private:
   } SinkInfo;
   std::map<std::string, SourceInfo> inputs;
   std::map<std::string, SinkInfo> outputs;
+
+  void child_thread_fcn(AVFilterContext *src, IAVFrameSource *buf);
+  std::atomic<bool> killchild;
+  std::deque<std::pair<AVFrame *, AVFilterContext *>> Qframe;
+  std::mutex mQ;
+  std::condition_variable cvQ;
 };
 }
 }

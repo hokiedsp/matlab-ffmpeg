@@ -1,5 +1,9 @@
 #include "ffmpegFilterGraph.h"
 
+#ifndef FG_TIMEOUT_IN_MS
+#define FG_TIMEOUT_IN_MS 100ms
+#endif
+
 // #include <stdint.h>
 
 extern "C" {
@@ -229,4 +233,136 @@ int Graph::insert_filter(AVFilterContext *&last_filter, int &pad_idx,
   last_filter = ctx;
   pad_idx = 0;
   return 0;
+}
+
+/**
+ * \brief Graph's thread's child threads to monitor source buffers
+ */
+void Graph::child_thread_fcn(AVFilterContext *src, IAVFrameSource *buf)
+{
+
+  using namespace std::chrono_literals;
+
+  AVFrame *frame;
+  do
+  {
+    // use timed pop to be able to terminate the thread independent of source buffer
+    int ret = buf->pop(frame, FG_TIMEOUT_IN_MS);
+    if (killchild)
+      break;
+
+    if (ret != AVERROR(EAGAIN))
+    {
+      std::unique_lock<std::mutex> queue_guard(mQ);
+      Qframe.push(std::make_pair(src, frame));
+    }
+    if (frame)
+
+      if (!Qframe.back().second) // eof
+
+    cvQ.notify_one(mQ);
+  } while (!killchild || !frame);
+}
+
+void Graph::thread_fcn()
+{
+  int ret;
+  
+  bool reconfigure = true;
+
+  // * create a child thread pool to monitor source buffers
+  Qframe.reserve()
+  std::vector<uint_t> more_in(inputs.size());
+
+  // std::vector<InputStream *> st_lut(fmt_ctx->nb_streams, NULL);
+  // std::for_each(streams.begin(), streams.end(), [&st_lut](InputStream *is) { st_lut[is->getId()] = is; });
+
+  // "true" if sink available
+  std::vector<uint_t> more_out(outputs.size());
+  bool least_one_more_out;
+
+  try
+  {
+    // mutex guard, locked initially
+    std::unique_lock<std::mutex> thread_guard(thread_lock);
+
+    // read all packets
+    while (!killnow)
+    {
+      // wait until a file is opened and the reader is unleashed
+      if (status == IDLE)
+      {
+        thread_ready.notify_one();
+        thread_ready.wait(thread_guard);
+        thread_guard.unlock();
+        if (killnow || status == PAUSE_RQ)
+          continue;
+        status = ACTIVE;
+      }
+
+      // end of status management::unlock the mutex guard
+      thread_guard.unlock();
+
+      if (reconfigure)
+      {
+        // craete the AVFilterGraph from Graph
+        configure();
+
+        reconfigure = false;
+      }
+
+      // monitor source buffers for incoming AVFrame
+
+      // run the filter
+      if (last_frame)
+      {
+        av_buffersrc_add_frame_flags(buffersrc_ctx, NULL, AV_BUFFERSRC_FLAG_KEEP_REF);
+      }
+      else // if not decoding in progress -> EOF
+      {
+        /* pull filtered frames from the filtergraph */
+        ret = av_buffersrc_add_frame_flags(buffersrc_ctx, frame, AV_BUFFERSRC_FLAG_KEEP_REF);
+        if (ret < 0)
+          throw ffmpegException("Error occurred while sending a frame to the filter graph: %s", av_err2str(ret));
+      }
+
+      // check all the output buffers for all the outputs
+      while (!killnow && ret >= 0)
+      {
+        for (auto out = outputs.begin(); out != outputs.end(); ++out)
+        {
+          int ret = out->second.filter->processFrame();
+          if (!killnow && ret < 0)
+            throw ffmpegException("Error occurred while retrieving a filtered frame: %s", av_err2str(ret));
+        }
+      }
+      
+      // re-lock the mutex for the status management
+      thread_guard.lock();
+
+      if (status == PAUSE_RQ)
+      { // if pause requested -> destroy filter
+        destroy();
+        reconfigure = true;
+        status = IDLE;
+      }
+      else if (eof)
+      { // EOF -> all done
+        status = IDLE;
+      }
+    }
+  }
+  catch (...)
+  {
+    av_log(NULL, AV_LOG_FATAL, "read_packet() thread threw exception.\n");
+
+    // log the exception
+    eptr = std::current_exception();
+
+    // flag the exception
+    std::unique_lock<std::mutex> thread_guard(thread_lock);
+    killnow = true;
+    status = FAILED;
+    thread_ready.notify_all();
+  }
 }

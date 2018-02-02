@@ -54,6 +54,13 @@ public:
    */
   virtual void sync() = 0;
 
+  /**
+   * \brief Check for existence of an output AVFrame from the filter graph and 
+   *        if available output it to its sink buffer.
+   * \returns True if new frame
+   */
+bool SinkBase::processFrame();
+
 protected:
   IAVFrameSink *sink;
 

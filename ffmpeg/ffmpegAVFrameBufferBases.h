@@ -62,7 +62,7 @@ public:
     std::unique_lock<std::mutex> l_rx(m);
     if (!readyToPush())
       cv_rx.wait(m);
-    push_threadunsafe(frame);
+    return push_threadunsafe(frame);
   }
   template <class Predicate>
   int push(AVFrame *frame, Predicate pred)
@@ -70,7 +70,32 @@ public:
     std::unique_lock<std::mutex> l_rx(m);
     if (!readyToPush())
       cv_rx.wait(m, pred);
-    push_threadunsafe(frame);
+    return push_threadunsafe(frame);
+  }
+
+  int push(AVFrame *frame, const std::chrono::milliseconds &rel_time)
+  {
+    std::unique_lock<std::mutex> l_rx(m);
+    bool ready = true;
+    if (!readyToPush())
+      ready = cv_rx.wait_for(m, rel_time);
+    if (ready)
+      return push_threadunsafe(frame);
+    else
+      return AVERROR(EAGAIN);
+  }
+
+  template <class Predicate>
+  int push(AVFrame *frame, const std::chrono::milliseconds &rel_time, Predicate pred)
+  {
+    std::unique_lock<std::mutex> l_rx(m);
+    bool ready = true;
+    if (!readyToPush())
+      ready = cv_rx.wait_for(m, rel_time, pred);
+    if (ready)
+      return push_threadunsafe(frame);
+    else
+      return AVERROR(EAGAIN);
   }
 
   AVRational getTimeBase() const { return time_base; }
@@ -98,21 +123,60 @@ public:
   // move assign operator
   virtual AVFrameSourceBase &operator=(AVFrameBufferBase &&other) {}
 
-  AVFrame *pop()
+  int pop(AVFrame *&frame)
   {
     std::unique_lock<std::mutex> l_tx(m);
     if (!readyToPop())
       cv_rx.wait(m);
-    return pop_threadunsafe();
+    frame = pop_threadunsafe();
+    return 0;
   }
 
   template <class Predicate>
-  AVFrame *pop(Predicate pred)
+  int pop(AVFrame *&frame, Predicate pred)
   {
     std::unique_lock<std::mutex> l_tx(m);
     if (!readyToPop())
       cv_rx.wait(m, pred);
-    return pop_threadunsafe();
+    frame = pop_threadunsafe();
+    return 0;
+  }
+
+  int pop(AVFrame *&frame, const std::chrono::milliseconds &rel_time)
+  {
+    std::unique_lock<std::mutex> l_tx(m);
+    bool ready;
+    if (!readyToPop())
+      ready = cv_rx.wait_for(m, rel_time);
+    if (ready)
+    {
+      frame = pop_threadunsafe();
+      return 0;
+    }
+    else
+    {
+      frame = NULL;
+      return AVERROR(EAGAIN);
+    }
+  }
+
+  template <class Predicate>
+  int pop(AVFrame *&frame, const std::chrono::milliseconds &rel_time, Predicate pred)
+  {
+    std::unique_lock<std::mutex> l_tx(m);
+    bool ready;
+    if (!readyToPop())
+      ready = cv_rx.wait_for(m, rel_time, pred);
+    if (ready)
+    {
+      frame = pop_threadunsafe();
+      return 0;
+    }
+    else
+    {
+      frame = NULL;
+      return AVERROR(EAGAIN);
+    }
   }
 
   bool readyToPop()
