@@ -44,6 +44,8 @@ public:
   AVMediaType getMediaType() const { return type; }
   std::string getMediaTypeString() const { return av_get_media_type_string(type); }
 
+  virtual int processFrame()=0;
+
 protected:
   BaseStream *st;   // non-NULL if associated to an AVStream
   AVMediaType type; // AVMEDIA_TYPE_SUBTITLE for sub2video

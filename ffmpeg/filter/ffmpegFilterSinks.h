@@ -32,6 +32,8 @@ public:
   SinkBase(Graph &fg, OutputStream &ost, AVMediaType mediatype); // connected to an FFmpeg stream
   SinkBase(Graph &fg, IAVFrameSink &buf, AVMediaType mediatype); // connected to a buffer (data from non-FFmpeg source)
 
+  AVFilterContext *configure(const std::string &name = "");
+
   /**
    * \brief Links the filter to another filter
    * 
@@ -59,13 +61,13 @@ public:
    *        if available output it to its sink buffer.
    * \returns True if new frame
    */
-bool SinkBase::processFrame();
+  virtual int processFrame();
+
+  virtual bool enabled() const { return ena; };
 
 protected:
   IAVFrameSink *sink;
-
-  /* temporary storage until stream maps are processed */
-  AVFilterInOut *out_tmp;
+  bool ena;
 };
 
 typedef std::vector<SinkBase *> Sinks;

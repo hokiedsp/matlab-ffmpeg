@@ -40,49 +40,81 @@ public:
   // copy assign operator
   virtual AVFrameSinkBase &operator=(const AVFrameBufferBase &other)
   {
-    const AVFrameSinkBase *other = dynamic_cast<const AVFrameSinkBase*>(&right);
+    const AVFrameSinkBase *other = dynamic_cast<const AVFrameSinkBase *>(&right);
     time_base = other.time_base;
   }
 
   // move assign operator
   virtual AVFrameSinkBase &operator=(AVFrameBufferBase &&right)
   {
-    AVFrameSinkBase *other = dynamic_cast<const AVFrameSinkBase*>(&right);
+    AVFrameSinkBase *other = dynamic_cast<const AVFrameSinkBase *>(&right);
     time_base = other.time_base;
   }
-  
+
   bool readyToPush()
   {
     std::unique_lock<std::mutex> l_rx(m);
     return readyToPush_threadunsafe();
   }
-  
-  int push(AVFrame *frame)
+
+  void blockTillReadyToPush()
   {
     std::unique_lock<std::mutex> l_rx(m);
-    if (!readyToPush())
+    while (ready && !readyToPush_threadunsafe())
       cv_rx.wait(m);
-    return push_threadunsafe(frame);
   }
+  bool blockTillReadyToPush(const std::chrono::milliseconds &rel_time)
+  {
+    std::unique_lock<std::mutex> l_rx(m);
+    bool ready = true;
+    while (ready && !readyToPush_threadunsafe())
+      ready = cv_rx.wait_for(m, rel_time);
+    return ready;
+  }
+
+  int tryToPush(AVFrame *frame)
+  {
+    std::unique_lock<std::mutex> l_rx(m);
+    if (!readyToPush_threadunsafe())
+      return AVERROR(EAGAIN);
+
+    push_threadunsafe(frame);
+    return 0;
+  }
+
+  void push(AVFrame *frame)
+  {
+    std::unique_lock<std::mutex> l_rx(m);
+    while (!readyToPush_threadunsafe())
+      cv_rx.wait(m);
+    push_threadunsafe(frame);
+  }
+
   template <class Predicate>
   int push(AVFrame *frame, Predicate pred)
   {
     std::unique_lock<std::mutex> l_rx(m);
-    if (!readyToPush())
-      cv_rx.wait(m, pred);
-    return push_threadunsafe(frame);
+    bool ready = true;
+    while (ready && !readyToPush_threadunsafe())
+      ready = cv_rx.wait(m, pred);
+    if (!ready)
+      return AVERROR(EAGAIN);
+
+    push_threadunsafe(frame);
+    return 0;
   }
 
   int push(AVFrame *frame, const std::chrono::milliseconds &rel_time)
   {
     std::unique_lock<std::mutex> l_rx(m);
     bool ready = true;
-    if (!readyToPush())
+    while (ready && !readyToPush_threadunsafe())
       ready = cv_rx.wait_for(m, rel_time);
-    if (ready)
-      return push_threadunsafe(frame);
-    else
+    if (!ready)
       return AVERROR(EAGAIN);
+
+    push_threadunsafe(frame);
+    return 0;
   }
 
   template <class Predicate>
@@ -90,12 +122,13 @@ public:
   {
     std::unique_lock<std::mutex> l_rx(m);
     bool ready = true;
-    if (!readyToPush())
+    while (ready && !readyToPush_threadunsafe())
       ready = cv_rx.wait_for(m, rel_time, pred);
-    if (ready)
-      return push_threadunsafe(frame);
-    else
+    if (!ready)
       return AVERROR(EAGAIN);
+
+    push_threadunsafe(frame);
+    return 0;
   }
 
   AVRational getTimeBase() const { return time_base; }
@@ -123,30 +156,56 @@ public:
   // move assign operator
   virtual AVFrameSourceBase &operator=(AVFrameBufferBase &&other) {}
 
-  int pop(AVFrame *&frame)
+  int tryToPop(AVFrame *&frame)
   {
     std::unique_lock<std::mutex> l_tx(m);
-    if (!readyToPop())
+    if (readyToPop_threadunsafe())
+    {
+      frame = pop_threadunsafe();
+      return 0;
+    }
+    else
+    {
+      frame = NULL;
+      return AVERROR(EAGAIN);
+    }
+  }
+
+  void pop(AVFrame *&frame)
+  {
+    std::unique_lock<std::mutex> l_tx(m);
+    while (!readyToPop_threadunsafe())
       cv_rx.wait(m);
     frame = pop_threadunsafe();
-    return 0;
   }
 
   template <class Predicate>
   int pop(AVFrame *&frame, Predicate pred)
   {
     std::unique_lock<std::mutex> l_tx(m);
-    if (!readyToPop())
-      cv_rx.wait(m, pred);
-    frame = pop_threadunsafe();
-    return 0;
+    bool ready = true;
+    while (ready && !readyToPop_threadunsafe())
+      ready = cv_rx.wait(m, pred);
+    if (!ready)
+      return AVERROR(EAGAIN);
+
+    if (ready)
+    {
+      frame = pop_threadunsafe();
+      return 0;
+    }
+    else
+    {
+      frame = NULL;
+      return AVERROR(EAGAIN);
+    }
   }
 
   int pop(AVFrame *&frame, const std::chrono::milliseconds &rel_time)
   {
     std::unique_lock<std::mutex> l_tx(m);
-    bool ready;
-    if (!readyToPop())
+    bool ready = true;
+    while (ready && !readyToPop_threadunsafe())
       ready = cv_rx.wait_for(m, rel_time);
     if (ready)
     {
@@ -164,8 +223,8 @@ public:
   int pop(AVFrame *&frame, const std::chrono::milliseconds &rel_time, Predicate pred)
   {
     std::unique_lock<std::mutex> l_tx(m);
-    bool ready;
-    if (!readyToPop())
+    bool ready = true;
+    while (ready && !readyToPop_threadunsafe())
       ready = cv_rx.wait_for(m, rel_time, pred);
     if (ready)
     {
@@ -183,6 +242,42 @@ public:
   {
     std::unique_lock<std::mutex> l_rx(m);
     return readyToPop_threadunsafe();
+  }
+
+  void blockTillReadyToPop()
+  {
+    std::unique_lock<std::mutex> l_rx(m);
+    while (!readyToPop_threadunsafe())
+      cv_rx.wait(m); 
+  }
+
+  template<typename Pred>
+  bool blockTillReadyToPop(Pred pred)
+  {
+    std::unique_lock<std::mutex> l_rx(m);
+    bool ready = true;
+    while (ready && !readyToPop_threadunsafe())
+      ready = cv_rx.wait(m, pred);
+    return ready;
+  }
+  
+  void blockTillReadyToPop(const std::chrono::milliseconds &rel_time)
+  {
+    std::unique_lock<std::mutex> l_rx(m);
+    bool ready = true;
+    while (ready && !readyToPop_threadunsafe())
+      ready = cv_rx.wait_for(m, rel_time);
+    return ready;
+  }
+
+  template<typename Pred>
+  void blockTillReadyToPop(const std::chrono::milliseconds &rel_time, Pred pred)
+  {
+    std::unique_lock<std::mutex> l_rx(m);
+    bool ready = true;
+    while  (ready && !readyToPop_threadunsafe())
+      ready = cv_rx.wait_for(m, rel_time, pred);
+    return ready;
   }
 
 protected:

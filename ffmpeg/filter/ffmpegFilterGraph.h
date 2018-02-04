@@ -88,11 +88,11 @@ private:
   std::map<std::string, SourceInfo> inputs;
   std::map<std::string, SinkInfo> outputs;
 
-  void child_thread_fcn(AVFilterContext *src, IAVFrameSource *buf);
-  std::atomic<bool> killchild;
-  std::deque<std::pair<AVFrame *, AVFilterContext *>> Qframe;
-  std::mutex mQ;
-  std::condition_variable cvQ;
+  std::mutex inmon_m;
+  std::condition_variable inmon_cv;
+  int inmon_status; // 0:no monitoring; 1:monitor; <0 quit
+
+  void child_thread_fcn(SourceBase *src);
 };
 }
 }

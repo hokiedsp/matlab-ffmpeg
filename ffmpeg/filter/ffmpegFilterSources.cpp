@@ -20,7 +20,7 @@ SourceBase::SourceBase(Graph &fg, InputStream &ist, AVMediaType mediatype)
     : EndpointBase(fg, ist, mediatype), src(dynamic_cast<IAVFrameSource *>(ist.getBuffer())), hw_frames_ctx(NULL)
 {
   if (!src)
-    throw ffmpegException("Attempted to construct ffmpeg::filter::*Source object from an InputStream object without a buffer.");
+    throw ffmpegException("[SourceBase::SourceBase] Attempted to construct ffmpeg::filter::*Source object from an InputStream object without a buffer.");
 }
 
 SourceBase::SourceBase(Graph &fg, IAVFrameSource &buf, AVMediaType mediatype)
@@ -31,10 +31,22 @@ SourceBase::SourceBase(Graph &fg, IAVFrameSource &buf, AVMediaType mediatype)
 void SourceBase::link(AVFilterContext *other, const unsigned otherpad, const unsigned pad, const bool issrc)
 {
   if (!issrc || pad > 0)
-    throw ffmpegException("Source filter does not have an input pad and has only 1 output pad.");
+    throw ffmpegException("[SourceBase::link] Source filter does not have an input pad and has only 1 output pad.");
 
   Base::link(other, otherpad, pad, issrc);
 }
+
+int SourceBase::processFrame()
+{
+  AVFrame *frame;
+  if (!src)
+    throw ffmpegException("[SourceBase::processFrame] AVFrame source buffer has not been set.");
+  int ret = src->tryToPop(frame); // if frame==NULL, eos
+  if (ret==0)
+    ret = av_buffersrc_add_frame_flags(context, frame, AV_BUFFERSRC_FLAG_KEEP_REF);
+  return ret;
+}
+
 /////////////////////////////
 
 VideoSource::VideoSource(Graph &fg) : SourceBase(fg, AVMEDIA_TYPE_VIDEO), sws_flags(0) {}

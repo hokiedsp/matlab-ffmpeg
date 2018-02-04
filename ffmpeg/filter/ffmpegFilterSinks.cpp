@@ -15,7 +15,7 @@ using namespace ffmpeg;
 using namespace ffmpeg::filter;
 
 ///////////////////////////////////////////////////////////
-SinkBase::SinkBase(Graph &fg, AVMediaType mediatype) : EndpointBase(fg, mediatype), sink(NULL) {}
+SinkBase::SinkBase(Graph &fg, AVMediaType mediatype) : EndpointBase(fg, mediatype), sink(NULL), ena(false) {}
 SinkBase::SinkBase(Graph &fg, OutputStream &ost, AVMediaType mediatype)
     : EndpointBase(fg, ost, mediatype), sink(dynamic_cast<IAVFrameSink *>(ost.getBuffer()))
     {
@@ -25,6 +25,12 @@ SinkBase::SinkBase(Graph &fg, OutputStream &ost, AVMediaType mediatype)
 SinkBase::SinkBase(Graph &fg, IAVFrameSink &buf, AVMediaType mediatype)
     : EndpointBase(fg, mediatype), sink(&buf) {}
 
+AVFilterContext *SinkBase::configure(const std::string &name)
+{ // configure the AVFilterContext
+  ena = true;
+  return context;
+}
+
 void SinkBase::link(AVFilterContext *other, const unsigned otherpad, const unsigned pad, const bool issrc)
 {
   if (issrc || pad > 0)
@@ -33,19 +39,21 @@ void SinkBase::link(AVFilterContext *other, const unsigned otherpad, const unsig
   Base::link(other, otherpad, pad, issrc);
 }
 
-bool SinkBase::processFrame()
+int SinkBase::processFrame()
 {
-  AVFrame *frame;
-  int ret = av_buffersink_get_frame(buffersink_ctx, frame);
+  if (!sink)
+    throw ffmpegException("[SinkBase::processFrame] AVFrame sink buffer has not been set.");
 
-  bool eof = (ret == AVERROR_EOF);
-  bool again = (ret == AVERROR(EAGAIN));
-  if (sink && (ret>=0 || eof))
+  AVFrame *frame = NULL;
+  int ret = av_buffersink_get_frame(context, frame);
+  bool eof = (ret != AVERROR_EOF);
+  if (ret==0 || eof)
+  {
     sink->push(eof ? NULL : frame);
-  else if (!again)
-    throw ffmpegException("Failed to get frame from a buffersink.");
+    if (eof) ena = false;
+  }
 
-  return !again;
+  return ret;
 }
 
 ////////////////////////////////
@@ -55,6 +63,7 @@ VideoSink::VideoSink(Graph &fg, IAVFrameSink &buf) : SinkBase(fg, buf, AVMEDIA_T
 AVFilterContext *VideoSink::configure(const std::string &name)
 { // configure the AVFilterContext
   create_context("buffersink", name);
+  SinkBase::configure();
   return context;
 }
 
@@ -104,6 +113,9 @@ AudioSink::AudioSink(Graph &fg, OutputStream &ost) : SinkBase(fg, dynamic_cast<O
 AudioSink::AudioSink(Graph &fg, IAVFrameSink &buf) : SinkBase(fg, buf, AVMEDIA_TYPE_AUDIO) {}
 AVFilterContext *AudioSink::configure(const std::string &name)
 {
+  // clears ena flag
+  SinkBase::configure();
+
   // configure the filter
   create_context("abuffersink", name);
   av_opt_set_int(context, "all_channel_counts", 1, AV_OPT_SEARCH_CHILDREN);

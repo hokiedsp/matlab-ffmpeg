@@ -1,6 +1,7 @@
 #include "ffmpegFilterGraph.h"
 
 #ifndef FG_TIMEOUT_IN_MS
+using namespace std::chrono_literals;
 #define FG_TIMEOUT_IN_MS 100ms
 #endif
 
@@ -238,48 +239,43 @@ int Graph::insert_filter(AVFilterContext *&last_filter, int &pad_idx,
 /**
  * \brief Graph's thread's child threads to monitor source buffers
  */
-void Graph::child_thread_fcn(AVFilterContext *src, IAVFrameSource *buf)
+void Graph::child_thread_fcn(SourceBase *src)
 {
-
-  using namespace std::chrono_literals;
-
-  AVFrame *frame;
-  do
+  // notify the thread_fcn the arrival of AVFrame from the source buffer via inputs_ready map
+  std::unique_lock<std::mutex> l(inmon_m);
+  while (inmon_status >= 0) // terminate if flag is negative
   {
-    // use timed pop to be able to terminate the thread independent of source buffer
-    int ret = buf->pop(frame, FG_TIMEOUT_IN_MS);
-    if (killchild)
-      break;
-
-    if (ret != AVERROR(EAGAIN))
+    if (inmon_status > 0) // monitor its input buffer
     {
-      std::unique_lock<std::mutex> queue_guard(mQ);
-      Qframe.push(std::make_pair(src, frame));
+      l.unlock();
+      if (src->blockTillFrameReady(FG_TIMEOUT_IN_MS))
+      {
+        // new frame available, notify all threads
+        l.lock();
+        inmon_status = 1;
+        inmon_cv.notify_all();
+      }
+      else // timed-out
+        l.lock();
     }
-    if (frame)
-
-      if (!Qframe.back().second) // eof
-
-    cvQ.notify_one(mQ);
-  } while (!killchild || !frame);
+    else // turn off monitoring, wait until requested
+      inmon_cv.wait(l);
+  }
 }
 
 void Graph::thread_fcn()
 {
-  int ret;
-  
   bool reconfigure = true;
 
-  // * create a child thread pool to monitor source buffers
-  Qframe.reserve()
-  std::vector<uint_t> more_in(inputs.size());
-
-  // std::vector<InputStream *> st_lut(fmt_ctx->nb_streams, NULL);
-  // std::for_each(streams.begin(), streams.end(), [&st_lut](InputStream *is) { st_lut[is->getId()] = is; });
+  // * create child threads to monitor source buffers
+  inmon_status = 0; // initially do not run the input monitor
+  std::vector<std::thread> child_threads;
+  child_threads.reserve(inputs.size());
+  for (auto in = inputs.begin(); in != inputs.end(); ++in) // start all child threads
+    child_threads.push_back(std::thread(&Graph::child_thread_fcn, this, in->second.filter));
 
   // "true" if sink available
-  std::vector<uint_t> more_out(outputs.size());
-  bool least_one_more_out;
+  int eof_count;
 
   try
   {
@@ -307,54 +303,70 @@ void Graph::thread_fcn()
       {
         // craete the AVFilterGraph from Graph
         configure();
-
         reconfigure = false;
+        eof_count = 0;
       }
 
-      // monitor source buffers for incoming AVFrame
-
-      // run the filter
-      if (last_frame)
+      // grab at least one frame from input buffers
+      bool new_frame = false;
+      while (!(new_frame || killnow))
       {
-        av_buffersrc_add_frame_flags(buffersrc_ctx, NULL, AV_BUFFERSRC_FLAG_KEEP_REF);
-      }
-      else // if not decoding in progress -> EOF
-      {
-        /* pull filtered frames from the filtergraph */
-        ret = av_buffersrc_add_frame_flags(buffersrc_ctx, frame, AV_BUFFERSRC_FLAG_KEEP_REF);
-        if (ret < 0)
-          throw ffmpegException("Error occurred while sending a frame to the filter graph: %s", av_err2str(ret));
+        for (auto src = inputs.begin(); src != inputs.end(); ++src)
+        {
+          // process an incoming frame (if any)
+          int ret = src->second.filter->processFrame(); // calls av_buffersrc_add_frame_flags() if frame avail
+          if (ret == 0)                         // if success, set the flag to indicate the arrival
+            new_frame = true;
+          else if (ret != AVERROR(EAGAIN))
+            throw ffmpegException("Failed to process a filter graph input AVFrame.");
+        }
+
+        // if no frame arrived, wait till there is one available
+        if (!new_frame)
+        {
+          std::unique_lock<std::mutex> l(inmon_m);
+          inmon_status = 1;
+          inmon_cv.notify_all();
+          inmon_cv.wait(l);
+        }
       }
 
-      // check all the output buffers for all the outputs
-      while (!killnow && ret >= 0)
+      // process all the output buffers
+      new_frame = false;
+      do
       {
         for (auto out = outputs.begin(); out != outputs.end(); ++out)
         {
-          int ret = out->second.filter->processFrame();
-          if (!killnow && ret < 0)
-            throw ffmpegException("Error occurred while retrieving a filtered frame: %s", av_err2str(ret));
+          SinkBase *sink = out->second.filter;
+          if (sink->enabled())
+          {
+            int ret = sink->processFrame(); // calls av_buffersrc_add_frame_flags() if frame avail
+            if (ret == 0)                   // if success, set the flag to indicate the arrival
+            {
+              new_frame = true;
+              if (!sink->enabled())
+                ++eof_count; // check if received EOF
+            }
+            else if (ret != AVERROR(EAGAIN))
+              throw ffmpegException("Failed to process a filter graph input AVFrame.");
+          }
         }
-      }
-      
+      } while (!(new_frame || killnow || eof_count < outputs.size()));
+
       // re-lock the mutex for the status management
       thread_guard.lock();
 
-      if (status == PAUSE_RQ)
-      { // if pause requested -> destroy filter
+      if (status == PAUSE_RQ || eof_count < outputs.size())
+      { // if pause requested or all outputs closed -> destroy filter
         destroy();
         reconfigure = true;
-        status = IDLE;
-      }
-      else if (eof)
-      { // EOF -> all done
         status = IDLE;
       }
     }
   }
   catch (...)
   {
-    av_log(NULL, AV_LOG_FATAL, "read_packet() thread threw exception.\n");
+    av_log(NULL, AV_LOG_FATAL, "[filter::Graph] Thread threw an exception.\n");
 
     // log the exception
     eptr = std::current_exception();
@@ -365,4 +377,12 @@ void Graph::thread_fcn()
     status = FAILED;
     thread_ready.notify_all();
   }
+
+  // terminate the child threads
+  std::unique_lock<std::mutex> inmon_guard(inmon_m);
+  inmon_status = -1;
+  inmon_guard.unlock();
+  for (auto pth = child_threads.begin(); pth != child_threads.end(); ++pth)
+    if (pth->joinable())
+      pth->join();
 }
