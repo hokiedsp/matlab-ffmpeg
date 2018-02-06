@@ -18,12 +18,13 @@ namespace ffmpeg
  * \brief An AVFrame sink for a video stream to store frames' component data
  *  An AVFrame sink, which converts a received video AVFrame to component data (e.g., RGB)
  */
-class AVFrameVideoComponentSink : public AVFrameSinkBase
+template <class Allocator = ffmpegAllocator<uint8_t>()>
+class AVFrameVideoComponentSink : public AVFrameSinkBase, protected VideoParams, public IVideoHandler
 {
 public:
   AVFrameVideoComponentSink(const size_t w, const size_t h, const AVPixelFormat fmt, const AVRational &tb = {0, 0})
-      : AVFrameSinkBase(tb), pixfmt(fmt), desc(av_pix_fmt_desc_get(fmt)), nb_frames(0), width(w), height(h),
-        time_buf(NULL), frame_data_sz(0), data_buf(NULL), has_eof(false), wr_time(NULL), wr_data(NULL)
+      : AVFrameSinkBase(AVMEDIA_TYPE_VIDEO, tb), VideoParams({(int)w, (int)h, {1, 1}, fmt}), desc(av_pix_fmt_desc_get(fmt)), 
+        nb_frames(0), time_buf(NULL), frame_data_sz(0), data_buf(NULL), has_eof(false), wr_time(NULL), wr_data(NULL)
   {
   }
 
@@ -37,7 +38,7 @@ public:
 
   // copy constructor
   AVFrameVideoComponentSink(const AVFrameVideoComponentSink &other)
-      : AVFrameSinkBase(other), width(other.width), height(other.height), pixfmt(other.pixfmt),
+      : AVFrameSinkBase(other), VideoParams(other),
         nb_frames(other.nb_frames), frame_data_sz(other.frame_data_sz), has_eof(other.has_eof)
   {
     copy_buffers(other);
@@ -45,84 +46,47 @@ public:
 
   // move constructor
   AVFrameVideoComponentSink(AVFrameVideoComponentSink &&other) noexcept
-      : width(other.width), height(other.height), pixfmt(other.pixfmt), time_base(other.time_base), nb_frames(other.nb_frames),
+      : AVFrameSinkBase(other), VideoParams(other), nb_frames(other.nb_frames),
         time_buf(other.time_buf), frame_data_sz(other.frame_data_sz), data_buf(other.data_buf),
         has_eof(other.has_eof), wr_time(other.wr_time), wr_data(other.wr_data)
   {
     // reset other
-    other.pixfmt = AV_PIX_FMT_NONE;
-    other.time_base = {0, 0};
     other.nb_frames = 0;
     other.time_buf = NULL;
     other.data_buf = NULL;
     other.wr_time = NULL;
     other.wr_data = NULL;
-  }
-
-  // copy assign operator
-  virtual AVFrameVideoComponentSink &operator=(const AVFrameBufferBase &right)
-  {
-    std::unique_lock<std::mutex> l_rx(m);
-
-    const AVFrameVideoComponentSink *other = dynamic_cast<const AVFrameVideoComponentSink *>(&right);
-    AVFrameSinkBase::operator()(other);
-    width = other.width;
-    height = other.height;
-    pixfmt = other.pixfmt;
-    nb_frames = other.nb_frames;
-    frame_data_sz = other.frame_data_sz;
-    has_eof = other.has_eof;
-
-    copy_buffers(other);
-
-    return *this;
-  }
-
-  // move assign operator
-  virtual AVFrameVideoComponentSink &operator=(AVFrameBufferBase &&right)
-  {
-    std::unique_lock<std::mutex> l_rx(m);
-
-    AVFrameVideoComponentSink *other = dynamic_cast<const AVFrameVideoComponentSink *>(&right);
-    AVFrameSinkBase::operator()(other);
-
-    width = other.width;
-    height = other.height;
-    pixfmt = other.pixfmt;
-    nb_frames = other.nb_frames;
-    frame_data_sz = other.frame_data_sz;
-    has_eof = other.has_eof;
-
-    time_buf = other.time_buf;
-    data_buf = other.data_buf;
-    wr_time = other.wr_time;
-    wr_data = other.wr_data;
-
-    // reset other
-    other.pixfmt = AV_PIX_FMT_NONE;
-    other.time_base = {0, 0};
-    other.nb_frames = 0;
-    other.time_buf = NULL;
-    other.data_buf = NULL;
-    other.wr_time = NULL;
-    other.wr_data = NULL;
-
-    return *this;
   }
 
   virtual ~AVFrameVideoComponentSink()
   {
     std::unique_lock<std::mutex> l_rx(m);
     allocator.deallocate((uint8_t *)time_buf, nb_frames * sizeof(double));
-    allocator.deallocate(data_buf, data_sz);
+    allocator.deallocate(data_buf, nb_frames * width * height);
   }
 
-  AVMediaType getMediaType() const { return AVMEDIA_TYPE_VIDEO; };
+  const VideoParams& AVFrameVideoComponentSink::getVideoParams() const { return (VideoParams&)*this; }
+
+  void configureWithFrame(const AVFrame *frame)
+  {
+    if (frame)
+    {
+      width = frame->width;
+      height = frame->height;
+      sample_aspect_ratio = frame->sample_aspect_ratio;
+      format = frame->format;
+
+      if (nb_frames)
+        reset(0);
+    }
+  }
     
   void reset(const size_t nframes = 0) // must re-implement to allocate data_buf
   {
     std::unique_lock<std::mutex> l_rx(m);
     reset_threadunsafe(nframes);
+    if (nframes) //notify the reader for the buffer availability
+      cv_rx.notify_one();
   }
 
   size_t release(uint8_t **data, int64_t **time = NULL, bool reallocate = true)
@@ -139,6 +103,8 @@ public:
     if (reallocate)
     {
       reset_threadunsafe(0);
+      if (nframes) //notify the reader for the buffer availability
+        cv_rx.notify_one();
     }
     else
     {
@@ -239,48 +205,32 @@ public:
     }
   }
 
-  void swap(FrameBuffer &o)
-  {
-    std::unique_lock<std::mutex> l_rx(m);
-    AVFrameVideoComponentSink &other = (AVFrameVideoComponentSink &)o;
-    std::swap(pixfmt, other.pixfmt);
-    std::swap(time_base.num, other.time_Base.num);
-    std::swap(time_base.den, other.time_Base.den);
-    std::swap(desc, other.desc);
-    std::swap(nb_frames, other.nb_frames);
-    std::swap(width, other.width);
-    std::swap(height, other.height);
-    std::swap(time_buf, other.time_buf);
-    std::swap(frame_data_sz, other.frame_data_sz);
-    std::swap(data_buf, other.data_buf);
-    std::swap(wr_time, other.wr_time);
-    std::swap(wr_data, other.wr_data);
-  }
-
 protected:
-  bool readyToPush_threadunsafe() // declared in AVFrameSinkBase
+  bool readyToPush_threadunsafe() const // declared in AVFrameSinkBase
   {
     // no room or eof
-    return !has_eof || nb_frames >= (wr_time - time_buf);
+    return nb_frames && (!has_eof || nb_frames >= (size_t)(wr_time - time_buf));
   }
 
   int push_threadunsafe(AVFrame *frame)
   {
-    // expects having exclusive access to the user supplied buffer
-    if (!nb_frames || full()) // receiving data buffer not set
-      return AVERROR(EAGAIN);
-
     if (frame)
     {
+      // if buffer format has not been set
+      if (pixfmt == AV_PIX_FMT_NONE)
+      {
+
+      }
+
       // format must match
-      if (frame->format != pix_fmt)
-        return AVERROR(EAGAIN);
+      if (frame->format != format || frame->width != width || frame->height != height)
+        throw ffmpegException("[ffmpeg::AVFrameVideoComponentSink::push_threadunsafe] Frame data does not match the buffer configuration.");
 
       // copy time
       if (frame->pts != AV_NOPTS_VALUE)
         *wr_time = frame->pts;
       else
-        *wr_time = NAN;
+        *wr_time = -1;
       ++wr_time;
 
       for (int i = 0; i < desc->nb_components; ++i)

@@ -6,6 +6,31 @@
 #include <cstring>
 #include <typeinfo>
 #include <stdexcept>
+#include <algorithm>
+
+class mexRuntimeError : public std::runtime_error
+{
+public:
+  mexRuntimeError(char const *const message) throw() : std::runtime_error(message)
+  {
+  }
+  mexRuntimeError(char const *ident, char const *const message) throw() : std::runtime_error(message), id_str(ident)
+  {
+  }
+  mexRuntimeError(std::string &message) throw() : std::runtime_error(message.c_str())
+  {
+  }
+  mexRuntimeError(std::string &ident, std::string &message) throw() : std::runtime_error(message.c_str()), id_str(ident)
+  {
+  }
+  mexRuntimeError(std::string &ident, char const *const message) throw() : std::runtime_error(message), id_str(ident)
+  {
+  }
+  virtual char const *id() const throw() { return id_str.c_str(); }
+
+private:
+  std::string id_str;
+};
 
 #define CLASS_HANDLE_SIGNATURE 0xFF00F0A5
 template <class base>
@@ -40,10 +65,10 @@ template <class base>
 inline mexClassHandle<base> *convertMat2HandlePtr(const mxArray *in)
 {
   if (mxGetNumberOfElements(in) != 1 || mxGetClassID(in) != mxUINT64_CLASS || mxIsComplex(in))
-    throw std::runtime_error("Input must be a real uint64 scalar.");
+    throw mexRuntimeError("invalidMexObjectHandle", "Input must be a real uint64 scalar.");
   mexClassHandle<base> *ptr = reinterpret_cast<mexClassHandle<base> *>(*((uint64_t *)mxGetData(in)));
   if (!ptr->isValid())
-    throw std::runtime_error("Handle not valid.");
+    throw mexRuntimeError("invalidMexObjectHandle", "Handle not valid.");
   return ptr;
 }
 
@@ -82,112 +107,162 @@ std::string mexGetString(const mxArray *array)
   std::string str;
   str.resize(len + 1);
   if (mxGetString(array, &str.front(), str.size()) != 0)
-    throw std::runtime_error("Failed to convert MATLAB string.");
+    throw mexRuntimeError("notString", "Failed to convert MATLAB string.");
   str.resize(len); // remove the trailing NULL character
   return str;
 }
 
+/// mexClassHandler
+/// Function to handle MATLAB class member mex-function calls. The associated MATLAB class must have a (private)
+/// property named 'backend' which stores the C++ class object handle (must inherit mexClassHandle).
+///
+/// In Matlab, the associated class object must have a private property 'backend' to hold a mexClassHandle object as well as
+/// a private STATIC method (method's name does not matter, we assume 'mexfcn' in this document).
+///
+/// mexClass C++ class must provide get_classname() static member function which returns the associated Matlab class name
+/// for verification purpose
+///
+/// There are three basic types of calls from MATLAB (assuming the MATLAB class name to be MATCLASS and its object name to be OBJ):
+/// * MATCLASS.mexfcn(OBJ,varargin)
+///   This calls the backend class constructor if OBJ.backend property is not populated and populates it with the C++ object handle.
+///   the second argument maybe omitted.
+/// * varargout = MATCLASS.mexfcn(OBJ,'action',varargin)
+///   This implements dynamic class action. OBJ is expected to be a scalar entity (if not only the first element is used)
+/// * varargout = MATCLASS.mexfcn('action',varargin)
+///   This implements static class action.
+///
+/// There are three preset dynamic actions:
+/// * action='delete' : destructor
+/// * action='get'    : property get : implemented by mexClass::get_prop
+/// * action='set'    : property set : implemented by mexClass::set_prop
+/// * custom actions  :                implemented by mexClass::action_handler
+
 template <class mexClass>
 void mexClassHandler(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[])
 {
-  std::string component_id = mexClass::get_componentid();
+  std::string class_name = mexClass::get_classname(); // associated matlab class
 
-  // if the first argument is empty & the second is a string "static", run static member function of mexClass
-  bool is_static = false;
   try
   {
-    is_static = nrhs > 1 && mxIsEmpty(prhs[0]) && mexGetString(prhs[1]) == "static";
-  }
-  catch (...)
-  {
-  }
-  if (is_static)
-  {
-    if (nrhs < 3 || !mxIsChar(prhs[2]))
-      mexErrMsgIdAndTxt((component_id + ":static:functionUndefined").c_str(), "Static function not given.");
-
-    try
+    if (nrhs < 1)
     {
-      if (!mexClass::static_handler(mexGetString(prhs[2]), nlhs, plhs, nrhs - 3, prhs + 3))
-        mexErrMsgIdAndTxt((component_id + ":static:unknownFunction").c_str(), "Unknown static function: %s", mexGetString(prhs[2]).c_str());
-    }
-    catch (std::exception &e)
-    {
-      mexErrMsgIdAndTxt((component_id + ":static:executionFailed").c_str(), e.what());
-    }
-    return;
-  }
-
-  mexClassHandle<mexClass> *handle = NULL;
-  if (nrhs > 0)
-  {
-    // attempt to convert the first argument to the object
-    try
-    {
-      handle = convertMat2HandlePtr<mexClass>(prhs[0]);
-    }
-    catch (...)
-    {
-    }
-  }
-
-  // if the first argument is not the class object, create a new object
-  if (handle == NULL)
-  {
-    // otherwise create a new
-
-    if (nlhs > 1)
-      mexErrMsgIdAndTxt((component_id + ":tooManyOutputArguments").c_str(), "Only one argument is returned for object construction.");
-
-    mexClass *ptr(NULL);
-    try
-    {
-      ptr = new mexClass(nrhs, prhs);
-      if (ptr == NULL)
-        mexPrintf("Constructor failed silently.\n");
-    }
-    catch (std::exception &e)
-    {
-      mexPrintf("Exception thrown by the constructor\n");
-      mexErrMsgIdAndTxt((component_id + ":constructorFail").c_str(), e.what());
+      throw mexRuntimeError(class_name + ":mex:invalidInput", "Needs at least one input argument.");
     }
 
-    plhs[0] = convertPtr2Mat(ptr);
-    return;
-  }
-
-  // all other cases must have at least 2 input arguments & the second argument is the action command:
-  std::string command;
-  try
-  {
-    if (nrhs < 2)
-      throw 0;
-    command = mexGetString(prhs[1]);
-  }
-  catch (...)
-  {
-    mexErrMsgIdAndTxt((component_id + ":missingCommand").c_str(), "Second argument (command) is not a string.");
-  }
-
-  // check for the delete command
-  if (command == "delete")
-  {
-    destroyObject<mexClass>(handle);
-    return;
-  }
-
-  // otherwise perform the object-specific (if run_action() is overloaded) action according to the given command
-  else
-  {
-    try
+    if (!mxIsClass(prhs[0], class_name.c_str())) // static action
     {
-      if (!handle->ptr()->action_handler(command, nlhs, plhs, nrhs - 2, prhs + 2))
-        mexErrMsgIdAndTxt((component_id + ":unknownCommand").c_str(), "Unknown command: %s", command.c_str());
+      if (!mxIsChar(prhs[0]))
+        throw mexRuntimeError(class_name + ":mex:static:functionUndefined", "Static action name not given.");
+      try
+      {
+        std::string action = mexGetString(prhs[0]);
+        if (!mexClass::static_handler(action, nlhs, plhs, nrhs - 1, prhs + 1))
+        {
+          std::string msg("Unknown static action: ");
+          msg += action;
+          throw mexRuntimeError(class_name + ":mex:static:unknownFunction", msg);
+        }
+          
+      }
+      catch (mexRuntimeError &e)
+      {
+        std::string id = e.id();
+        if (id.empty()) // no id given
+          throw mexRuntimeError(class_name + ":mex:static:executionFailed", e.what());
+        else
+          throw mexRuntimeError(class_name + ":mex:static:" + e.id(), e.what());
+      }
+      catch (std::exception &e)
+      {
+        throw mexRuntimeError(class_name + ":mex:static:executionFailed", e.what());
+      }
     }
-    catch (std::exception &e)
+    else
     {
-      mexErrMsgIdAndTxt((component_id + ":failedCommand").c_str(), e.what());
+      // attempt to convert the first argument to the object
+      mxArray *backend = mxGetProperty(prhs[0], 0, "backend");
+      if (!backend)
+        throw mexRuntimeError(class_name + ":unsupportedClass", "MATLAB class must have backend'' property.");
+      if (mxIsEmpty(backend))
+      {
+        // otherwise create a new
+
+        if (nlhs > 1)
+          throw mexRuntimeError(class_name + ":tooManyOutputArguments", "Only one argument is returned for object construction.");
+
+        mexClass *ptr(NULL);
+        try
+        {
+          ptr = new mexClass(nrhs - 1, prhs + 1);
+          if (ptr == NULL)
+            throw mexRuntimeError(class_name + ":mex:constructorFail","Constructor failed silently.");
+        }
+        catch (mexRuntimeError &e)
+        {
+          std::string id = e.id();
+          if (id.empty()) // no id given
+            throw mexRuntimeError(class_name + ":mex:constructorFail", e.what());
+          else
+            throw mexRuntimeError(class_name + ":mex:" + e.id(), e.what());
+        }
+        catch (std::exception &e)
+        {
+          throw mexRuntimeError(class_name + ":mex:constructorFail", e.what());
+        }
+
+        // set backend with the pointer to the newly created C++ object
+        mxSetProperty((mxArray *)prhs[0], 0, "backend", convertPtr2Mat(ptr));
+      }
+      else if (nrhs < 2 || !mxIsChar(prhs[1]))
+      {
+        throw mexRuntimeError(class_name + ":missingAction", "Second argument (action) is not a string.");
+      }
+      else
+      {
+        // get the action name
+        std::string action = mexGetString(prhs[1]);
+
+        // get c++ object handle
+        mexClassHandle<mexClass> *handle = convertMat2HandlePtr<mexClass>(backend);
+        if (!handle)
+          throw mexRuntimeError(class_name + ":missingHandle", "Backend handle is missing.");
+
+        // check for the delete action
+        if (action == "delete")
+        {
+          destroyObject<mexClass>(handle);
+        }
+        else // otherwise perform the object-specific (if run_action() is overloaded) action according to the given action
+        {
+          try
+          {
+            if (!handle->ptr()->action_handler(prhs[0], action, nlhs, plhs, nrhs - 2, prhs + 2))
+            {
+              std::string msg("Unknown action: ");
+              throw mexRuntimeError(class_name + ":unknownAction", msg + action);
+            }
+          }
+          catch (mexRuntimeError &e)
+          {
+            std::string id = e.id();
+            if (id.empty()) // no id given
+              throw mexRuntimeError(class_name + ":mex:failedAction", e.what());
+            else
+              throw mexRuntimeError(class_name + ":mex:" + e.id(), e.what());
+          }
+          catch (std::exception &e)
+          {
+            throw mexRuntimeError(class_name + ":failedAction", e.what());
+          }
+        }
+      }
     }
+  }
+  catch (mexRuntimeError &e)
+  {
+    std::string id_str = e.id();
+    std::replace(id_str.begin(), id_str.end(), '.', ':'); // replace all 'x' to 'y'
+    mexErrMsgIdAndTxt(id_str.c_str(), e.what());
   }
 }
 
@@ -195,15 +270,15 @@ void mexClassHandler(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[])
 class mexFunctionClass
 {
 public:
-  static std::string get_componentid() { return "mexClassGeneric"; };
+  static std::string get_classname() { return "mexClassGeneric"; };
 
-  virtual bool action_handler(const std::string &command, int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[])
+  virtual bool action_handler(const mxArray *mxObj, const std::string &action, int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[])
   {
-    if (command == "set") // (H,"set","name",value)
+    if (action == "set") // (H,"set","name",value)
     {
       // check for argument counts
       if (nlhs != 0 || nrhs != 2)
-        mexErrMsgIdAndTxt((get_componentid() + ":set:invalidArguments").c_str(), "Set command takes 4 input arguments and returns none.");
+        throw mexRuntimeError("set:invalidArguments", "Set action takes 4 input arguments and returns none.");
 
       // get property name
       std::string name;
@@ -213,24 +288,24 @@ public:
       }
       catch (...)
       {
-        mexErrMsgIdAndTxt((get_componentid() + ":set:invalidPropName").c_str(), "Set command's third argument must be a name string.");
+        throw mexRuntimeError("set:invalidPropName", "Set action's third argument must be a name string.");
       }
 
       // run the action
       try
       {
-        set_prop(name, prhs[1]);
+        set_prop(mxObj, name, prhs[1]);
       }
       catch (std::exception &e)
       {
-        mexErrMsgIdAndTxt((get_componentid() + ":set:invalidProperty").c_str(), e.what());
+        throw mexRuntimeError("set:invalidProperty", e.what());
       }
     }
-    else if (command == "get") // value = (H,"get","name")
+    else if (action == "get") // value = (H,"get","name")
     {
       // check for argument counts
       if (nlhs != 1 || nrhs != 1)
-        mexErrMsgIdAndTxt((get_componentid() + ":get:invalidArguments").c_str(), "Get command takes 3 input arguments and returns one.");
+        throw mexRuntimeError("get:invalidArguments", "Get action takes 3 input arguments and returns one.");
 
       // get property name
       std::string name;
@@ -240,20 +315,20 @@ public:
       }
       catch (...)
       {
-        mexErrMsgIdAndTxt((get_componentid() + ":get:invalidPropName").c_str(), "Get command's third argument must be a name string.");
+        throw mexRuntimeError("get:invalidPropName", "Get action's third argument must be a name string.");
       }
 
       // run the action
       try
       {
-        plhs[0] = get_prop(name);
+        plhs[0] = get_prop(mxObj, name);
       }
       catch (std::exception &e)
       {
-        mexErrMsgIdAndTxt((get_componentid() + ":get:invalidPropName").c_str(), e.what());
+        throw mexRuntimeError("get:invalidPropName", e.what());
       }
     }
-    else // no matching command found
+    else // no matching action found
     {
       return false;
     }
@@ -261,19 +336,19 @@ public:
     return true;
   }
 
-  static bool static_handler(std::string command, int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[])
+  static bool static_handler(std::string action, int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[])
   {
     return false;
   }
 
 protected:
-  virtual void set_prop(const std::string name, const mxArray *value) = 0;
-  virtual mxArray *get_prop(const std::string name) = 0;
+  virtual void set_prop(const mxArray *mxObj, const std::string name, const mxArray *value) = 0;
+  virtual mxArray *get_prop(const mxArray *mxObj, const std::string name) = 0;
 
-  virtual void set_props(int nrhs, const mxArray *prhs[])
+  virtual void set_props(const mxArray *mxObj, int nrhs, const mxArray *prhs[])
   {
     if (nrhs % 2 != 0)
-      throw std::runtime_error("Properties must be given as name-value pairs.");
+      throw mexRuntimeError("set:invalidInput", "Properties must be given as name-value pairs.");
 
     for (const mxArray **arg = prhs; arg < prhs + nrhs; ++arg)
     {
@@ -285,9 +360,9 @@ protected:
       }
       catch (...)
       {
-        throw std::runtime_error("Property name is must be a name string.");
+        throw mexRuntimeError("set:invalidInput", "Property name is must be a name string.");
       }
-      set_prop(name, *arg);
+      set_prop(mxObj, name, *arg);
     }
   }
 };

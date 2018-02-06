@@ -3,6 +3,7 @@
 #include "ffmpegBase.h"
 // #include "ffmpegAvRedefine.h"
 #include "ffmpegAVFrameBufferInterfaces.h"
+#include "ffmpegMediaStructs.h"
 
 extern "C" {
 #include <libavformat/avformat.h>
@@ -17,11 +18,13 @@ namespace ffmpeg
 /**
  * \brief Class to manage AVStream
  */
-class BaseStream : public Base
+class BaseStream : public Base, public IMediaHandler
 {
 public:
   BaseStream();
   virtual ~BaseStream();
+
+  const BasicMediaParams &getBasicMediaParams() const { return bparams; }
 
   virtual bool ready();
 
@@ -48,9 +51,9 @@ public:
   void choose_sample_fmt();// should be moved to OutputAudioStream when created
 
 protected:
-  AVStream *st;        // stream
-  AVCodecContext *ctx; // stream's codec context
-  int64_t pts; // pts of the last frame 
+  AVStream *st;             // stream
+  AVCodecContext *ctx;      // stream's codec context
+  int64_t pts;              // pts of the last frame
+  BasicMediaParams bparams; // set by derived's open()
 };
-
 }

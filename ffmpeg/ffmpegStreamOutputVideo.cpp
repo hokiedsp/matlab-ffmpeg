@@ -8,7 +8,10 @@ extern "C" {
 
 using namespace ffmpeg;
 
-OutputVideoStream::OutputVideoStream(IAVFrameSource *buf) : OutputStream(buf), keep_pix_fmt(true) {}
+OutputVideoStream::OutputVideoStream(IAVFrameSource *buf) : OutputStream(buf), keep_pix_fmt(true), vparams({0, 0, {0, 0}, AV_PIX_FMT_NONE})
+{
+  bparams.type = AVMEDIA_TYPE_VIDEO;
+}
 OutputVideoStream::~OutputVideoStream() {}
 
 AVPixelFormat OutputVideoStream::getPixelFormat() const { return ctx ? ctx->pix_fmt : AV_PIX_FMT_NONE; }

@@ -15,16 +15,16 @@ using namespace ffmpeg;
 using namespace ffmpeg::filter;
 
 ///////////////////////////////////////////////////////////
-SourceBase::SourceBase(Graph &fg, AVMediaType mediatype) : EndpointBase(fg, mediatype), src(NULL), hw_frames_ctx(NULL) {}
-SourceBase::SourceBase(Graph &fg, InputStream &ist, AVMediaType mediatype)
-    : EndpointBase(fg, ist, mediatype), src(dynamic_cast<IAVFrameSource *>(ist.getBuffer())), hw_frames_ctx(NULL)
+SourceBase::SourceBase(Graph &fg, const BasicMediaParams &params) : EndpointBase(fg, params), src(NULL), hw_frames_ctx(NULL) {}
+SourceBase::SourceBase(Graph &fg, InputStream &ist)
+    : EndpointBase(fg, dynamic_cast<IMediaHandler&>(ist).getBasicMediaParams(), &ist), src(dynamic_cast<IAVFrameSource *>(ist.getBuffer())), hw_frames_ctx(NULL)
 {
   if (!src)
     throw ffmpegException("[SourceBase::SourceBase] Attempted to construct ffmpeg::filter::*Source object from an InputStream object without a buffer.");
 }
 
-SourceBase::SourceBase(Graph &fg, IAVFrameSource &buf, AVMediaType mediatype)
-    : EndpointBase(fg, mediatype), src(&buf), hw_frames_ctx(NULL)
+SourceBase::SourceBase(Graph &fg, IAVFrameSource &buf)
+    : EndpointBase(fg, dynamic_cast<IMediaHandler&>(buf).getBasicMediaParams()), src(&buf), hw_frames_ctx(NULL)
 {
 }
 
@@ -49,15 +49,14 @@ int SourceBase::processFrame()
 
 /////////////////////////////
 
-VideoSource::VideoSource(Graph &fg) : SourceBase(fg, AVMEDIA_TYPE_VIDEO), sws_flags(0) {}
+VideoSource::VideoSource(Graph &fg) : SourceBase(fg, {AVMEDIA_TYPE_VIDEO, {0, 0}}), sws_flags(0) {}
 VideoSource::VideoSource(Graph &fg, InputStream &ist)
-    : SourceBase(fg, dynamic_cast<InputVideoStream&>(ist), AVMEDIA_TYPE_VIDEO), sws_flags(0)
-{
-  // Grab the video parameters from the stream. Will be checked again when configured
-  parameters_from_stream();
-}
-VideoSource::VideoSource(Graph &fg, IAVFrameSource &buf, VideoParams &params)
-    : SourceBase(fg, buf, AVMEDIA_TYPE_VIDEO), VideoParams(params), sws_flags(0) {}
+    : SourceBase(fg, dynamic_cast<InputVideoStream &>(ist)),
+      VideoParams(dynamic_cast<IVideoHandler &>(ist).getVideoParams()), sws_flags(0)
+{}
+VideoSource::VideoSource(Graph &fg, IAVFrameSource &buf)
+    : SourceBase(fg, buf), VideoParams(dynamic_cast<IVideoHandler&>(buf).getVideoParams()), sws_flags(0)
+{}
 
 AVFilterContext *VideoSource::configure(const std::string &name)
 {
@@ -134,14 +133,17 @@ void VideoSource::parameters_from_frame(const AVFrame *frame)
 }
 
 /////////////////////////////
-AudioSource::AudioSource(Graph &fg) : SourceBase(fg, AVMEDIA_TYPE_AUDIO) {}
+AudioSource::AudioSource(Graph &fg) : SourceBase(fg, {AVMEDIA_TYPE_AUDIO, {0, 0}}) {}
 AudioSource::AudioSource(Graph &fg, InputStream &ist)
-    : SourceBase(fg, dynamic_cast<InputAudioStream&>(ist), AVMEDIA_TYPE_AUDIO)
+    : SourceBase(fg, dynamic_cast<InputAudioStream &>(ist)),
+      AudioParams(dynamic_cast<IAudioHandler &>(ist).getAudioParams())
 { // Grab the video parameters from the stream. Will be checked again when configured
-  parameters_from_stream();
+  // parameters_from_stream();
 }
-AudioSource::AudioSource(Graph &fg, IAVFrameSource &buf, AudioParams &params)
-    : SourceBase(fg, buf, AVMEDIA_TYPE_AUDIO), AudioParams(params) {}
+AudioSource::AudioSource(Graph &fg, IAVFrameSource &buf)
+    : SourceBase(fg, buf),
+      AudioParams(dynamic_cast<IAudioHandler &>(buf).getAudioParams()) {}
+
 AVFilterContext *AudioSource::configure(const std::string &name)
 {
   // configure the AVFilterContext

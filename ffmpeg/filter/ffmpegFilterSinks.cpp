@@ -4,8 +4,8 @@
 #include "../ffmpegException.h"
 
 extern "C" {
- #include <libavfilter/buffersink.h>
- #include <libavutil/opt.h>
+#include <libavfilter/buffersink.h>
+#include <libavutil/opt.h>
 }
 
 #include <sstream> // std::stringstream
@@ -15,15 +15,16 @@ using namespace ffmpeg;
 using namespace ffmpeg::filter;
 
 ///////////////////////////////////////////////////////////
-SinkBase::SinkBase(Graph &fg, AVMediaType mediatype) : EndpointBase(fg, mediatype), sink(NULL), ena(false) {}
-SinkBase::SinkBase(Graph &fg, OutputStream &ost, AVMediaType mediatype)
-    : EndpointBase(fg, ost, mediatype), sink(dynamic_cast<IAVFrameSink *>(ost.getBuffer()))
-    {
-        if (!sink)
-          throw ffmpegException("Attempted to construct ffmpeg::filter::*Sink object from an OutputStream object without a buffer.");
-    }
-SinkBase::SinkBase(Graph &fg, IAVFrameSink &buf, AVMediaType mediatype)
-    : EndpointBase(fg, mediatype), sink(&buf) {}
+SinkBase::SinkBase(Graph &fg, const BasicMediaParams &params) : EndpointBase(fg, params), sink(NULL), ena(false) {}
+SinkBase::SinkBase(Graph &fg, OutputStream &ost)
+    : EndpointBase(fg, dynamic_cast<IMediaHandler &>(ost).getBasicMediaParams(), &ost),
+      sink(dynamic_cast<IAVFrameSink *>(ost.getBuffer()))
+{
+  if (!sink)
+    throw ffmpegException("Attempted to construct ffmpeg::filter::*Sink object from an OutputStream object without a buffer.");
+}
+SinkBase::SinkBase(Graph &fg, IAVFrameSink &buf)
+    : EndpointBase(fg, dynamic_cast<IMediaHandler &>(buf).getBasicMediaParams()), sink(&buf) {}
 
 AVFilterContext *SinkBase::configure(const std::string &name)
 { // configure the AVFilterContext
@@ -47,19 +48,24 @@ int SinkBase::processFrame()
   AVFrame *frame = NULL;
   int ret = av_buffersink_get_frame(context, frame);
   bool eof = (ret != AVERROR_EOF);
-  if (ret==0 || eof)
+  if (ret == 0 || eof)
   {
     sink->push(eof ? NULL : frame);
-    if (eof) ena = false;
+    if (eof)
+      ena = false;
   }
 
   return ret;
 }
 
 ////////////////////////////////
-VideoSink::VideoSink(Graph &fg)  : SinkBase(fg, AVMEDIA_TYPE_VIDEO) {}
-VideoSink::VideoSink(Graph &fg, OutputStream &ost)  : SinkBase(fg, dynamic_cast<OutputVideoStream&>(ost), AVMEDIA_TYPE_VIDEO) {}
-VideoSink::VideoSink(Graph &fg, IAVFrameSink &buf) : SinkBase(fg, buf, AVMEDIA_TYPE_VIDEO) {}
+VideoSink::VideoSink(Graph &fg) : SinkBase(fg, {AVMEDIA_TYPE_VIDEO, {0, 0}}) { type = AVMEDIA_TYPE_VIDEO; }
+VideoSink::VideoSink(Graph &fg, OutputStream &ost)
+    : SinkBase(fg, dynamic_cast<OutputVideoStream &>(ost)),
+      VideoParams(dynamic_cast<IVideoHandler &>(ost).getVideoParams()) { type = AVMEDIA_TYPE_VIDEO; }
+VideoSink::VideoSink(Graph &fg, IAVFrameSink &buf)
+    : SinkBase(fg, buf),
+      VideoParams(dynamic_cast<IVideoHandler &>(buf).getVideoParams()) { type = AVMEDIA_TYPE_VIDEO; }
 AVFilterContext *VideoSink::configure(const std::string &name)
 { // configure the AVFilterContext
   create_context("buffersink", name);
@@ -108,9 +114,12 @@ std::string VideoSink::choose_pix_fmts()
 }
 
 ////////////////////////////////
-AudioSink::AudioSink(Graph &fg) : SinkBase(fg, AVMEDIA_TYPE_AUDIO) {}
-AudioSink::AudioSink(Graph &fg, OutputStream &ost) : SinkBase(fg, dynamic_cast<OutputAudioStream&>(ost), AVMEDIA_TYPE_AUDIO) {}
-AudioSink::AudioSink(Graph &fg, IAVFrameSink &buf) : SinkBase(fg, buf, AVMEDIA_TYPE_AUDIO) {}
+AudioSink::AudioSink(Graph &fg) : SinkBase(fg, {AVMEDIA_TYPE_AUDIO, {0, 0}}) { type = AVMEDIA_TYPE_AUDIO; }
+AudioSink::AudioSink(Graph &fg, OutputStream &ost)
+    : SinkBase(fg, dynamic_cast<OutputAudioStream &>(ost)),
+      AudioParams(dynamic_cast<IAudioHandler &>(ost).getAudioParams()) { type = AVMEDIA_TYPE_AUDIO; }
+AudioSink::AudioSink(Graph &fg, IAVFrameSink &buf)
+    : SinkBase(fg, buf), AudioParams(dynamic_cast<IAudioHandler &>(buf).getAudioParams()) { type = AVMEDIA_TYPE_AUDIO; }
 AVFilterContext *AudioSink::configure(const std::string &name)
 {
   // clears ena flag
@@ -146,14 +155,14 @@ void AudioSink::sync()
  * allowed formats. */
 #define DEF_CHOOSE_FORMAT(suffix, type, var, supported_list, none, get_name) \
   \
-std::string AudioSink::choose_##suffix()                             \
+std::string AudioSink::choose_##suffix()                                     \
   \
 {                                                                         \
     if (var != none)                                                         \
     {                                                                        \
       get_name(var);                                                         \
       return name;                                                           \
-    }                                                                        \
+    } \
 /*     else if (supported_list)                                                 \
     {                                                                        \
       const type *p;                                                         \
@@ -171,25 +180,26 @@ std::string AudioSink::choose_##suffix()                             \
       }                                                                      \
       return ret;                                                            \
     }                                                                        \
- */    else                                                                     \
+ */                                                                     \
+    else                                                                     \
       return "";                                                             \
   \
 }
 
-#define GET_SAMPLE_FMT_NAME(sample_fmt)\
-    std::string name = av_get_sample_fmt_name(sample_fmt);
+#define GET_SAMPLE_FMT_NAME(sample_fmt) \
+  std::string name = av_get_sample_fmt_name(sample_fmt);
 
-#define GET_SAMPLE_RATE_NAME(rate)\
-    std::string = std::to_string(rate);
+#define GET_SAMPLE_RATE_NAME(rate) \
+  std::string = std::to_string(rate);
 
-#define GET_CH_LAYOUT_NAME(ch_layout)           \
+#define GET_CH_LAYOUT_NAME(ch_layout)                   \
   \
-std::string name;                               \
-  {                                             \
-    std::stringstream sout;                     \
+std::string name;                                       \
+  {                                                     \
+    std::stringstream sout;                             \
     sout << "0x" << std::setbase(16) << channel_layout; \
     \
-name = sout.str();                              \
+name = sout.str();                                      \
   \
 }
 

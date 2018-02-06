@@ -6,7 +6,7 @@ using namespace ffmpeg;
 /**
  * \brief Class to manage AVStream
  */
-BaseStream::BaseStream() : st(NULL), ctx(NULL), pts(0)
+BaseStream::BaseStream() : st(NULL), ctx(NULL), pts(0), bparams({AVMEDIA_TYPE_UNKNOWN, {0, 0}})
 {}
 
 BaseStream::~BaseStream()
@@ -27,6 +27,9 @@ void BaseStream::close()
   st->discard = AVDISCARD_ALL;
   st = NULL;
   ctx = NULL;
+
+  // clear the basic media parameters
+  bparams = {AVMEDIA_TYPE_UNKNOWN, {0, 0}};
 }
 
 int BaseStream::reset()

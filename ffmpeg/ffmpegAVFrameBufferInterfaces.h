@@ -33,5 +33,9 @@ class IAVFrameSource
     virtual void pop(AVFrame *&frame) = 0;
     virtual int pop(AVFrame *&frame, const std::chrono::milliseconds &rel_time) = 0;
     virtual int tryToPop(AVFrame *&frame) = 0;
+
+    virtual AVMediaType getMediaType() const = 0;
+    virtual AVRational getTimeBase() const = 0;
+    virtual void setTimeBase(const AVRational &tb) = 0;
 };
 }

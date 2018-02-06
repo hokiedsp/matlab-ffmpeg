@@ -1,6 +1,7 @@
 #pragma once
 
-#include "AVFrameBufferInterfaces.h"
+#include "ffmpegAVFrameBufferInterfaces.h"
+#include "ffmpegMediaStructs.h"
 
 #include <mutex>
 #include <condition_variable>
@@ -8,48 +9,50 @@
 namespace ffmpeg
 {
 // Base Thread-Safe Buffer Class
-class AVFrameBufferBase
+class AVFrameBufferBase : protected BasicMediaParams, public IMediaHandler
 {
 public:
   virtual ~AVFrameBufferBase() {}
 
-  // copy assign operator
-  virtual AVFrameBufferBase &operator=(const AVFrameBufferBase &other) {}
-  // move assign operator
-  virtual AVFrameBufferBase &operator=(AVFrameBufferBase &&other) {}
+  AVFrameBufferBase(const AVMediaType mediatype = AVMEDIA_TYPE_UNKNOWN, const AVRational &tb = {0, 0}) : BasicMediaParams({mediatype, tb}) {}
+
+  // copy constructor
+  AVFrameBufferBase(const AVFrameBufferBase &other) : BasicMediaParams(other) {}
+
+  // move constructor
+  AVFrameBufferBase(AVFrameBufferBase &&other) noexcept : BasicMediaParams(other) {}
+
+  const BasicMediaParams& getBasicMediaParams() const { return (BasicMediaParams&)*this; }
+
+  virtual AVMediaType getMediaType() const { return type; }
+  virtual std::string getMediaTypeString() const { return av_get_media_type_string(type); }
+
+  virtual AVRational getTimeBase() const { return time_base; }
+  virtual void setTimeBase(const AVRational &tb) { time_base = tb; }
 
 protected:
   std::mutex m; // mutex to access the buffer
-}
+};
+
+///////////////////////////////////////////////////////////////////////////////////////////////////
 
 // Base Thread-Safe Sink Class
 class AVFrameSinkBase : public IAVFrameSink,
-                        virtual private AVFrameBufferBase
+                        virtual public AVFrameBufferBase
 {
 public:
+  AVFrameSinkBase(const AVMediaType mediatype = AVMEDIA_TYPE_UNKNOWN, const AVRational &tb = {0, 0}) : AVFrameBufferBase(mediatype, tb) {}
   virtual ~AVFrameSinkBase(){};
-  AVFrameSinkBase() : time_base{0, 0} {}
-  AVFrameSinkBase(const AVRational &tb) : time_base(tb) {}
 
   // copy constructor
-  AVFrameSinkBase(const AVFrameSinkBase &other) : time_base(other.time_base) {}
+  AVFrameSinkBase(const AVFrameSinkBase &other) : AVFrameBufferBase(other) {}
 
   // move constructor
-  AVFrameSinkBase(AVFrameSinkBase &&other) noexcept : time_base(other.time_base) {}
+  AVFrameSinkBase(AVFrameSinkBase &&other) noexcept : AVFrameBufferBase(other) {}
 
-  // copy assign operator
-  virtual AVFrameSinkBase &operator=(const AVFrameBufferBase &other)
-  {
-    const AVFrameSinkBase *other = dynamic_cast<const AVFrameSinkBase *>(&right);
-    time_base = other.time_base;
-  }
-
-  // move assign operator
-  virtual AVFrameSinkBase &operator=(AVFrameBufferBase &&right)
-  {
-    AVFrameSinkBase *other = dynamic_cast<const AVFrameSinkBase *>(&right);
-    time_base = other.time_base;
-  }
+  AVMediaType getMediaType() const { return AVFrameBufferBase::getMediaType(); }
+  AVRational getTimeBase() const  { return AVFrameBufferBase::getTimeBase(); }
+  void setTimeBase(const AVRational &tb) { AVFrameBufferBase::setTimeBase(tb); }
 
   bool readyToPush()
   {
@@ -60,16 +63,16 @@ public:
   void blockTillReadyToPush()
   {
     std::unique_lock<std::mutex> l_rx(m);
-    while (ready && !readyToPush_threadunsafe())
-      cv_rx.wait(m);
+    while (!readyToPush_threadunsafe())
+      cv_rx.wait(l_rx);
   }
   bool blockTillReadyToPush(const std::chrono::milliseconds &rel_time)
   {
     std::unique_lock<std::mutex> l_rx(m);
-    bool ready = true;
-    while (ready && !readyToPush_threadunsafe())
-      ready = cv_rx.wait_for(m, rel_time);
-    return ready;
+    std::cv_status status = std::cv_status::no_timeout;
+    while (status == std::cv_status::no_timeout && !readyToPush_threadunsafe())
+      status = cv_rx.wait_for(l_rx, rel_time);
+    return status == std::cv_status::no_timeout;
   }
 
   int tryToPush(AVFrame *frame)
@@ -86,7 +89,7 @@ public:
   {
     std::unique_lock<std::mutex> l_rx(m);
     while (!readyToPush_threadunsafe())
-      cv_rx.wait(m);
+      cv_rx.wait(l_rx);
     push_threadunsafe(frame);
   }
 
@@ -96,7 +99,7 @@ public:
     std::unique_lock<std::mutex> l_rx(m);
     bool ready = true;
     while (ready && !readyToPush_threadunsafe())
-      ready = cv_rx.wait(m, pred);
+      ready = cv_rx.wait(l_rx, pred);
     if (!ready)
       return AVERROR(EAGAIN);
 
@@ -107,10 +110,10 @@ public:
   int push(AVFrame *frame, const std::chrono::milliseconds &rel_time)
   {
     std::unique_lock<std::mutex> l_rx(m);
-    bool ready = true;
-    while (ready && !readyToPush_threadunsafe())
-      ready = cv_rx.wait_for(m, rel_time);
-    if (!ready)
+    std::cv_status status = std::cv_status::no_timeout;
+    while (status == std::cv_status::no_timeout && !readyToPush_threadunsafe())
+      status = cv_rx.wait_for(l_rx, rel_time);
+    if (status == std::cv_status::timeout)
       return AVERROR(EAGAIN);
 
     push_threadunsafe(frame);
@@ -131,30 +134,29 @@ public:
     return 0;
   }
 
-  AVRational getTimeBase() const { return time_base; }
-  virtual void setTimeBase(const AVRational &tb) { time_base = tb; }
-
 protected:
   virtual bool readyToPush_threadunsafe() const = 0;
   virtual int push_threadunsafe(AVFrame *frame) = 0;
 
-  AVRational time_base;
   std::condition_variable cv_rx;
 };
 
+///////////////////////////////////////////////////////////////////////////////////////////////////
+
 // Base Source Class
-class AVFrameSourceBase : public IAVFrameSource, virtual AVFrameBufferBase
+class AVFrameSourceBase : public IAVFrameSource, virtual public AVFrameBufferBase
 {
 public:
   virtual ~AVFrameSourceBase(){};
+  AVFrameSourceBase(const AVMediaType mediatype = AVMEDIA_TYPE_UNKNOWN, const AVRational &tb = {0, 0}) : AVFrameBufferBase(mediatype, tb) {}
   // copy constructor
-  AVFrameSourceBase(const AVFrameSinkBase &other) {}
+  AVFrameSourceBase(const AVFrameSourceBase &other) : AVFrameBufferBase(other) {}
   // move constructor
-  AVFrameSourceBase(AVFrameSinkBase &&other) noexcept {}
-  // copy assign operator
-  virtual AVFrameSourceBase &operator=(const AVFrameBufferBase &other) {}
-  // move assign operator
-  virtual AVFrameSourceBase &operator=(AVFrameBufferBase &&other) {}
+  AVFrameSourceBase(AVFrameSourceBase &&other) noexcept : AVFrameBufferBase(other) {}
+
+  AVMediaType getMediaType() const { return AVFrameBufferBase::getMediaType(); }
+  AVRational getTimeBase() const  { return AVFrameBufferBase::getTimeBase(); }
+  void setTimeBase(const AVRational &tb) { AVFrameBufferBase::setTimeBase(tb); }
 
   int tryToPop(AVFrame *&frame)
   {
@@ -175,7 +177,7 @@ public:
   {
     std::unique_lock<std::mutex> l_tx(m);
     while (!readyToPop_threadunsafe())
-      cv_rx.wait(m);
+      cv_tx.wait(l_tx);
     frame = pop_threadunsafe();
   }
 
@@ -185,9 +187,7 @@ public:
     std::unique_lock<std::mutex> l_tx(m);
     bool ready = true;
     while (ready && !readyToPop_threadunsafe())
-      ready = cv_rx.wait(m, pred);
-    if (!ready)
-      return AVERROR(EAGAIN);
+      ready = cv_rx.wait(l_tx, pred);
 
     if (ready)
     {
@@ -204,10 +204,10 @@ public:
   int pop(AVFrame *&frame, const std::chrono::milliseconds &rel_time)
   {
     std::unique_lock<std::mutex> l_tx(m);
-    bool ready = true;
-    while (ready && !readyToPop_threadunsafe())
-      ready = cv_rx.wait_for(m, rel_time);
-    if (ready)
+    std::cv_status status = std::cv_status::no_timeout;
+    while (status == std::cv_status::no_timeout && !readyToPop_threadunsafe())
+      status = cv_tx.wait_for(l_tx, rel_time);
+    if (status == std::cv_status::no_timeout)
     {
       frame = pop_threadunsafe();
       return 0;
@@ -225,7 +225,7 @@ public:
     std::unique_lock<std::mutex> l_tx(m);
     bool ready = true;
     while (ready && !readyToPop_threadunsafe())
-      ready = cv_rx.wait_for(m, rel_time, pred);
+      ready = cv_tx.wait_for(m, rel_time, pred);
     if (ready)
     {
       frame = pop_threadunsafe();
@@ -246,37 +246,37 @@ public:
 
   void blockTillReadyToPop()
   {
-    std::unique_lock<std::mutex> l_rx(m);
+    std::unique_lock<std::mutex> l_tx(m);
     while (!readyToPop_threadunsafe())
-      cv_rx.wait(m); 
+      cv_tx.wait(l_tx);
   }
 
-  template<typename Pred>
+  template <typename Pred>
   bool blockTillReadyToPop(Pred pred)
   {
-    std::unique_lock<std::mutex> l_rx(m);
+    std::unique_lock<std::mutex> l_tx(m);
     bool ready = true;
     while (ready && !readyToPop_threadunsafe())
-      ready = cv_rx.wait(m, pred);
-    return ready;
-  }
-  
-  void blockTillReadyToPop(const std::chrono::milliseconds &rel_time)
-  {
-    std::unique_lock<std::mutex> l_rx(m);
-    bool ready = true;
-    while (ready && !readyToPop_threadunsafe())
-      ready = cv_rx.wait_for(m, rel_time);
+      ready = cv_rx.wait(l_tx, pred);
     return ready;
   }
 
-  template<typename Pred>
+  bool blockTillReadyToPop(const std::chrono::milliseconds &rel_time)
+  {
+    std::unique_lock<std::mutex> l_tx(m);
+    std::cv_status status = std::cv_status::no_timeout;
+    while (status == std::cv_status::no_timeout && !readyToPop_threadunsafe())
+      status = cv_tx.wait_for(l_tx, rel_time);
+    return status == std::cv_status::no_timeout;
+  }
+
+  template <typename Pred>
   void blockTillReadyToPop(const std::chrono::milliseconds &rel_time, Pred pred)
   {
-    std::unique_lock<std::mutex> l_rx(m);
+    std::unique_lock<std::mutex> l_tx(m);
     bool ready = true;
-    while  (ready && !readyToPop_threadunsafe())
-      ready = cv_rx.wait_for(m, rel_time, pred);
+    while (ready && !readyToPop_threadunsafe())
+      ready = cv_rx.wait_for(l_tx, rel_time, pred);
     return ready;
   }
 

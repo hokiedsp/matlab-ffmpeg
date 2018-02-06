@@ -24,6 +24,7 @@ else()
   set(LIBFFMPEG ${LIBFFMPEG} PARENT_SCOPE)
 
   add_subdirectory(filter)
+  set(LIBFFMPEGFILTER ${LIBFFMPEGFILTER} PARENT_SCOPE)
   
 endif()
 

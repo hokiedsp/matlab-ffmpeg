@@ -26,9 +26,9 @@ namespace filter
 class SourceBase : public EndpointBase
 {
 public:
-  SourceBase(Graph &fg, AVMediaType mediatype);
-  SourceBase(Graph &fg, InputStream &ist, AVMediaType mediatype);
-  SourceBase(Graph &fg, IAVFrameSource &buf, AVMediaType mediatype);
+  SourceBase(Graph &fg, const BasicMediaParams &params);
+  SourceBase(Graph &fg, InputStream &ist);
+  SourceBase(Graph &fg, IAVFrameSource &buf);
 
   virtual void link(AVFilterContext *other, const unsigned otherpad, const unsigned pad = 0, const bool issrc = true);
   virtual void parameters_from_stream()=0;
@@ -45,12 +45,15 @@ protected:
 
 typedef std::vector<SourceBase *> Sources;
 
-class VideoSource : public SourceBase, private VideoParams
+class VideoSource : public SourceBase, private VideoParams, public IVideoHandler
 {
 public:
   VideoSource(Graph &fg);
   VideoSource(Graph &fg, InputStream &ist); // connected to an FFmpeg stream
-  VideoSource(Graph &fg, IAVFrameSource &buf, VideoParams &params);   // connected to a buffer (data from non-FFmpeg source)
+  VideoSource(Graph &fg, IAVFrameSource &buf);   // connected to a buffer (data from non-FFmpeg source)
+
+  const VideoParams& getVideoParams() const { return (VideoParams&)*this; }
+
   AVFilterContext *configure(const std::string &name = "");
   std::string generate_args();
 
@@ -60,12 +63,15 @@ public:
 private:
   int sws_flags;
 };
-class AudioSource : public SourceBase, private AudioParams
+class AudioSource : public SourceBase, private AudioParams, public IAudioHandler
 {
 public:
   AudioSource(Graph &fg);
   AudioSource(Graph &fg, InputStream &ist);
-  AudioSource(Graph &fg, IAVFrameSource &buf, AudioParams &params); // connected to a buffer (data from non-FFmpeg source)
+  AudioSource(Graph &fg, IAVFrameSource &buf); // connected to a buffer (data from non-FFmpeg source)
+
+  const AudioParams& getAudioParams() const { return (AudioParams&)*this; }
+
   AVFilterContext *configure(const std::string &name = "");
   std::string generate_args();
 

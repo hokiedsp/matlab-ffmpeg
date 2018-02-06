@@ -25,6 +25,8 @@ extern "C" {
 #include <map>
 #include <utility>
 
+typedef std::vector<std::string> string_vector;
+
 namespace ffmpeg
 {
 namespace filter
@@ -42,14 +44,33 @@ public:
   void parse(const std::string &new_desc);
 
   template <typename B>
-  void assignSource(B &buf);
+  void assignSource(B &buf)
+  {
+    AVMediaType type = B.getMediaType();
+    auto src = Graph::find_filter<SourceBase>(inputs, type);
+    Graph::assign_endpoint<SourceBase, VideoSource, AudioSource>(src, type, buf);
+  }
   template <typename B>
-  void assignSource(const std::string &name, B &buf);
+  void assignSource(const std::string &name, B &buf)
+  {
+    auto node = inputs.at(name); // throws excepetion if doesn't exist
+    Graph::assign_endpoint<SourceBase, VideoSource, AudioSource>(node.filter, node.type, buf);
+  }
 
   template <typename B>
-  void assignSink(B &buf);
+  void assignSink(B &buf)
+  {
+    AVMediaType type = buf.getMediaType();
+    auto src = Graph::find_filter<SinkBase>(outputs, type);
+    Graph::assign_endpoint<SourceBase, VideoSource, AudioSource>(src, type, buf);
+  }
+
   template <typename B>
-  void assignSink(const std::string &name, B &buf);
+  void assignSink(const std::string &name, B &buf)
+  {
+    auto node = outputs.at(name); // throws excepetion if doesn't exist
+    Graph::assign_endpoint<SinkBase, VideoSink, AudioSink>(node.filter, node.type, buf);
+  }
 
   void configure();
 
@@ -58,14 +79,53 @@ public:
   int insert_filter(AVFilterContext *&last_filter, int &pad_idx,
                     const std::string &filter_name, const std::string &args);
 
+  std::string getFilterGraphDesc() const { return graph_desc; }
+  string_vector getInputNames() const { return Graph::get_names(inputs); }
+  string_vector getOutputNames() const { return Graph::get_names(outputs); }
+
+  bool isSimple() const { return inputs.size()==1 && outputs.size()==1;}
+
 protected:
   // thread function: responsible to read packet and send it to ffmpeg decoder
   void thread_fcn();
-  
+
   template <typename F, typename M>
-  static F *find_filter(M &map, AVMediaType type);
+  F *find_filter(M &map, AVMediaType type)
+  {
+    if (map.empty())
+      throw ffmpegException("Cannot find an endpoint on the filter graph: No connecting pad available.");
+
+    // find the first source of the stream type
+    auto match = map.begin();
+    for (; match != map.end() && match->second.type != type; ++match)
+      ;
+    if (match != map.end())
+      throw ffmpegException("Cannot find any %s endpoint on the filter graph.", av_get_media_type_string(type));
+
+    return match->second.filter;
+  }
+
   template <typename EP, typename VEP, typename AEP, typename... Args>
-  void assign_endpoint(EP *&ep, AVMediaType type, Args... args);
+  void assign_endpoint(EP *&ep, AVMediaType type, Args... args)
+  {
+    // if already defined, destruct existing
+    if (ep)
+      delete ep;
+
+    // create new filter
+    switch (type)
+    {
+    case AVMEDIA_TYPE_VIDEO:
+      ep = new VEP(*this, args...);
+      break;
+    case AVMEDIA_TYPE_AUDIO:
+      ep = new AEP(*this, args...);
+      break;
+    default:
+      ep = NULL;
+      throw ffmpegException("Only video and audio filters are supported at this time.");
+    }
+  }
 
 private:
   AVFilterGraph *graph;
@@ -93,6 +153,15 @@ private:
   int inmon_status; // 0:no monitoring; 1:monitor; <0 quit
 
   void child_thread_fcn(SourceBase *src);
+
+  template <typename InfoMap>
+  static string_vector get_names(const InfoMap &map)
+  {
+    string_vector names;
+    for (auto p = map.begin(); p != map.end(); ++p)
+      names.emplace_back(p->first);
+    return names;
+  }
 };
 }
 }

@@ -28,9 +28,9 @@ namespace filter
 class SinkBase : public EndpointBase
 {
 public:
-  SinkBase(Graph &fg, AVMediaType mediatype); // connected to an FFmpeg stream
-  SinkBase(Graph &fg, OutputStream &ost, AVMediaType mediatype); // connected to an FFmpeg stream
-  SinkBase(Graph &fg, IAVFrameSink &buf, AVMediaType mediatype); // connected to a buffer (data from non-FFmpeg source)
+  SinkBase(Graph &fg, const BasicMediaParams &params); // connected to an FFmpeg stream
+  SinkBase(Graph &fg, OutputStream &ost); // connected to an FFmpeg stream
+  SinkBase(Graph &fg, IAVFrameSink &buf); // connected to a buffer (data from non-FFmpeg source)
 
   AVFilterContext *configure(const std::string &name = "");
 
@@ -72,12 +72,15 @@ protected:
 
 typedef std::vector<SinkBase *> Sinks;
 
-class VideoSink : public SinkBase, public VideoParams
+class VideoSink : public SinkBase, public VideoParams, public IVideoHandler
 {
 public:
   VideoSink(Graph &fg);
   VideoSink(Graph &fg, OutputStream &ost); // connected to an FFmpeg stream
   VideoSink(Graph &fg, IAVFrameSink &buf);      // connected to a buffer (data from non-FFmpeg source)
+
+  const VideoParams& getVideoParams() const { return (VideoParams&)*this; }
+
   AVFilterContext *configure(const std::string &name = "");
   /**
    * \brief Synchronize parameters to the internal AVFilterContext object
@@ -87,12 +90,15 @@ public:
   std::string choose_pix_fmts();
 };
 
-class AudioSink : public SinkBase, public AudioParams
+class AudioSink : public SinkBase, public AudioParams, public IAudioHandler
 {
 public:
   AudioSink(Graph &fg);
   AudioSink(Graph &fg, OutputStream &ost); // connected to an FFmpeg stream
   AudioSink(Graph &fg, IAVFrameSink &buf); // connected to a buffer (data from non-FFmpeg source)
+
+  const AudioParams& getAudioParams() const { return (AudioParams&)*this; }
+
   AVFilterContext *configure(const std::string &name = "");
 
   /**
