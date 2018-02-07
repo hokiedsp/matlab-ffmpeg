@@ -19,22 +19,14 @@ namespace ffmpeg
  *  An AVFrame sink, which converts a received video AVFrame to component data (e.g., RGB)
  */
 template <class Allocator = ffmpegAllocator<uint8_t>()>
-class AVFrameVideoComponentSink : public AVFrameSinkBase, protected VideoParams, public IVideoHandler
+class AVFrameVideoComponentSink : public AVFrameSinkBase, protected VideoParams, virtual public IVideoHandler
 {
 public:
-  AVFrameVideoComponentSink(const size_t w, const size_t h, const AVPixelFormat fmt, const AVRational &tb = {0, 0})
-      : AVFrameSinkBase(AVMEDIA_TYPE_VIDEO, tb), VideoParams({(int)w, (int)h, {1, 1}, fmt}), desc(av_pix_fmt_desc_get(fmt)), 
-        nb_frames(0), time_buf(NULL), frame_data_sz(0), data_buf(NULL), has_eof(false), wr_time(NULL), wr_data(NULL)
+  AVFrameVideoComponentSink(const AVRational &tb = {0, 0})
+      : AVFrameSinkBase(AVMEDIA_TYPE_VIDEO, tb), VideoParams({AV_PIX_FMT_NONE, 0, 0, {0, 0}}), desc(NULL),
+        nb_frames(1), time_buf(NULL), frame_data_sz(0), data_buf(NULL), has_eof(false), wr_time(NULL), wr_data(NULL)
   {
   }
-
-  AVFrameVideoComponentSink(const AVFrame *frame, const AVRational &tb = {0, 0})
-      : AVFrameVideoComponentSink(frame->width, frame->height, (AVPixelFormat)frame->format, tb)
-  {
-  }
-
-  // default constructor => INVALID object
-  AVFrameVideoComponentSink() : AVFrameVideoComponentSink(1, 1, AV_PIX_FMT_NONE){};
 
   // copy constructor
   AVFrameVideoComponentSink(const AVFrameVideoComponentSink &other)
@@ -65,22 +57,13 @@ public:
     allocator.deallocate(data_buf, nb_frames * width * height);
   }
 
-  const VideoParams& AVFrameVideoComponentSink::getVideoParams() const { return (VideoParams&)*this; }
+  using AVFrameSinkBase::getBasicMediaParams;
 
-  void configureWithFrame(const AVFrame *frame)
-  {
-    if (frame)
-    {
-      width = frame->width;
-      height = frame->height;
-      sample_aspect_ratio = frame->sample_aspect_ratio;
-      format = frame->format;
+  const VideoParams &AVFrameVideoComponentSink::getVideoParams() const { return (VideoParams &)*this; }
 
-      if (nb_frames)
-        reset(0);
-    }
-  }
-    
+  /**
+ * \brief   Reset buffer-size
+ */
   void reset(const size_t nframes = 0) // must re-implement to allocate data_buf
   {
     std::unique_lock<std::mutex> l_rx(m);
@@ -89,6 +72,9 @@ public:
       cv_rx.notify_one();
   }
 
+  /**
+ * \brief   Release buffers and reallocate if so requested
+ */
   size_t release(uint8_t **data, int64_t **time = NULL, bool reallocate = true)
   {
     std::unique_lock<std::mutex> l_rx(m);
@@ -114,7 +100,6 @@ public:
 
     return rval; // number of frames
   }
-
 
   /**
    * \brief Returns true if the data stream has reached end-of-file
@@ -145,13 +130,13 @@ public:
     size_t data_sz = wr_time - time_buf;
     if (frame_offset < data_sz && data_sz > 0)
     {
-      ptime = time_buf + frame_offset; 
+      ptime = time_buf + frame_offset;
       pdata = data_buf + frame_offset * frame_data_sz;
       return wr_time - ptime;
     }
     else
     {
-      ptime = NULL; 
+      ptime = NULL;
       pdata = NULL;
       return 0;
     }
@@ -195,12 +180,12 @@ public:
     size_t data_sz = wr_time - time_buf;
     if (frame_offset < data_sz && data_sz > 0)
     {
-      ptime = time_buf + frame_offset; 
+      ptime = time_buf + frame_offset;
       return wr_time - ptime;
     }
     else
     {
-      ptime = NULL; 
+      ptime = NULL;
       return 0;
     }
   }
@@ -209,21 +194,21 @@ protected:
   bool readyToPush_threadunsafe() const // declared in AVFrameSinkBase
   {
     // no room or eof
-    return nb_frames && (!has_eof || nb_frames >= (size_t)(wr_time - time_buf));
+    return !(has_eof && time_buf) || nb_frames > (size_t)(wr_time - time_buf);
   }
 
+  // safe to assume object is ready to accept a new frame
   int push_threadunsafe(AVFrame *frame)
   {
     if (frame)
     {
       // if buffer format has not been set
-      if (pixfmt == AV_PIX_FMT_NONE)
+      if (!time_buf)
       {
-
+        *(VideoParams *)this = {(AVPixelFormat)frame->format, frame->width, frame->height, frame->sample_aspect_ratio};
+        reallocate_threadunsafe();
       }
-
-      // format must match
-      if (frame->format != format || frame->width != width || frame->height != height)
+      else if (frame->format != format || frame->width != width || frame->height != height) // format must match
         throw ffmpegException("[ffmpeg::AVFrameVideoComponentSink::push_threadunsafe] Frame data does not match the buffer configuration.");
 
       // copy time
@@ -233,8 +218,14 @@ protected:
         *wr_time = -1;
       ++wr_time;
 
+      // copy data
+      int numpix = width * height;
+      uint8_t *wr_pos = wr_data;
       for (int i = 0; i < desc->nb_components; ++i)
-        copy_component(frame, desc->comp[i], wr_data + i * width * height);
+      {
+        copy_component(frame, desc->comp[i], wr_pos);
+        wr_pos += numpix;
+      }
       wr_data += frame_data_sz;
     }
     else // null frame == eof marker
@@ -244,30 +235,45 @@ protected:
     return 0;
   }
 
-  virtual void reset_threadunsafe(const size_t nframes) // must re-implement to allocate data_buf
+  virtual bool clear_threadunsafe(const bool deep)
   {
-    if (pixfmt == AV_PIX_FMT_NONE) // default-constructed unusable empty buffer
+    if (deep) // clears expected frame size & frees the buffers
     {
-      if (nframes > 0)
-        throw ffmpegException("This buffer is default-constructed and thus unusable.");
-      return;
+      *(VideoParams *)this = {AV_PIX_FMT_NONE, 0, 0, {0, 0}};
+      reallocate_threadunsafe();
     }
 
+    // clear eof flag and reset write pointers
+    has_eof = false;
+    wr_time = time_buf;
+    wr_data = data_buf;
+    return data_buf; // if data_buf is non-null, ready to fill more
+  }
+
+  void deallocate_threadunsafe()
+  {
+  }
+
+  void reallocate_threadunsafe()
+  {
+    // determine the data buffer size
+    frame_data_sz = width * height * ((desc) ? desc->nb_components : 0);
+
+    // reallocate
+    time_buf = (int64_t *)allocator.allocate(nb_frames * sizeof(int64_t), (uint8_t *)time_buf);
+    data_buf = allocator.allocate(nb_frames * frame_data_sz, data_buf);
+  }
+
+  virtual void reset_threadunsafe(const size_t nframes) // must re-implement to allocate data_buf
+  {
     // get new buffer size if specified
     // if nframes==0, keep the same capacity
-    if (nframes)
-      nb_frames = nframes;
 
     // reallocate only if new buffer size or previous memory was released
-    if (nframes || !time_buf)
+    if (nframes > 0 && nb_frames != nframes)
     {
-      // determine the buffer size if not already set
-      if (!frame_data_sz)
-        frame_data_sz = width * height * desc->nb_components;
-
-      // reallocate
-      time_buf = (int64_t *)allocator.allocate(nb_frames * sizeof(int64_t), (uint8_t *)time_buf);
-      data_buf = allocator.allocate(nb_frames * frame_data_sz, data_buf);
+      nb_frames = nframes;
+      reallocate_threadunsafe();
     }
 
     // reset the eof flag and write pointer positions
@@ -322,11 +328,8 @@ private:
 
   Allocator allocator;
 
-  AVPixelFormat pixfmt;
   const AVPixFmtDescriptor *desc;
 
-  size_t width;
-  size_t height;
   size_t frame_data_sz; // size of each frame in number of bytes
 
   size_t nb_frames;

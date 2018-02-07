@@ -44,7 +44,7 @@ protected:
 
 typedef std::vector<OutputStream *> OutputStreamPtrs;
 
-class OutputVideoStream : public OutputStream
+class OutputVideoStream : public OutputStream, virtual IVideoHandler
 {
 public:
   OutputVideoStream(IAVFrameSource *buf = NULL);
@@ -58,14 +58,14 @@ public:
     if (st)
     {
       AVCodecParameters *par = st->codecpar;
-      vparams = {par->width, par->height, par->sample_aspect_ratio, (AVPixelFormat)par->codec_type};
+      vparams = {(AVPixelFormat)par->codec_type, par->width, par->height, par->sample_aspect_ratio};
     }
     return s;
   }
   void close()
   {
     bparams.type = AVMEDIA_TYPE_VIDEO;
-    vparams = {0, 0, {0, 0}, AV_PIX_FMT_NONE};
+    vparams = {AV_PIX_FMT_NONE, 0, 0, {0, 0}};
   }
 
   AVPixelFormats getPixelFormats() const;
@@ -74,12 +74,14 @@ public:
   AVPixelFormat choose_pixel_fmt(AVPixelFormat target) const;
   AVPixelFormats choose_pix_fmts() const;
 
+  using OutputStream::getBasicMediaParams;
+
 private:
   bool keep_pix_fmt;
   VideoParams vparams;
 };
 
-class OutputAudioStream : public OutputStream
+class OutputAudioStream : public OutputStream, virtual IAudioHandler
 {
 public:
   OutputAudioStream(IAVFrameSource *buf = NULL)
@@ -107,6 +109,8 @@ public:
     bparams.type = AVMEDIA_TYPE_AUDIO;
     aparams = {AV_SAMPLE_FMT_NONE, 0, 0};
   }
+
+  using OutputStream::getBasicMediaParams;
 
 private:
   AudioParams aparams;

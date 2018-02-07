@@ -1,5 +1,9 @@
 #pragma once
 
+#ifdef WIN32
+#pragma warning(disable : 4250)
+#endif
+
 extern "C" {
 #include <libavutil/avutil.h>
 #include <libavutil/rational.h>
@@ -15,9 +19,10 @@ struct BasicMediaParams
 
 struct VideoParams
 {
-  int width, height;
-  AVRational sample_aspect_ratio;
   AVPixelFormat format;
+  int width;
+  int height;
+  AVRational sample_aspect_ratio;
   // AVRational frame_rate;
 };
 
@@ -35,13 +40,13 @@ public:
   virtual const BasicMediaParams &getBasicMediaParams() const = 0;
 };
 
-class IVideoHandler
+class IVideoHandler : virtual public IMediaHandler
 {
 public:
   virtual const VideoParams &getVideoParams() const = 0;
 };
 
-class IAudioHandler
+class IAudioHandler : virtual public IMediaHandler
 {
 public:
   virtual const AudioParams &getAudioParams() const = 0;

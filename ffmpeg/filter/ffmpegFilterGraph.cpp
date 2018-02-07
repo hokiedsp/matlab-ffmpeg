@@ -84,12 +84,12 @@ void Graph::parse(const std::string &new_desc)
 
   // create source filter placeholder and mark its type
   for (AVFilterInOut *cur = ins; cur; cur = cur->next)
-    inputs[cur->name] = SourceInfo({avfilter_pad_get_type(cur->filter_ctx->input_pads, cur->pad_idx), NULL, cur->filter_ctx, cur->pad_idx});
+    inputs[cur->name] = {avfilter_pad_get_type(cur->filter_ctx->input_pads, cur->pad_idx), NULL, cur->filter_ctx, cur->pad_idx};
   avfilter_inout_free(&ins);
 
   // create sink filter placeholder and mark its type
   for (AVFilterInOut *cur = outs; cur; cur = cur->next)
-    outputs[cur->name] = SinkInfo({avfilter_pad_get_type(cur->filter_ctx->output_pads, cur->pad_idx), NULL, cur->filter_ctx, cur->pad_idx});
+    outputs[cur->name] = {avfilter_pad_get_type(cur->filter_ctx->output_pads, cur->pad_idx), NULL, cur->filter_ctx, cur->pad_idx};
   avfilter_inout_free(&outs);
 
   avfilter_graph_free(&temp_graph);

@@ -179,7 +179,7 @@ AVRational MediaReader::getTimeBase() const
 
 int64_t MediaReader::getCurrentTimeStamp() const
 {
-  return (fmt_ctx) ? pts.load() : AV_NOPTS_VALUE;
+  return (fmt_ctx) ? pts : AV_NOPTS_VALUE;
 }
 
 void MediaReader::setCurrentTimeStamp(const int64_t seek_timestamp, const bool exact_search)

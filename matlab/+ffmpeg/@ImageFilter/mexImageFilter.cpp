@@ -74,16 +74,17 @@ void mexImageFilter::runComplex(int nlhs, mxArray *plhs[], int nrhs, const mxArr
 
 void mexImageFilter::reset()
 {
-
+  filtergraph.destroy();
+  
 }
 
 void mexImageFilter::init(const std::string &new_graph)
 {
   // release data in buffers
-  for (auto src = sources.begin(); src<sources.end(); ++src) // release previously allocated resources
-    src->reset();
-  for (auto sink = sinks.begin(); sink<sinks.end(); ++sink) // release previously allocated resources
-    sink->reset();
+  for (auto src = sources.begin(); src < sources.end(); ++src) // release previously allocated resources
+    src->clear();
+  for (auto sink = sinks.begin(); sink < sinks.end(); ++sink) // release previously allocated resources
+    sink->clear(true);
 
   // create the new graph (automatically destroys previous one)
   filtergraph.parse(new_graph);

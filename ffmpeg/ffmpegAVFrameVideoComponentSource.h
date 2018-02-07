@@ -18,7 +18,7 @@ namespace ffmpeg
  * \brief An AVFrame sink for a video stream to store frames' component data
  *  An AVFrame sink, which converts a received video AVFrame to component data (e.g., RGB)
  */
-class AVFrameVideoComponentSource : public AVFrameSourceBase, protected VideoParams, public IVideoHandler
+class AVFrameVideoComponentSource : public AVFrameSourceBase, protected VideoParams, virtual public IVideoHandler
 {
 public:
   AVFrameVideoComponentSource(const size_t w, const size_t h, const AVPixelFormat fmt, const AVRational &tb = {0, 0})
@@ -53,6 +53,8 @@ public:
   {
     reset();
   }
+
+  using AVFrameSourceBase::getBasicMediaParams;
 
   const VideoParams& AVFrameVideoComponentSource::getVideoParams() const { return (VideoParams&)*this; }
 

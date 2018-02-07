@@ -28,8 +28,6 @@ namespace filter
 class SinkBase : public EndpointBase
 {
 public:
-  SinkBase(Graph &fg, const BasicMediaParams &params); // connected to an FFmpeg stream
-  SinkBase(Graph &fg, OutputStream &ost); // connected to an FFmpeg stream
   SinkBase(Graph &fg, IAVFrameSink &buf); // connected to a buffer (data from non-FFmpeg source)
 
   AVFilterContext *configure(const std::string &name = "");
@@ -72,13 +70,12 @@ protected:
 
 typedef std::vector<SinkBase *> Sinks;
 
-class VideoSink : public SinkBase, public VideoParams, public IVideoHandler
+class VideoSink : public SinkBase, public VideoParams, virtual public IVideoHandler
 {
 public:
-  VideoSink(Graph &fg);
-  VideoSink(Graph &fg, OutputStream &ost); // connected to an FFmpeg stream
   VideoSink(Graph &fg, IAVFrameSink &buf);      // connected to a buffer (data from non-FFmpeg source)
 
+  using SinkBase::getBasicMediaParams;
   const VideoParams& getVideoParams() const { return (VideoParams&)*this; }
 
   AVFilterContext *configure(const std::string &name = "");
@@ -87,16 +84,15 @@ public:
    */
   void sync();
 
-  std::string choose_pix_fmts();
+  // std::string choose_pix_fmts();
 };
 
-class AudioSink : public SinkBase, public AudioParams, public IAudioHandler
+class AudioSink : public SinkBase, public AudioParams, virtual public IAudioHandler
 {
 public:
-  AudioSink(Graph &fg);
-  AudioSink(Graph &fg, OutputStream &ost); // connected to an FFmpeg stream
   AudioSink(Graph &fg, IAVFrameSink &buf); // connected to a buffer (data from non-FFmpeg source)
 
+  using SinkBase::getBasicMediaParams;
   const AudioParams& getAudioParams() const { return (AudioParams&)*this; }
 
   AVFilterContext *configure(const std::string &name = "");
@@ -105,10 +101,6 @@ public:
    * \brief Synchronize parameters to the internal AVFilterContext object
    */
   void sync();
-
-  std::string choose_sample_fmts();
-  // std::string choose_sample_rates();
-  std::string choose_channel_layouts();
 };
 }
 }

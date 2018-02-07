@@ -18,7 +18,7 @@ namespace ffmpeg
 /**
  * \brief Class to manage AVStream
  */
-class BaseStream : public Base, public IMediaHandler
+class BaseStream : public Base, virtual public IMediaHandler
 {
 public:
   BaseStream();

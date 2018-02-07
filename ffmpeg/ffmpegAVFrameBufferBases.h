@@ -9,12 +9,13 @@
 namespace ffmpeg
 {
 // Base Thread-Safe Buffer Class
-class AVFrameBufferBase : protected BasicMediaParams, public IMediaHandler
+class AVFrameBufferBase : protected BasicMediaParams, virtual public IMediaHandler
 {
 public:
   virtual ~AVFrameBufferBase() {}
 
-  AVFrameBufferBase(const AVMediaType mediatype = AVMEDIA_TYPE_UNKNOWN, const AVRational &tb = {0, 0}) : BasicMediaParams({mediatype, tb}) {}
+  AVFrameBufferBase(const AVMediaType mediatype = AVMEDIA_TYPE_UNKNOWN, const AVRational &tb = {0, 0})
+      : BasicMediaParams({mediatype, tb}) {}
 
   // copy constructor
   AVFrameBufferBase(const AVFrameBufferBase &other) : BasicMediaParams(other) {}
@@ -22,13 +23,11 @@ public:
   // move constructor
   AVFrameBufferBase(AVFrameBufferBase &&other) noexcept : BasicMediaParams(other) {}
 
-  const BasicMediaParams& getBasicMediaParams() const { return (BasicMediaParams&)*this; }
-
-  virtual AVMediaType getMediaType() const { return type; }
-  virtual std::string getMediaTypeString() const { return av_get_media_type_string(type); }
-
-  virtual AVRational getTimeBase() const { return time_base; }
-  virtual void setTimeBase(const AVRational &tb) { time_base = tb; }
+  const BasicMediaParams &getBasicMediaParams() const { return (BasicMediaParams &)*this; }
+  AVMediaType getMediaType() const { return type; }
+  std::string getMediaTypeString() const { return av_get_media_type_string(type); }
+  AVRational getTimeBase() const { return time_base; }
+  void setTimeBase(const AVRational &tb) { time_base = tb; }
 
 protected:
   std::mutex m; // mutex to access the buffer
@@ -37,11 +36,12 @@ protected:
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
 // Base Thread-Safe Sink Class
-class AVFrameSinkBase : public IAVFrameSink,
+class AVFrameSinkBase : virtual public IAVFrameSink,
                         virtual public AVFrameBufferBase
 {
 public:
-  AVFrameSinkBase(const AVMediaType mediatype = AVMEDIA_TYPE_UNKNOWN, const AVRational &tb = {0, 0}) : AVFrameBufferBase(mediatype, tb) {}
+  AVFrameSinkBase(const AVMediaType mediatype = AVMEDIA_TYPE_UNKNOWN, const AVRational &tb = {0, 0})
+      : AVFrameBufferBase(mediatype, tb) {}
   virtual ~AVFrameSinkBase(){};
 
   // copy constructor
@@ -50,9 +50,12 @@ public:
   // move constructor
   AVFrameSinkBase(AVFrameSinkBase &&other) noexcept : AVFrameBufferBase(other) {}
 
-  AVMediaType getMediaType() const { return AVFrameBufferBase::getMediaType(); }
-  AVRational getTimeBase() const  { return AVFrameBufferBase::getTimeBase(); }
-  void setTimeBase(const AVRational &tb) { AVFrameBufferBase::setTimeBase(tb); }
+  virtual void clear(const bool deep = false)
+  {
+    std::unique_lock<std::mutex> l_rx(m);
+    if (clear_threadunsafe(deep))
+      cv_rx.notify_one();
+  }
 
   bool readyToPush()
   {
@@ -137,6 +140,7 @@ public:
 protected:
   virtual bool readyToPush_threadunsafe() const = 0;
   virtual int push_threadunsafe(AVFrame *frame) = 0;
+  virtual bool clear_threadunsafe(bool deep = false) = 0;
 
   std::condition_variable cv_rx;
 };
@@ -144,7 +148,7 @@ protected:
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
 // Base Source Class
-class AVFrameSourceBase : public IAVFrameSource, virtual public AVFrameBufferBase
+class AVFrameSourceBase : virtual public IAVFrameSource, virtual public AVFrameBufferBase
 {
 public:
   virtual ~AVFrameSourceBase(){};
@@ -154,9 +158,11 @@ public:
   // move constructor
   AVFrameSourceBase(AVFrameSourceBase &&other) noexcept : AVFrameBufferBase(other) {}
 
-  AVMediaType getMediaType() const { return AVFrameBufferBase::getMediaType(); }
-  AVRational getTimeBase() const  { return AVFrameBufferBase::getTimeBase(); }
-  void setTimeBase(const AVRational &tb) { AVFrameBufferBase::setTimeBase(tb); }
+  virtual void clear()
+  {
+    std::unique_lock<std::mutex> l_tx(m);
+    clear_threadunsafe();
+  }
 
   int tryToPop(AVFrame *&frame)
   {
@@ -283,6 +289,7 @@ public:
 protected:
   virtual bool readyToPop_threadunsafe() const = 0;
   virtual AVFrame *pop_threadunsafe() = 0;
+  virtual void clear_threadunsafe() = 0;
 
   std::condition_variable cv_tx;
 };

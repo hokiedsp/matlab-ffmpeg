@@ -3,7 +3,7 @@
 #include <thread>
 #include <mutex>
 #include <condition_variable>
-#include <atomic>
+// #include <atomic>
 
 class ThreadBase
 {
@@ -44,7 +44,7 @@ protected:
     PAUSE_RQ,    // pause requested (only set by pause())
     PAUSED       // paused (thread_fcn() may set status to this when it detects PAUSE_RQ)
   };
-  std::atomic<THREAD_STATUS> status; // see THREAD_STATUS definition above for 
+  THREAD_STATUS status; // see THREAD_STATUS definition above for 
 
   std::exception_ptr eptr;
 };

@@ -15,16 +15,8 @@ using namespace ffmpeg;
 using namespace ffmpeg::filter;
 
 ///////////////////////////////////////////////////////////
-SourceBase::SourceBase(Graph &fg, const BasicMediaParams &params) : EndpointBase(fg, params), src(NULL), hw_frames_ctx(NULL) {}
-SourceBase::SourceBase(Graph &fg, InputStream &ist)
-    : EndpointBase(fg, dynamic_cast<IMediaHandler&>(ist).getBasicMediaParams(), &ist), src(dynamic_cast<IAVFrameSource *>(ist.getBuffer())), hw_frames_ctx(NULL)
-{
-  if (!src)
-    throw ffmpegException("[SourceBase::SourceBase] Attempted to construct ffmpeg::filter::*Source object from an InputStream object without a buffer.");
-}
-
 SourceBase::SourceBase(Graph &fg, IAVFrameSource &buf)
-    : EndpointBase(fg, dynamic_cast<IMediaHandler&>(buf).getBasicMediaParams()), src(&buf), hw_frames_ctx(NULL)
+    : EndpointBase(fg, dynamic_cast<IMediaHandler&>(buf)), src(&buf)//, hw_frames_ctx(NULL)
 {
 }
 
@@ -49,11 +41,6 @@ int SourceBase::processFrame()
 
 /////////////////////////////
 
-VideoSource::VideoSource(Graph &fg) : SourceBase(fg, {AVMEDIA_TYPE_VIDEO, {0, 0}}), sws_flags(0) {}
-VideoSource::VideoSource(Graph &fg, InputStream &ist)
-    : SourceBase(fg, dynamic_cast<InputVideoStream &>(ist)),
-      VideoParams(dynamic_cast<IVideoHandler &>(ist).getVideoParams()), sws_flags(0)
-{}
 VideoSource::VideoSource(Graph &fg, IAVFrameSource &buf)
     : SourceBase(fg, buf), VideoParams(dynamic_cast<IVideoHandler&>(buf).getVideoParams()), sws_flags(0)
 {}
@@ -66,39 +53,38 @@ AVFilterContext *VideoSource::configure(const std::string &name)
   // also send in the hw_frame_ctx  (if given)
   AVBufferSrcParameters *par = av_buffersrc_parameters_alloc();
   if (!par)
-    throw ffmpegException("Failed during av_buffersrc_parameters_alloc() call.");
-
+    throw ffmpegException("[ffmpeg::filter::VideoSource::configure] Failed during av_buffersrc_parameters_alloc() call.");
   memset(par, 0, sizeof(*par));
   par->format = AV_PIX_FMT_NONE;
-  par->hw_frames_ctx = hw_frames_ctx;
+  // par->hw_frames_ctx = hw_frames_ctx;
   int ret = av_buffersrc_parameters_set(context, par);
   av_freep(&par);
   if (ret < 0)
-    throw ffmpegException("Failed to call av_buffersrc_parameters_set().");
+    throw ffmpegException("[ffmpeg::filter::VideoSource::configure] Failed to call av_buffersrc_parameters_set().");
 
   return context;
 }
 
-void VideoSource::parameters_from_stream()
-{
-  // if not from AVStream, nothing to update
-  if (!st)
-    return;
+// void VideoSource::parameters_from_stream()
+// {
+//   // if not from AVStream, nothing to update
+//   if (!st)
+//     return;
 
-  InputVideoStream *ist = (InputVideoStream *)st;
+//   InputVideoStream *ist = (InputVideoStream *)st;
 
-  width = ist->getWidth();
-  height = ist->getHeight();
-  time_base = ist->getTimeBase();
-  sample_aspect_ratio = ist->getSAR();
-  format = ist->getPixelFormat();
-  sws_flags = SWS_BILINEAR + (ist->getCodecFlags(AV_CODEC_FLAG_BITEXACT) ? SWS_BITEXACT : 0);
-}
+//   width = ist->getWidth();
+//   height = ist->getHeight();
+//   time_base = ist->getTimeBase();
+//   sample_aspect_ratio = ist->getSAR();
+//   format = ist->getPixelFormat();
+//   sws_flags = SWS_BILINEAR + (ist->getCodecFlags(AV_CODEC_FLAG_BITEXACT) ? SWS_BITEXACT : 0);
+// }
 
 std::string VideoSource::generate_args()
 {
   // update object parameters with AVStream parameter
-  parameters_from_stream();
+  // parameters_from_stream();
 
   // make sure SAR is valid
   if (!sample_aspect_ratio.den)
@@ -114,32 +100,25 @@ std::string VideoSource::generate_args()
   return sout.str();
 }
 
-void VideoSource::parameters_from_frame(const AVFrame *frame)
-{
-  av_buffer_unref(&hw_frames_ctx);
+// void VideoSource::parameters_from_frame(const AVFrame *frame)
+// {
+//   av_buffer_unref(&hw_frames_ctx);
 
-  format = (AVPixelFormat)frame->format;
-  // time_base = frame->time_base;
-  width = frame->width;
-  height = frame->height;
-  sample_aspect_ratio = frame->sample_aspect_ratio;
+//   format = (AVPixelFormat)frame->format;
+//   // time_base = frame->time_base;
+//   width = frame->width;
+//   height = frame->height;
+//   sample_aspect_ratio = frame->sample_aspect_ratio;
 
-  if (frame->hw_frames_ctx)
-  {
-    hw_frames_ctx = av_buffer_ref(frame->hw_frames_ctx);
-    if (!hw_frames_ctx)
-      throw ffmpegException(AVERROR(ENOMEM));
-  }
-}
+//   if (frame->hw_frames_ctx)
+//   {
+//     hw_frames_ctx = av_buffer_ref(frame->hw_frames_ctx);
+//     if (!hw_frames_ctx)
+//       throw ffmpegException(AVERROR(ENOMEM));
+//   }
+// }
 
 /////////////////////////////
-AudioSource::AudioSource(Graph &fg) : SourceBase(fg, {AVMEDIA_TYPE_AUDIO, {0, 0}}) {}
-AudioSource::AudioSource(Graph &fg, InputStream &ist)
-    : SourceBase(fg, dynamic_cast<InputAudioStream &>(ist)),
-      AudioParams(dynamic_cast<IAudioHandler &>(ist).getAudioParams())
-{ // Grab the video parameters from the stream. Will be checked again when configured
-  // parameters_from_stream();
-}
 AudioSource::AudioSource(Graph &fg, IAVFrameSource &buf)
     : SourceBase(fg, buf),
       AudioParams(dynamic_cast<IAudioHandler &>(buf).getAudioParams()) {}
@@ -149,20 +128,6 @@ AVFilterContext *AudioSource::configure(const std::string &name)
   // configure the AVFilterContext
   create_context("abuffer", name);
   return context;
-}
-
-void AudioSource::parameters_from_stream()
-{
-  // if not from AVStream, nothing to update
-  if (!st)
-    return;
-
-  InputAudioStream *ist = (InputAudioStream *)st;
-
-  time_base = ist->getTimeBase();
-  format = ist->getSampleFormat();
-  channels = ist->getChannels();
-  channel_layout = ist->getChannelLayout();
 }
 
 std::string AudioSource::generate_args()
@@ -177,19 +142,19 @@ std::string AudioSource::generate_args()
   return sout.str();
 }
 
-void AudioSource::parameters_from_frame(const AVFrame *frame)
-{
-  av_buffer_unref(&hw_frames_ctx);
+// void AudioSource::parameters_from_frame(const AVFrame *frame)
+// {
+//   av_buffer_unref(&hw_frames_ctx);
 
-  format = (AVSampleFormat)frame->format;
-  // time_base = frame->time_base;
-  channels = frame->channels;
-  channel_layout = frame->channel_layout;
+//   format = (AVSampleFormat)frame->format;
+//   // time_base = frame->time_base;
+//   channels = frame->channels;
+//   channel_layout = frame->channel_layout;
 
-  if (frame->hw_frames_ctx)
-  {
-    hw_frames_ctx = av_buffer_ref(frame->hw_frames_ctx);
-    if (!hw_frames_ctx)
-      throw ffmpegException(AVERROR(ENOMEM));
-  }
-}
+//   if (frame->hw_frames_ctx)
+//   {
+//     hw_frames_ctx = av_buffer_ref(frame->hw_frames_ctx);
+//     if (!hw_frames_ctx)
+//       throw ffmpegException(AVERROR(ENOMEM));
+//   }
+// }

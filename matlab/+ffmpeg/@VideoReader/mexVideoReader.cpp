@@ -165,10 +165,10 @@ mexVideoReader::~mexVideoReader()
   // av_log(NULL, AV_LOG_INFO, "mexVideoReader::~mexVideoReader::destruction completed\n");
 }
 
-bool mexVideoReader::action_handler(const std::string &command, int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[])
+bool mexVideoReader::action_handler(const mxArray *mxObj, const std::string &command, int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[])
 {
   // try the base class action (set & get) first, returns true if action has been performed
-  if (mexFunctionClass::action_handler(command, nlhs, plhs, nrhs, prhs))
+  if (mexFunctionClass::action_handler(mxObj, command, nlhs, plhs, nrhs, prhs))
     return true;
 
   if (command == "readFrame")
@@ -269,7 +269,7 @@ void mexVideoReader::setCurrentTime(double t, const bool reset_buffer)
   }
 }
 
-void mexVideoReader::set_prop(const std::string name, const mxArray *value)
+void mexVideoReader::set_prop(const mxArray *mxObj, const std::string name, const mxArray *value)
 {
   if (name == "CurrentTime")
   {
@@ -287,7 +287,7 @@ void mexVideoReader::set_prop(const std::string name, const mxArray *value)
   }
 }
 
-mxArray *mexVideoReader::get_prop(const std::string name)
+mxArray *mexVideoReader::get_prop(const mxArray *mxObj, const std::string name)
 {
   mxArray *rval;
   if (name == "Duration") // integer between -10 and 10

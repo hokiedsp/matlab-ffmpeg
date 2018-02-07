@@ -15,16 +15,8 @@ using namespace ffmpeg;
 using namespace ffmpeg::filter;
 
 ///////////////////////////////////////////////////////////
-SinkBase::SinkBase(Graph &fg, const BasicMediaParams &params) : EndpointBase(fg, params), sink(NULL), ena(false) {}
-SinkBase::SinkBase(Graph &fg, OutputStream &ost)
-    : EndpointBase(fg, dynamic_cast<IMediaHandler &>(ost).getBasicMediaParams(), &ost),
-      sink(dynamic_cast<IAVFrameSink *>(ost.getBuffer()))
-{
-  if (!sink)
-    throw ffmpegException("Attempted to construct ffmpeg::filter::*Sink object from an OutputStream object without a buffer.");
-}
 SinkBase::SinkBase(Graph &fg, IAVFrameSink &buf)
-    : EndpointBase(fg, dynamic_cast<IMediaHandler &>(buf).getBasicMediaParams()), sink(&buf) {}
+    : EndpointBase(fg, dynamic_cast<IMediaHandler &>(buf)), sink(&buf) {}
 
 AVFilterContext *SinkBase::configure(const std::string &name)
 { // configure the AVFilterContext
@@ -59,13 +51,8 @@ int SinkBase::processFrame()
 }
 
 ////////////////////////////////
-VideoSink::VideoSink(Graph &fg) : SinkBase(fg, {AVMEDIA_TYPE_VIDEO, {0, 0}}) { type = AVMEDIA_TYPE_VIDEO; }
-VideoSink::VideoSink(Graph &fg, OutputStream &ost)
-    : SinkBase(fg, dynamic_cast<OutputVideoStream &>(ost)),
-      VideoParams(dynamic_cast<IVideoHandler &>(ost).getVideoParams()) { type = AVMEDIA_TYPE_VIDEO; }
 VideoSink::VideoSink(Graph &fg, IAVFrameSink &buf)
-    : SinkBase(fg, buf),
-      VideoParams(dynamic_cast<IVideoHandler &>(buf).getVideoParams()) { type = AVMEDIA_TYPE_VIDEO; }
+    : SinkBase(fg, buf), VideoParams(dynamic_cast<IVideoHandler &>(buf).getVideoParams()) { }
 AVFilterContext *VideoSink::configure(const std::string &name)
 { // configure the AVFilterContext
   create_context("buffersink", name);
@@ -82,44 +69,9 @@ void VideoSink::sync()
   sample_aspect_ratio = av_buffersink_get_sample_aspect_ratio(context);
 }
 
-std::string VideoSink::choose_pix_fmts()
-// static char *choose_pix_fmts(SinkBase *ofilter)
-{
-  if (!st)
-    return "";
-
-  OutputVideoStream *ost = dynamic_cast<OutputVideoStream *>(st);
-
-  std::string rval;
-
-  AVPixelFormats fmts = ost->choose_pix_fmts();
-
-  if (size(fmts) == 1 && fmts[0] == AV_PIX_FMT_NONE) // use as propagated
-  {
-    avfilter_graph_set_auto_convert(graph.getAVFilterGraph(), AVFILTER_AUTO_CONVERT_NONE);
-    rval = av_get_pix_fmt_name(ost->getPixelFormat());
-  }
-  else
-  {
-    auto p = fmts.begin();
-    rval = av_get_pix_fmt_name(*p);
-    for (++p; p < fmts.end() && *p != AV_PIX_FMT_NONE; ++p)
-    {
-      rval += "|";
-      rval += av_get_pix_fmt_name(*p);
-    }
-  }
-
-  return rval;
-}
-
 ////////////////////////////////
-AudioSink::AudioSink(Graph &fg) : SinkBase(fg, {AVMEDIA_TYPE_AUDIO, {0, 0}}) { type = AVMEDIA_TYPE_AUDIO; }
-AudioSink::AudioSink(Graph &fg, OutputStream &ost)
-    : SinkBase(fg, dynamic_cast<OutputAudioStream &>(ost)),
-      AudioParams(dynamic_cast<IAudioHandler &>(ost).getAudioParams()) { type = AVMEDIA_TYPE_AUDIO; }
 AudioSink::AudioSink(Graph &fg, IAVFrameSink &buf)
-    : SinkBase(fg, buf), AudioParams(dynamic_cast<IAudioHandler &>(buf).getAudioParams()) { type = AVMEDIA_TYPE_AUDIO; }
+    : SinkBase(fg, buf), AudioParams(dynamic_cast<IAudioHandler &>(buf).getAudioParams()) {}
 AVFilterContext *AudioSink::configure(const std::string &name)
 {
   // clears ena flag
@@ -139,75 +91,14 @@ void AudioSink::sync()
   channels = av_buffersink_get_channels(context);
 
   // if linked to a stream
-  if (st)
-  {
-    const AVCodec *enc = st->getAVCodec();
-    if (!enc)
-      throw ffmpegException("Encoder (codec %s) not found for an output stream",
-                            avcodec_get_name(st->getAVStream()->codecpar->codec_id));
+  // if (st)
+  // {
+  //   const AVCodec *enc = st->getAVCodec();
+  //   if (!enc)
+  //     throw ffmpegException("Encoder (codec %s) not found for an output stream",
+  //                           avcodec_get_name(st->getAVStream()->codecpar->codec_id));
 
-    if (!(enc->capabilities & AV_CODEC_CAP_VARIABLE_FRAME_SIZE))
-      av_buffersink_set_frame_size(context, st->getCodecFrameSize());
-  }
+  //   if (!(enc->capabilities & AV_CODEC_CAP_VARIABLE_FRAME_SIZE))
+  //     av_buffersink_set_frame_size(context, st->getCodecFrameSize());
+  // }
 }
-
-/* Define a function for building a string containing a list of
- * allowed formats. */
-#define DEF_CHOOSE_FORMAT(suffix, type, var, supported_list, none, get_name) \
-  \
-std::string AudioSink::choose_##suffix()                                     \
-  \
-{                                                                         \
-    if (var != none)                                                         \
-    {                                                                        \
-      get_name(var);                                                         \
-      return name;                                                           \
-    } \
-/*     else if (supported_list)                                                 \
-    {                                                                        \
-      const type *p;                                                         \
-      std::string ret;                                                       \
-                                                                             \
-      p = supported_list;                                                    \
-      if (*p != none)                                                        \
-      {                                                                      \
-        ret = get_name(*p);                                                  \
-        for (++p; *p != none; ++p)                                           \
-        {                                                                    \
-          ret += '|';                                                        \
-          ret += get_name(*p);                                               \
-        }                                                                    \
-      }                                                                      \
-      return ret;                                                            \
-    }                                                                        \
- */                                                                     \
-    else                                                                     \
-      return "";                                                             \
-  \
-}
-
-#define GET_SAMPLE_FMT_NAME(sample_fmt) \
-  std::string name = av_get_sample_fmt_name(sample_fmt);
-
-#define GET_SAMPLE_RATE_NAME(rate) \
-  std::string = std::to_string(rate);
-
-#define GET_CH_LAYOUT_NAME(ch_layout)                   \
-  \
-std::string name;                                       \
-  {                                                     \
-    std::stringstream sout;                             \
-    sout << "0x" << std::setbase(16) << channel_layout; \
-    \
-name = sout.str();                                      \
-  \
-}
-
-DEF_CHOOSE_FORMAT(sample_fmts, AVSampleFormat, format, formats,
-                  AV_SAMPLE_FMT_NONE, GET_SAMPLE_FMT_NAME)
-
-// DEF_CHOOSE_FORMAT(sample_rates, int, sample_rate, sample_rates, 0,
-//                   GET_SAMPLE_RATE_NAME)
-
-DEF_CHOOSE_FORMAT(channel_layouts, uint64_t, channel_layout, channel_layouts, 0,
-                  GET_CH_LAYOUT_NAME)

@@ -53,6 +53,6 @@ private:
   AVFormatContext *fmt_ctx;           // FFmpeg format context
   std::vector<InputStream*> streams;  // media streams under decoding
   
-  std::atomic_int64_t pts;
+  int64_t pts;
 };
 }

@@ -44,32 +44,36 @@ public:
   void parse(const std::string &new_desc);
 
   template <typename B>
-  void assignSource(B &buf)
+  SourceBase &assignSource(B &buf)
   {
     AVMediaType type = B.getMediaType();
     auto src = Graph::find_filter<SourceBase>(inputs, type);
     Graph::assign_endpoint<SourceBase, VideoSource, AudioSource>(src, type, buf);
+    return *src;
   }
   template <typename B>
-  void assignSource(const std::string &name, B &buf)
+  SourceBase &assignSource(const std::string &name, B &buf)
   {
     auto node = inputs.at(name); // throws excepetion if doesn't exist
     Graph::assign_endpoint<SourceBase, VideoSource, AudioSource>(node.filter, node.type, buf);
+    return *node.filter;
   }
 
   template <typename B>
-  void assignSink(B &buf)
+  SinkBase &assignSink(B &buf)
   {
     AVMediaType type = buf.getMediaType();
     auto src = Graph::find_filter<SinkBase>(outputs, type);
     Graph::assign_endpoint<SourceBase, VideoSource, AudioSource>(src, type, buf);
+    return *src;
   }
 
   template <typename B>
-  void assignSink(const std::string &name, B &buf)
+  SinkBase &assignSink(const std::string &name, B &buf)
   {
     auto node = outputs.at(name); // throws excepetion if doesn't exist
     Graph::assign_endpoint<SinkBase, VideoSink, AudioSink>(node.filter, node.type, buf);
+    return *node.filter;
   }
 
   void configure();
@@ -83,7 +87,7 @@ public:
   string_vector getInputNames() const { return Graph::get_names(inputs); }
   string_vector getOutputNames() const { return Graph::get_names(outputs); }
 
-  bool isSimple() const { return inputs.size()==1 && outputs.size()==1;}
+  bool isSimple() const { return inputs.size() == 1 && outputs.size() == 1; }
 
 protected:
   // thread function: responsible to read packet and send it to ffmpeg decoder

@@ -44,7 +44,7 @@ protected:
 
 typedef std::vector<InputStream *> InputStreamPtrs;
 
-class InputVideoStream : public InputStream, public IVideoHandler
+class InputVideoStream : public InputStream, virtual public IVideoHandler
 {
 public:
   InputVideoStream(AVStream *st = NULL, IAVFrameSink *buf = NULL);
@@ -70,12 +70,15 @@ public:
   // size_t getFrameSize() const;
   void open(AVStream *st);
   void close();
+
+  using InputStream::getBasicMediaParams;
+
 private:
   BasicMediaParams bparams;
   VideoParams vparams;
 };
 
-class InputAudioStream : public InputStream, public IAudioHandler
+class InputAudioStream : public InputStream, virtual public IAudioHandler
 {
 public:
   InputAudioStream(AVStream *st = NULL, IAVFrameSink *buf = NULL);
@@ -91,6 +94,9 @@ public:
   void close();
   // bparams = (st) ? BasicMediaParams({st->codecpar->codec_type, st->time_base}) : BasicMediaParams({AVMEDIA_TYPE_AUDIO, {0, 0}});
   // aparams = (st) ? AudioParams({st->codecpar->codec_type, st->channels, st->channel_layout}) : AudioParams({AV_SAMPLE_FMT_NONE, 0, 0});
+
+  using InputStream::getBasicMediaParams;
+
 private:
   BasicMediaParams bparams;
   AudioParams aparams;

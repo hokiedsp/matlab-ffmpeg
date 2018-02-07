@@ -15,13 +15,13 @@ void InputVideoStream::open(AVStream *s)
   if (st)
   {
     AVCodecParameters *par = st->codecpar;
-    vparams = {par->width, par->height, par->sample_aspect_ratio, (AVPixelFormat)par->codec_type};
+    vparams = {(AVPixelFormat)par->codec_type, par->width, par->height, par->sample_aspect_ratio};
   }
 }
 void InputVideoStream::close()
 {
   InputStream::close();
-  vparams = {0, 0, {0, 0}, AV_PIX_FMT_NONE};
+  vparams = {AV_PIX_FMT_NONE, 0, 0, {0, 0}};
   bparams.type = AVMEDIA_TYPE_VIDEO;
 }
 
