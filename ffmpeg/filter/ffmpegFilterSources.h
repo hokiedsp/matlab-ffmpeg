@@ -34,12 +34,12 @@ public:
   // virtual void parameters_from_stream()=0;
   // virtual void parameters_from_frame(const AVFrame *frame) = 0;
 
-  virtual void blockTillFrameReady();
-  virtual bool blockTillFrameReady(const std::chrono::milliseconds &rel_time);
+  virtual void blockTillFrameReady() { src.blockTillReadyToPop(); }
+  virtual bool blockTillFrameReady(const std::chrono::milliseconds &rel_time) { return src.blockTillReadyToPop(rel_time); }
   virtual int processFrame();
 
 protected:
-  IAVFrameSource *src;
+  IAVFrameSource &src;
   // AVBufferRef *hw_frames_ctx;
 };
 

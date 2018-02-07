@@ -16,7 +16,7 @@ using namespace ffmpeg::filter;
 
 ///////////////////////////////////////////////////////////
 SourceBase::SourceBase(Graph &fg, IAVFrameSource &buf)
-    : EndpointBase(fg, dynamic_cast<IMediaHandler&>(buf)), src(&buf)//, hw_frames_ctx(NULL)
+    : EndpointBase(fg, dynamic_cast<IMediaHandler&>(buf)), src(buf)//, hw_frames_ctx(NULL)
 {
 }
 
@@ -31,9 +31,7 @@ void SourceBase::link(AVFilterContext *other, const unsigned otherpad, const uns
 int SourceBase::processFrame()
 {
   AVFrame *frame;
-  if (!src)
-    throw ffmpegException("[SourceBase::processFrame] AVFrame source buffer has not been set.");
-  int ret = src->tryToPop(frame); // if frame==NULL, eos
+  int ret = src.tryToPop(frame); // if frame==NULL, eos
   if (ret==0)
     ret = av_buffersrc_add_frame_flags(context, frame, AV_BUFFERSRC_FLAG_KEEP_REF);
   return ret;

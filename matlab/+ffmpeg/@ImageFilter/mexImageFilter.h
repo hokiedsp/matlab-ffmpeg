@@ -15,6 +15,7 @@ typedef std::vector<uint8_t> uint8_vector;
 class mexImageFilter : public mexFunctionClass
 {
 public:
+  mexImageFilter(int nrhs, const mxArray *prhs[]);
   virtual ~mexImageFilter();
   static std::string get_componentid() { return "ImageFilter.mexfcn"; }
 
@@ -22,8 +23,8 @@ public:
   static bool static_handler(const std::string &command, int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[]);
 
 protected:
-  void set_prop(const std::string name, const mxArray *value);
-  mxArray *get_prop(const std::string name);
+  void set_prop(const mxArray *, const std::string name, const mxArray *value);
+  mxArray *get_prop(const mxArray *, const std::string name);
 
   void runSimple(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[]);  //    out = runSimple(obj, in);
   void runComplex(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[]); //    varargout = readFrame(obj, varargin);

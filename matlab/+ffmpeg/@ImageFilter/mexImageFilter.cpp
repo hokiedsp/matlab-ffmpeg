@@ -1,10 +1,45 @@
 #include "mexImageFilter.h"
 
+extern "C" {
+#include <libswscale/swscale.h>
+// #include <libavfilter/avfiltergraph.h>
+// #include <libavcodec/avcodec.h>
+// #include <libavutil/pixfmt.h>
+// #include <libavutil/pixdesc.h>
+}
+
+// #include <fstream>
+// std::ofstream output("mextest.csv");
+void mexFFmpegCallback(void *avcl, int level, const char *fmt, va_list argptr)
+{
+  if (level <= AV_LOG_ERROR) //AV_LOG_FATAL || level == AV_LOG_ERROR)
+  {
+    char dest[1024 * 16];
+#ifdef _MSC_VER
+    vsprintf_s(dest, 1024*16, fmt, argptr);
+#else
+    vsprintf(dest, fmt, argptr);
+#endif
+    mexPrintf(dest);
+  }
+}
+
+void mexFunction(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[])
+{
+
+  av_log_set_callback(&mexFFmpegCallback);
+
+  mexClassHandler<mexImageFilter>(nlhs, plhs, nrhs, prhs);
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////////
+
+mexImageFilter::mexImageFilter(int nrhs, const mxArray *prhs[]) {}
 mexImageFilter::~mexImageFilter() {}
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
-void mexImageFilter::set_prop(const std::string name, const mxArray *value)
+void mexImageFilter::set_prop(const mxArray *, const std::string name, const mxArray *value)
 {
   if (name == "FilterGraph") // integer between -10 and 10
   {
@@ -17,7 +52,7 @@ void mexImageFilter::set_prop(const std::string name, const mxArray *value)
   }
 }
 
-mxArray *mexImageFilter::get_prop(const std::string name)
+mxArray *mexImageFilter::get_prop(const mxArray *, const std::string name)
 {
   mxArray *rval;
   if (name == "FilterGraph") // integer between -10 and 10
@@ -116,7 +151,7 @@ bool mexImageFilter::static_handler(const std::string &command, int nlhs, mxArra
   {
     mexImageFilter::getFilters(nlhs, plhs);
   }
-  else if (command == "getVideoFormats")
+  else if (command == "getFormats")
   {
     mexImageFilter::getVideoFormats(nlhs, plhs);
   }
@@ -127,7 +162,39 @@ bool mexImageFilter::static_handler(const std::string &command, int nlhs, mxArra
 
 void mexImageFilter::getFilters(int nlhs, mxArray *plhs[])
 {
+  // make sure all the filters are registered
+  avfilter_register_all();
+
+  ::getFilters(nlhs, plhs, [](const AVFilter *filter) -> bool {
+    // filter must be a non-audio filter
+    bool dyn[2] = {bool(filter->flags & AVFILTER_FLAG_DYNAMIC_INPUTS), bool(filter->flags & AVFILTER_FLAG_DYNAMIC_OUTPUTS)};
+    for (int i = 0; i < 2; ++i)
+    {
+      if (dyn[i])
+        continue;
+      const AVFilterPad *pad = i ? filter->outputs : filter->inputs;
+      for (int j = 0; pad && avfilter_pad_get_name(pad, j); ++j)
+        if (avfilter_pad_get_type(pad, j) == AVMEDIA_TYPE_AUDIO)
+          return false;
+    }
+    return true;
+  });
 }
+
 void mexImageFilter::getVideoFormats(int nlhs, mxArray *plhs[])
 {
+  ::getVideoFormats(nlhs, plhs, [](const AVPixelFormat pix_fmt) -> bool {
+    // must <= 8-bit/component
+    const AVPixFmtDescriptor *desc = av_pix_fmt_desc_get(pix_fmt);
+    if (!desc || desc->flags & AV_PIX_FMT_FLAG_BITSTREAM) // invalid format
+      return false;
+
+    // depths of all components must be single-byte
+    for (int i = 0; i < desc->nb_components; ++i)
+      if (desc->comp[i].depth > 8)
+        return false;
+
+    // supported by SWS library
+    return sws_isSupportedInput(pix_fmt) && sws_isSupportedOutput(pix_fmt);
+  });
 }

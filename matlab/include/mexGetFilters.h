@@ -43,9 +43,9 @@ void getFilters(int nlhs, mxArray *plhs[], UnaryPredicate pred) // formats = get
       int nvideo = 0, naudio = 0;
 
       const AVFilterPad *pad = i ? filter->outputs : filter->inputs;
-      for (int j = 0; pad && avfilter_pad_get_name(pad, j); ++j)
+      for (int k = 0; pad && avfilter_pad_get_name(pad, k); ++k)
       {
-        switch (avfilter_pad_get_type(pad, j))
+        switch (avfilter_pad_get_type(pad, k))
         {
         case AVMEDIA_TYPE_VIDEO:
           ++nvideo;
@@ -65,7 +65,7 @@ void getFilters(int nlhs, mxArray *plhs[], UnaryPredicate pred) // formats = get
       else if (naudio)
           mxSetField(plhs[0], j, type_field.c_str(), mxCreateString("audio"));
       else
-          mxSetField(plhs[0], j, type_field.c_str(), mxCreateString("unknown"));
+          mxSetField(plhs[0], j, type_field.c_str(), mxCreateString("unspecified"));
       
       bool dyn = (!i && (filter->flags & AVFILTER_FLAG_DYNAMIC_INPUTS)) ||
                           (i && (filter->flags & AVFILTER_FLAG_DYNAMIC_OUTPUTS));

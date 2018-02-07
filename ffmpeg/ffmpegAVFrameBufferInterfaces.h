@@ -14,6 +14,7 @@ namespace ffmpeg
 class IAVFrameSink : virtual public IMediaHandler
 {
 public:
+  virtual bool supportedFormat(int format) const = 0;
   virtual void clear(bool deep = false) = 0;
   virtual bool readyToPush() = 0;
   virtual void blockTillReadyToPush() = 0;
@@ -26,6 +27,7 @@ public:
 class IAVFrameSource : virtual public IMediaHandler
 {
 public:
+  virtual bool supportedFormat(int format) const = 0;
   virtual void clear() = 0;
   virtual bool readyToPop() = 0;
   virtual void blockTillReadyToPop() = 0;

@@ -61,6 +61,20 @@ public:
 
   const VideoParams &AVFrameVideoComponentSink::getVideoParams() const { return (VideoParams &)*this; }
 
+  bool supportedFormat(int format) const
+  {
+    // must <= 8-bit/component
+    const AVPixFmtDescriptor *desc = av_pix_fmt_desc_get((AVPixelFormat)format);
+    if (!desc || desc->flags & AV_PIX_FMT_FLAG_BITSTREAM) // invalid format
+      return false;
+
+    // depths of all components must be single-byte
+    for (int i = 0; i < desc->nb_components; ++i)
+      if (desc->comp[i].depth > 8) return false;
+
+    return true;
+  }
+
   /**
  * \brief   Reset buffer-size
  */

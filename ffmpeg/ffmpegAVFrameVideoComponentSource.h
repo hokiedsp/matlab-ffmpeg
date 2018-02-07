@@ -58,6 +58,20 @@ public:
 
   const VideoParams& AVFrameVideoComponentSource::getVideoParams() const { return (VideoParams&)*this; }
 
+  bool supportedFormat(int format) const
+  {
+    // must <= 8-bit/component
+    const AVPixFmtDescriptor *desc = av_pix_fmt_desc_get((AVPixelFormat)format);
+    if (!desc || desc->flags & AV_PIX_FMT_FLAG_BITSTREAM) // invalid format
+      return false;
+
+    // depths of all components must be single-byte
+    for (int i = 0; i < desc->nb_components; ++i)
+      if (desc->comp[i].depth > 8) return false;
+
+    return true;
+  }
+
   void reset(const size_t nframes = 0, const AVPixelFormat fmt = AV_PIX_FMT_NONE) // must re-implement to allocate data_buf
   {
     std::unique_lock<std::mutex> l_tx(m);

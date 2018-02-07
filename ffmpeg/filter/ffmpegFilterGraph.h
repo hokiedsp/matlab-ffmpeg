@@ -78,7 +78,7 @@ public:
 
   void configure();
 
-  AVFilterGraph *getAVFilterGraph() const;
+  AVFilterGraph *getAVFilterGraph() const { return graph; }
 
   int insert_filter(AVFilterContext *&last_filter, int &pad_idx,
                     const std::string &filter_name, const std::string &args);

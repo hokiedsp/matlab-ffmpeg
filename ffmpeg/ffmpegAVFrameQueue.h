@@ -13,8 +13,7 @@ class AVFrameQueue : virtual public AVFrameSinkBase, virtual public AVFrameSourc
 public:
   AVFrameQueue(AVMediaType media, size_t N = 2) : type(media), max_size(N) {} // queue size
   virtual ~AVFrameQueue() {}
-
-  AVMediaType getMediaType() const { return type; };
+  bool supportedFormat(int format) const { return true; } // accepts all formats
 
 protected:
   bool readyToPush_threadunsafe() // declared in AVFrameSinkBase

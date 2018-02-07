@@ -16,7 +16,7 @@ using namespace ffmpeg::filter;
 
 ///////////////////////////////////////////////////////////
 SinkBase::SinkBase(Graph &fg, IAVFrameSink &buf)
-    : EndpointBase(fg, dynamic_cast<IMediaHandler &>(buf)), sink(&buf) {}
+    : EndpointBase(fg, dynamic_cast<IMediaHandler &>(buf)), sink(buf) {}
 
 AVFilterContext *SinkBase::configure(const std::string &name)
 { // configure the AVFilterContext
@@ -34,15 +34,12 @@ void SinkBase::link(AVFilterContext *other, const unsigned otherpad, const unsig
 
 int SinkBase::processFrame()
 {
-  if (!sink)
-    throw ffmpegException("[SinkBase::processFrame] AVFrame sink buffer has not been set.");
-
   AVFrame *frame = NULL;
   int ret = av_buffersink_get_frame(context, frame);
   bool eof = (ret != AVERROR_EOF);
   if (ret == 0 || eof)
   {
-    sink->push(eof ? NULL : frame);
+    sink.push(eof ? NULL : frame);
     if (eof)
       ena = false;
   }

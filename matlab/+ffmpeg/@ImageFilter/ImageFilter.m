@@ -146,8 +146,20 @@ classdef ImageFilter < matlab.mixin.SetGet & matlab.mixin.CustomDisplay
    end
    
    methods(Static)
-      filters = getFilters()
-      formats = getFormats()
+      function filters = getFilters()
+         filters = ffmpeg.ImageFilter.mexfcn('getFilters');
+         if nargout==0
+            display(struct2table(filters));
+            clear filters
+         end
+      end
+      function formats = getFormats()
+         formats = ffmpeg.ImageFilter.mexfcn('getFormats');
+         if nargout==0
+            display(struct2table(formats));
+            clear formats
+         end
+      end
    end
    
    methods(Static, Hidden)

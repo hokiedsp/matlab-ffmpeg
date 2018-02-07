@@ -61,10 +61,13 @@ public:
    */
   virtual int processFrame();
 
+  virtual void blockTillBufferReady() { sink.blockTillReadyToPush(); }
+  virtual bool blockTillBufferReady(const std::chrono::milliseconds &rel_time) { return sink.blockTillReadyToPush(rel_time); }
+
   virtual bool enabled() const { return ena; };
 
 protected:
-  IAVFrameSink *sink;
+  IAVFrameSink &sink;
   bool ena;
 };
 
