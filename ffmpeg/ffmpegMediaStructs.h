@@ -38,6 +38,8 @@ class IMediaHandler
 {
 public:
   virtual const BasicMediaParams &getBasicMediaParams() const = 0;
+  virtual AVMediaType getMediaType() const = 0;
+  virtual AVRational getTimeBase() const = 0;
 };
 
 class IVideoHandler : virtual public IMediaHandler

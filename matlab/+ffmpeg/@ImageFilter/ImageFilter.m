@@ -71,9 +71,7 @@ classdef ImageFilter < matlab.mixin.SetGet & matlab.mixin.CustomDisplay
          
          % instantiate the MEX backend
          ffmpegsetenv(); % make sure ffmpeg DLLs are in the system path
-
-         % instantiate the MEX backend
-         obj.backend = ffmpeg.ImageFilter.mexfcn(obj);
+         ffmpeg.ImageFilter.mexfcn(obj);
 
          % set all options
          if nargin>0
@@ -147,6 +145,7 @@ classdef ImageFilter < matlab.mixin.SetGet & matlab.mixin.CustomDisplay
    
    methods(Static)
       function filters = getFilters()
+         ffmpegsetenv(); % make sure ffmpeg DLLs are in the system path
          filters = ffmpeg.ImageFilter.mexfcn('getFilters');
          if nargout==0
             display(struct2table(filters));
@@ -154,6 +153,7 @@ classdef ImageFilter < matlab.mixin.SetGet & matlab.mixin.CustomDisplay
          end
       end
       function formats = getFormats()
+         ffmpegsetenv(); % make sure ffmpeg DLLs are in the system path
          formats = ffmpeg.ImageFilter.mexfcn('getFormats');
          if nargout==0
             display(struct2table(formats));
@@ -175,29 +175,32 @@ classdef ImageFilter < matlab.mixin.SetGet & matlab.mixin.CustomDisplay
    methods
       % Properties that are not dependent on underlying object.
       function set.Tag(obj, value)
-         validateattributes( value, {'char'}, {}, 'set', 'Tag');
+         validateattributes( value, {'char'}, {}, class(obj), 'Tag');
          obj.Tag = value;
       end
       
       % Properties that are dependent on underlying object.
       function value = get.FilterGraph(obj)
-         value = ffmpeg.ImageFilter.mexfcn(obj.backend,'get','Duration');
-         
-         % Duration property is set to empty if it cannot be determined
-         % from the video. Generate a warning to indicate this.
-         if isempty(value)
-            warnState=warning('off','backtrace');
-            c = onCleanup(@()warning(warnState));
-            warning(message('ffmpeg:ImageFilter:unknownDuration'));
-         end
+         value = ffmpeg.ImageFilter.mexfcn(obj,'get','FilterGraph');
       end
       
       function set.FilterGraph(obj,value)
-         validateattributes(value,{'double'},{'scalar','real','positive','finite'});
-         obj.FilterGraph = value;
+         validateattributes(value,{'char'},{'row'},class(obj),'FilterGraph');
+         ffmpeg.ImageFilter.mexfcn(obj,'set','FilterGraph',value);
       end
+
+      function value = get.InputNames(obj)
+         value = ffmpeg.ImageFilter.mexfcn(obj,'get','InputNames');
+      end
+
+      function value = get.OutputNames(obj)
+         value = ffmpeg.ImageFilter.mexfcn(obj,'get','OutputNames');
+      end
+
+
    end
    
+
    %------------------------------------------------------------------
    % Overrides for Custom Display
    %------------------------------------------------------------------

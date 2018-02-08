@@ -1,4 +1,5 @@
 #include "ffmpegFilterGraph.h"
+#include "ffmpegFilterNullBuffers.h"
 
 #ifndef FG_TIMEOUT_IN_MS
 using namespace std::chrono_literals;
@@ -18,7 +19,7 @@ extern "C" {
 using namespace ffmpeg;
 using namespace filter;
 
-Graph::Graph(const std::string &filtdesc)
+Graph::Graph(const std::string &filtdesc) : graph(NULL), inmon_status(0)
 {
   if (filtdesc.size())
     parse(filtdesc);
@@ -56,7 +57,9 @@ void Graph::destroy(const bool complete)
         p->second.filter->destroy();
     }
   }
-  avfilter_graph_free(&graph);
+
+  if (graph)
+    avfilter_graph_free(&graph);
 }
 
 void Graph::parse(const std::string &new_desc)
@@ -66,6 +69,8 @@ void Graph::parse(const std::string &new_desc)
   if (!(temp_graph = avfilter_graph_alloc()))
     throw ffmpegException(AVERROR(ENOMEM));
 
+  av_log(NULL,AV_LOG_ERROR,"[parse] temporary graph allocated\n");
+
   // Parse the string to get I/O endpoints
   AVFilterInOut *ins = NULL, *outs = NULL;
   if ((avfilter_graph_parse2(temp_graph, new_desc.c_str(), &ins, &outs)) < 0)
@@ -74,31 +79,108 @@ void Graph::parse(const std::string &new_desc)
     throw ffmpegException("Failed to parse the filter graph description.");
   }
 
+  av_log(NULL,AV_LOG_ERROR,"[parse] successfully parsed\n");
+
+  // check sources to be either simple or least 1 input named
+  if (ins && ins->next) // if filtergraph has more than 1 input port
+  {
+    bool named = false; // name index
+    for (AVFilterInOut *cur = ins->next; cur; cur = cur->next)
+      if (cur->name)
+        named = true;
+    if (!named)
+      throw ffmpegException("At least one input of a complex filter graph must be named.");
+  }
+
+  // check sinks to be either simple or least 1 ouput named
+  if (outs && outs->next) // if filtergraph has more than 1 input port
+  {
+    bool named = false; // name index
+    for (AVFilterInOut *cur = outs->next; cur; cur = cur->next)
+      if (cur->name)
+        named = true;
+    if (!named)
+      throw ffmpegException("At least one output of a complex filter graph must be named.");
+  }
+
+  // all good to go!!
+
   // clear the existing filtergraph
   destroy(true); // destroy AVFilterContext as well as the ffmpeg::filter::* objects
-  outputs.clear();
-  inputs.clear();
 
-  // update the filter graph
+  av_log(NULL,AV_LOG_ERROR,"[parse] existing graph destroyed\n");
+
+  // store the filter graph
+  graph = temp_graph;
   graph_desc = new_desc;
 
   // create source filter placeholder and mark its type
-  for (AVFilterInOut *cur = ins; cur; cur = cur->next)
-    inputs[cur->name] = {avfilter_pad_get_type(cur->filter_ctx->input_pads, cur->pad_idx), NULL, cur->filter_ctx, cur->pad_idx};
-  avfilter_inout_free(&ins);
+  if (ins)
+  {
+    parse_sources(ins);
+    avfilter_inout_free(&ins);
+  }
+  av_log(NULL,AV_LOG_ERROR,"[parse] source filter info logged\n");
 
   // create sink filter placeholder and mark its type
-  for (AVFilterInOut *cur = outs; cur; cur = cur->next)
-    outputs[cur->name] = {avfilter_pad_get_type(cur->filter_ctx->output_pads, cur->pad_idx), NULL, cur->filter_ctx, cur->pad_idx};
-  avfilter_inout_free(&outs);
+  if (outs)
+  {
+    parse_sinks(outs);
+    avfilter_inout_free(&outs);
+  }
 
-  avfilter_graph_free(&temp_graph);
+  av_log(NULL,AV_LOG_ERROR,"[parse] sink filter info logged\n");
+}
+
+void Graph::parse_sources(AVFilterInOut *ins)
+{
+  if (ins->next) // complex graph
+  {
+    NullVideoSource nullsrc(*this);
+    for (AVFilterInOut *cur = ins; cur; cur = cur->next)
+    {
+      if (cur->name) // if named, add to the inputs map
+        inputs[cur->name] = {avfilter_pad_get_type(cur->filter_ctx->input_pads, cur->pad_idx), NULL, cur->filter_ctx, cur->pad_idx};
+      else // use nullsrc
+      {
+        nullsrc.configure();
+        nullsrc.link(cur->filter_ctx, cur->pad_idx, 0, true);
+        nullsrc.destroy(); // not really... just detaches AVFilterContext from nullsrc object
+      }
+    }
+  }
+  else // simple graph without input name
+    inputs[(ins->name) ? ins->name : "in"] =
+        {avfilter_pad_get_type(ins->filter_ctx->input_pads, ins->pad_idx), NULL, ins->filter_ctx, ins->pad_idx};
+}
+
+void Graph::parse_sinks(AVFilterInOut *outs)
+{
+  if (outs->next) // complex graph
+  {
+    NullVideoSink nullsink(*this);
+    for (AVFilterInOut *cur = outs; cur; cur = cur->next)
+    {
+      if (cur->name) // if named, add to the inputs map
+        outputs[cur->name] = {avfilter_pad_get_type(cur->filter_ctx->output_pads, cur->pad_idx), NULL, cur->filter_ctx, cur->pad_idx};
+      else // use nullsrc
+      {
+        nullsink.configure();
+        nullsink.link(cur->filter_ctx, cur->pad_idx, 0, false);
+        nullsink.destroy(); // not really... just detaches AVFilterContext from nullsink object
+      }
+    }
+  }
+  else // simple graph
+    outputs[(outs->name) ? outs->name : "out"] =
+        {avfilter_pad_get_type(outs->filter_ctx->output_pads, outs->pad_idx), NULL, outs->filter_ctx, outs->pad_idx};
 }
 
 void Graph::configure()
 {
   try
   {
+av_log(NULL,AV_LOG_ERROR,"[configure] Linking source buffers...\n");
     // configure source filters
     for (auto in = inputs.begin(); in != inputs.end(); ++in)
     {
@@ -113,6 +195,7 @@ void Graph::configure()
       src->link(in->second.other, in->second.otherpad);
     }
 
+av_log(NULL,AV_LOG_ERROR,"[configure] Linking sink buffers...\n");
     // configure sink filters
     for (auto out = outputs.begin(); out != outputs.end(); ++out)
     {
@@ -128,11 +211,13 @@ void Graph::configure()
     }
 
     // finalize the graph
+av_log(NULL,AV_LOG_ERROR,"[configure] Finalizing filter graph...\n");
     if (avfilter_graph_config(graph, NULL) < 0)
       throw ffmpegException("Failed to finalize the filter graph.");
 
     /* limit the lists of allowed formats to the ones selected, to
      * make sure they stay the same if the filtergraph is reconfigured later */
+av_log(NULL,AV_LOG_ERROR,"[configure] Syncing output buffers to the filter sinks...\n");
     for (auto ofilter = outputs.begin(); ofilter != outputs.end(); ++ofilter)
       ofilter->second.filter->sync();
 

@@ -41,7 +41,9 @@ int SourceBase::processFrame()
 
 VideoSource::VideoSource(Graph &fg, IAVFrameSource &buf)
     : SourceBase(fg, buf), VideoParams(dynamic_cast<IVideoHandler&>(buf).getVideoParams()), sws_flags(0)
-{}
+{
+  av_log(NULL, AV_LOG_ERROR, "video source node created\n");
+}
 
 AVFilterContext *VideoSource::configure(const std::string &name)
 {

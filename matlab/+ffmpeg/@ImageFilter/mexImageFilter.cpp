@@ -8,19 +8,20 @@ extern "C" {
 // #include <libavutil/pixdesc.h>
 }
 
-// #include <fstream>
-// std::ofstream output("mextest.csv");
+#include <fstream>
+std::ofstream output("mextest.csv");
 void mexFFmpegCallback(void *avcl, int level, const char *fmt, va_list argptr)
 {
   if (level <= AV_LOG_ERROR) //AV_LOG_FATAL || level == AV_LOG_ERROR)
   {
     char dest[1024 * 16];
 #ifdef _MSC_VER
-    vsprintf_s(dest, 1024*16, fmt, argptr);
+    vsprintf_s(dest, 1024 * 16, fmt, argptr);
 #else
     vsprintf(dest, fmt, argptr);
 #endif
     mexPrintf(dest);
+    output << dest << std::endl;
   }
 }
 
@@ -43,8 +44,7 @@ void mexImageFilter::set_prop(const mxArray *, const std::string name, const mxA
 {
   if (name == "FilterGraph") // integer between -10 and 10
   {
-    if (!(mxIsNumeric(value) && mxIsScalar(value)) || mxIsComplex(value))
-      throw 0;
+    init(mexGetString(value));
   }
   else
   {
@@ -64,7 +64,7 @@ mxArray *mexImageFilter::get_prop(const mxArray *, const std::string name)
     string_vector inputs = filtergraph.getInputNames();
     rval = mxCreateCellMatrix(inputs.size(), 1);
     for (int i = 0; i < inputs.size(); ++i)
-      mxSetCell(rval,i,mxCreateString(inputs[i].c_str()));
+      mxSetCell(rval, i, mxCreateString(inputs[i].c_str()));
   }
   else if (name == "OutputNames")
   {
@@ -110,27 +110,36 @@ void mexImageFilter::runComplex(int nlhs, mxArray *plhs[], int nrhs, const mxArr
 void mexImageFilter::reset()
 {
   filtergraph.destroy();
-  
 }
 
 void mexImageFilter::init(const std::string &new_graph)
 {
+  av_log(NULL,AV_LOG_ERROR,"Starting init with filter graph: %s\n",new_graph);
+
   // release data in buffers
   for (auto src = sources.begin(); src < sources.end(); ++src) // release previously allocated resources
     src->clear();
   for (auto sink = sinks.begin(); sink < sinks.end(); ++sink) // release previously allocated resources
     sink->clear(true);
 
+  av_log(NULL,AV_LOG_ERROR,"Parsing the graph...\n");
+
   // create the new graph (automatically destroys previous one)
   filtergraph.parse(new_graph);
+
+  av_log(NULL,AV_LOG_ERROR,"Creating source buffers...\n");
 
   // create additional source & sink buffers and assign'em to filtergraph's named input & output pads
   string_vector ports = filtergraph.getInputNames();
   sources.reserve(ports.size());
-  for (size_t i = sources.size(); i < ports.size(); ++i) // new source
+  av_log(NULL,AV_LOG_ERROR,"Allocating %d buffers...\n", ports.size());
+  for (size_t i = sources.size(); i < ports.size(); ++i) // create more source buffers if not enough available
     sources.emplace_back();
-  for (size_t i = 0; i < ports.size(); ++i) // new source
+  av_log(NULL,AV_LOG_ERROR,"Associating buffers to the source filters...\n", ports.size());
+  for (size_t i = 0; i < ports.size(); ++i) // link the source buffer to the filtergraph
     filtergraph.assignSource(ports[i], sources[i]);
+
+  av_log(NULL,AV_LOG_ERROR,"Creating sink buffers...\n");
 
   ports = filtergraph.getOutputNames();
   sinks.reserve(ports.size());
@@ -139,6 +148,7 @@ void mexImageFilter::init(const std::string &new_graph)
   for (size_t i = 0; i < sinks.size(); ++i) // new source
     filtergraph.assignSink(ports[i], sinks[i]);
 
+  av_log(NULL,AV_LOG_ERROR,"Finalizing filtergraph construction...\n");
   // configure
   filtergraph.configure();
 }
@@ -166,6 +176,10 @@ void mexImageFilter::getFilters(int nlhs, mxArray *plhs[])
   avfilter_register_all();
 
   ::getFilters(nlhs, plhs, [](const AVFilter *filter) -> bool {
+
+    if (strcmp(filter->name, "buffer") || strcmp(filter->name, "buffersink") || strcmp(filter->name, "fifo"))
+      return false;
+
     // filter must be a non-audio filter
     bool dyn[2] = {bool(filter->flags & AVFILTER_FLAG_DYNAMIC_INPUTS), bool(filter->flags & AVFILTER_FLAG_DYNAMIC_OUTPUTS)};
     for (int i = 0; i < 2; ++i)

@@ -19,6 +19,7 @@ public:
   mexVideoReader(int nrhs, const mxArray *prhs[]);
   ~mexVideoReader();
   static std::string get_componentid() { return "mexVideoReader"; }
+  static std::string get_classname() { return "ffmpeg.VideoReader"; } // associated matlab class
 
   bool action_handler(const mxArray *mxObj, const std::string &command, int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[]);
   static bool static_handler(const std::string &command, int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[]);

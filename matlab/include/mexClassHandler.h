@@ -270,7 +270,7 @@ void mexClassHandler(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[])
 class mexFunctionClass
 {
 public:
-  static std::string get_classname() { return "mexClassGeneric"; };
+  // static std::string get_classname() { return "mexClassGeneric"; };
 
   virtual bool action_handler(const mxArray *mxObj, const std::string &action, int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[])
   {

@@ -17,6 +17,8 @@ class mexImageFilter : public mexFunctionClass
 public:
   mexImageFilter(int nrhs, const mxArray *prhs[]);
   virtual ~mexImageFilter();
+
+  static std::string get_classname() { return "ffmpeg.ImageFilter"; };
   static std::string get_componentid() { return "ImageFilter.mexfcn"; }
 
   bool action_handler(const mxArray *mxObj, const std::string &command, int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[]);
