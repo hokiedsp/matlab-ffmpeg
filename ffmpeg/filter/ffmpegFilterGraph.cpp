@@ -169,26 +169,22 @@ void Graph::parse_sinks(AVFilterInOut *outs)
         {avfilter_pad_get_type(outs->filter_ctx->output_pads, outs->pad_idx), NULL, outs->filter_ctx, outs->pad_idx};
 }
 
-SourceBase &Graph::assignSource(const std::string &name, IAVFrameSource &buf)
+SourceBase &Graph::assignSource(IAVFrameSource &buf, const std::string &name)
 {
   SourceInfo& node = inputs.at(name); // throws exception if doesn't exist
   Graph::assign_endpoint<SourceBase, VideoSource, AudioSource>(node.filter, node.type, buf);
   return *node.filter;
 }
 
-SinkBase &Graph::assignSink(const std::string &name, IAVFrameSink &buf)
+SinkBase &Graph::assignSink(IAVFrameSink &buf, const std::string &name)
 {
   SinkInfo& node = outputs.at(name); // throws exception if doesn't exist
   Graph::assign_endpoint<SinkBase, VideoSink, AudioSink>(node.filter, node.type, buf);
   return *node.filter;
 }
 
-
-
-void Graph::configure()
+void Graph::finalizeGraph()
 {
-  try
-  {
     // configure source filters
     for (auto in = inputs.begin(); in != inputs.end(); ++in)
     {
@@ -220,7 +216,37 @@ void Graph::configure()
       // link the sink to the last filter
       sink->link(out->second.other, out->second.otherpad);
     }
+}
 
+void Graph::flush()
+{
+  // create the new graph (automatically destroys previous one)
+  filtergraph.parse(new_graph);
+
+  // create additional source & sink buffers and assign'em to filtergraph's named input & output pads
+  string_vector ports = filtergraph.getInputNames();
+  sources.reserve(ports.size());
+  for (size_t i = sources.size(); i < ports.size(); ++i) // create more source buffers if not enough available
+    sources.emplace_back();
+  for (size_t i = 0; i < ports.size(); ++i) // link the source buffer to the filtergraph
+    filtergraph.assignSource(ports[i], sources[i]);
+
+  ports = filtergraph.getOutputNames();
+  sinks.reserve(ports.size());
+  for (size_t i = sinks.size(); i < ports.size(); ++i) // new source
+    sinks.emplace_back();
+  for (size_t i = 0; i < ports.size(); ++i) // new source
+    filtergraph.assignSink(ports[i], sinks[i]);
+
+  // inst
+  finalizeGraph()
+}
+
+
+void Graph::configure()
+{
+  try
+  {
     // finalize the graph
 av_log(NULL,AV_LOG_ERROR,"[configure] Finalizing filter graph...\n");
     if (avfilter_graph_config(graph, NULL) < 0)

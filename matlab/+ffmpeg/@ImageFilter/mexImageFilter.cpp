@@ -146,6 +146,9 @@ void mexImageFilter::init(const std::string &new_graph)
   for (size_t i = 0; i < ports.size(); ++i) // new source
     filtergraph.assignSink(ports[i], sinks[i]);
 
+  // inst
+  finalizeGraph()
+
   // get the graph description back
 
   // av_log(NULL, AV_LOG_ERROR, "tracing filter graph...");

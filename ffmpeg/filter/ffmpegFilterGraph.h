@@ -41,12 +41,78 @@ public:
  * \brief Destroys the current AVFilterGraph
  */
   void destroy(const bool complete = false);
-  void parse(const std::string &new_desc);
 
-  SourceBase &assignSource(const std::string &name, IAVFrameSource &buf);
-  SinkBase &assignSink(const std::string &name, IAVFrameSink &buf);
+  /**
+   * \brief Parse new filter graph
+   * 
+   * \note Step 1 in building a new filter graph 
+   * \note Not thread-safe. Must be called while the object's thread is paused
+   * 
+   * \param[in] desc Descriptive string of a new filter graph as done in standard ffmpeg binary
+   */
+  void parse(const std::string &desc);
 
-  void configure();
+  /**
+   * \brief Assign a source buffer to a parsed filtergraph
+   * 
+   * assignSource() links the filter graph input with the given label \ref name to the given AVFrame 
+   * source buffer \ref buf. This function must follow a successful \ref void parse(const std::string&) 
+   * call and must be called repeatedly to all of the utilized filter graph inputs. Use 
+   * \ref string_vector getInputNames() const to retrieve all the names of inputs.
+   * 
+   * \note Step 2/3 in building a new filter graph
+   * \note Not thread-safe. Must be called while the object's thread is paused
+   * 
+   * \param[in] buf  Refererence to an AVFrame buffer object, from which the input frames are drawn from
+   * \param[in] name Name of the input label on the filer graph. Default is "in", which is used
+   *                 for a single-input graph with unnamed input.
+   * \returns the reference of the created Source filter object
+   */
+  SourceBase &assignSource(IAVFrameSource &buf, const std::string &name="in");
+
+  /**
+   * \brief Assign a sink buffer to a parsed filtergraph
+   * 
+   * assignSink() links the filter graph output with the given label \ref name to the given AVFrame sink
+   * buffer \ref buf. This function must follow a successful \ref void parse(const std::string&) call, 
+   * and must be called repeatedly, once for each of the utilized filter graph outputs. Use 
+   * \ref string_vector getOutputNames() const to retrieve all the names of outputs.
+   * 
+   * \note Step 2/3 in building a new filter graph
+   * \note Not thread-safe. Must be called while the object's thread is paused
+   * 
+   * \param[in] buf  Reference to an AVFrame buffer object, to which the output frames are queued to
+   * \param[in] name Name of the output label on the filer graph. Default is "out", which is used
+   *                 for a single-output graph with unnamed input.
+   * \returns the reference of the created Source filter object
+   */
+  SinkBase &assignSink(IAVFrameSink &buf, const std::string &name="out");
+
+  /**
+   * \brief Finalize the preparation of a new filtergraph
+   * 
+   * finalizeGraph instantiates all the endpoint filter elements (buffer, buffersink, abuffer, or abuffersink)
+   * as assigned by user.
+   * 
+   * \note Step 4 in building a new filter graph
+   * \note Not thread-safe. Must be called while the object's thread is paused
+   * 
+   */
+  void finalizeGraph();
+
+  /**
+   * \brief Reset filter graph state / flush internal buffers
+   * 
+   * flush() resets the internal state / buffers of the filter graph. It should be called
+   * when seeking or when switching to receivign AVFrames with a different parameters.
+   * 
+   * flush() effectively rebuilds the filter as FFmpeg API currently does not provide 
+   * a way to flush an existing AVFilterGraph. Internal function may change in the future
+   * when/if FFmpeg releases a "flush" function for an AVFilterGraph.
+   * 
+   * \note Not thread-safe. Must be called while the object's thread is paused
+   */
+  void flush();
 
   AVFilterGraph *getAVFilterGraph() const { return graph; }
 
@@ -89,6 +155,8 @@ public:
 protected:
   // thread function: responsible to read packet and send it to ffmpeg decoder
   void thread_fcn();
+
+  void configure();
 
   template <typename EP, typename VEP, typename AEP, typename BUFF>
   void assign_endpoint(EP *&ep, AVMediaType type, BUFF &buf)
