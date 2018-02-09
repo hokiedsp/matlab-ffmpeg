@@ -17,8 +17,7 @@ using namespace ffmpeg::filter;
 ///////////////////////////////////////////////////////////
 SourceBase::SourceBase(Graph &fg, IAVFrameSource &buf)
     : EndpointBase(fg, dynamic_cast<IMediaHandler&>(buf)), src(buf)//, hw_frames_ctx(NULL)
-{
-}
+{}
 
 void SourceBase::link(AVFilterContext *other, const unsigned otherpad, const unsigned pad, const bool issrc)
 {
@@ -40,15 +39,14 @@ int SourceBase::processFrame()
 /////////////////////////////
 
 VideoSource::VideoSource(Graph &fg, IAVFrameSource &buf)
-    : SourceBase(fg, buf), VideoParams(dynamic_cast<IVideoHandler&>(buf).getVideoParams()), sws_flags(0)
-{
-  av_log(NULL, AV_LOG_ERROR, "video source node created\n");
-}
+    : SourceBase(fg, buf), VideoParams(dynamic_cast<IVideoHandler&>(buf).getVideoParams()), sws_flags(0) {}
 
 AVFilterContext *VideoSource::configure(const std::string &name)
 {
   // configure the filter
   create_context("buffer", name);
+
+  av_log(NULL, AV_LOG_ERROR, "video source context created...");
 
   // also send in the hw_frame_ctx  (if given)
   AVBufferSrcParameters *par = av_buffersrc_parameters_alloc();
@@ -61,6 +59,8 @@ AVFilterContext *VideoSource::configure(const std::string &name)
   av_freep(&par);
   if (ret < 0)
     throw ffmpegException("[ffmpeg::filter::VideoSource::configure] Failed to call av_buffersrc_parameters_set().");
+
+  av_log(NULL, AV_LOG_ERROR, "video source parameters created...");
 
   return context;
 }
@@ -86,13 +86,10 @@ std::string VideoSource::generate_args()
   // update object parameters with AVStream parameter
   // parameters_from_stream();
 
-  // make sure SAR is valid
-  if (!sample_aspect_ratio.den)
-    sample_aspect_ratio = AVRational({0, 1});
-
+  std::string fmtstr = av_get_pix_fmt_name(format);
   std::stringstream sout;
   sout << "video_size=" << width << 'x' << height << ':'
-       << "pix_fmt=" << av_get_pix_fmt_name(format) << ':'
+       << "pix_fmt=" << fmtstr << ':'
        << "time_base=" << time_base.num << '/' << time_base.den << ':'
        << "pixel_aspect=" << sample_aspect_ratio.num << '/' << sample_aspect_ratio.den << ':'
        << "sws_param=flags=" << sws_flags;

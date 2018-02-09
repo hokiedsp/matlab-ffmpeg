@@ -43,19 +43,8 @@ public:
   void destroy(const bool complete = false);
   void parse(const std::string &new_desc);
 
-  SourceBase &assignSource(const std::string &name, IAVFrameSource &buf)
-  {
-    SourceInfo& node = inputs.at(name); // throws exception if doesn't exist
-    Graph::assign_endpoint<SourceBase, VideoSource, AudioSource>(node.filter, node.type, buf);
-    return *node.filter;
-  }
-
-  SinkBase &assignSink(const std::string &name, IAVFrameSink &buf)
-  {
-    SinkInfo& node = outputs.at(name); // throws exception if doesn't exist
-    Graph::assign_endpoint<SinkBase, VideoSink, AudioSink>(node.filter, node.type, buf);
-    return *node.filter;
-  }
+  SourceBase &assignSource(const std::string &name, IAVFrameSource &buf);
+  SinkBase &assignSink(const std::string &name, IAVFrameSink &buf);
 
   void configure();
 
@@ -69,7 +58,34 @@ public:
   string_vector getOutputNames() const { return Graph::get_names(outputs); }
 
   bool isSimple() const { return inputs.size() == 1 && outputs.size() == 1; }
+  
+  const SourceBase *findSourceByName(const std::string &name)
+  {
+    try
+    {
+      const SourceInfo &src = inputs.at(name);
+      return src.filter;
+    }
+    catch (...)
+    {
+      return NULL;
+    }
+  }
 
+  const SinkBase *findSinkByName(const std::string &name)
+  {
+    try
+    {
+      const SinkInfo &sink = outputs.at(name);
+      return sink.filter;
+    }
+    catch (...)
+    {
+      return NULL;
+    }
+  }
+
+  // avfilter_graph_send_command, avfilter_graph_queue_command
 protected:
   // thread function: responsible to read packet and send it to ffmpeg decoder
   void thread_fcn();

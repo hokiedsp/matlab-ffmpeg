@@ -69,8 +69,6 @@ void Graph::parse(const std::string &new_desc)
   if (!(temp_graph = avfilter_graph_alloc()))
     throw ffmpegException(AVERROR(ENOMEM));
 
-  av_log(NULL,AV_LOG_ERROR,"[parse] temporary graph allocated\n");
-
   // Parse the string to get I/O endpoints
   AVFilterInOut *ins = NULL, *outs = NULL;
   if ((avfilter_graph_parse2(temp_graph, new_desc.c_str(), &ins, &outs)) < 0)
@@ -78,8 +76,6 @@ void Graph::parse(const std::string &new_desc)
     avfilter_graph_free(&temp_graph);
     throw ffmpegException("Failed to parse the filter graph description.");
   }
-
-  av_log(NULL,AV_LOG_ERROR,"[parse] successfully parsed\n");
 
   // check sources to be either simple or least 1 input named
   if (ins && ins->next) // if filtergraph has more than 1 input port
@@ -108,8 +104,6 @@ void Graph::parse(const std::string &new_desc)
   // clear the existing filtergraph
   destroy(true); // destroy AVFilterContext as well as the ffmpeg::filter::* objects
 
-  av_log(NULL,AV_LOG_ERROR,"[parse] existing graph destroyed\n");
-
   // store the filter graph
   graph = temp_graph;
   graph_desc = new_desc;
@@ -120,7 +114,6 @@ void Graph::parse(const std::string &new_desc)
     parse_sources(ins);
     avfilter_inout_free(&ins);
   }
-  av_log(NULL,AV_LOG_ERROR,"[parse] source filter info logged\n");
 
   // create sink filter placeholder and mark its type
   if (outs)
@@ -129,7 +122,7 @@ void Graph::parse(const std::string &new_desc)
     avfilter_inout_free(&outs);
   }
 
-  av_log(NULL,AV_LOG_ERROR,"[parse] sink filter info logged\n");
+  av_log(NULL,AV_LOG_ERROR,"[parse] done parsing");
 }
 
 void Graph::parse_sources(AVFilterInOut *ins)
@@ -176,17 +169,36 @@ void Graph::parse_sinks(AVFilterInOut *outs)
         {avfilter_pad_get_type(outs->filter_ctx->output_pads, outs->pad_idx), NULL, outs->filter_ctx, outs->pad_idx};
 }
 
+SourceBase &Graph::assignSource(const std::string &name, IAVFrameSource &buf)
+{
+  SourceInfo& node = inputs.at(name); // throws exception if doesn't exist
+  Graph::assign_endpoint<SourceBase, VideoSource, AudioSource>(node.filter, node.type, buf);
+  return *node.filter;
+}
+
+SinkBase &Graph::assignSink(const std::string &name, IAVFrameSink &buf)
+{
+  SinkInfo& node = outputs.at(name); // throws exception if doesn't exist
+  Graph::assign_endpoint<SinkBase, VideoSink, AudioSink>(node.filter, node.type, buf);
+  return *node.filter;
+}
+
+
+
 void Graph::configure()
 {
   try
   {
-av_log(NULL,AV_LOG_ERROR,"[configure] Linking source buffers...\n");
     // configure source filters
     for (auto in = inputs.begin(); in != inputs.end(); ++in)
     {
       SourceBase *src = in->second.filter;
-      if (!src)
+      if (!src) // also check for buffer states
         throw ffmpegException("Source filter is not set.");
+
+      // load media parameters from buffer
+      if (!src->updateMediaParameters())
+        throw ffmpegException("Source buffer does not have media parameters to configure source filter.");
 
       // configure filter
       src->configure(in->first);
@@ -195,7 +207,6 @@ av_log(NULL,AV_LOG_ERROR,"[configure] Linking source buffers...\n");
       src->link(in->second.other, in->second.otherpad);
     }
 
-av_log(NULL,AV_LOG_ERROR,"[configure] Linking sink buffers...\n");
     // configure sink filters
     for (auto out = outputs.begin(); out != outputs.end(); ++out)
     {

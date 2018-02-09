@@ -8,11 +8,13 @@ extern "C" {
 // #include <libavutil/pixdesc.h>
 }
 
+#include <stdexcept>
+
 #include <fstream>
 std::ofstream output("mextest.csv");
 void mexFFmpegCallback(void *avcl, int level, const char *fmt, va_list argptr)
 {
-  if (level <= AV_LOG_ERROR) //AV_LOG_FATAL || level == AV_LOG_ERROR)
+  if (level <= AV_LOG_TRACE) //AV_LOG_ERROR) //AV_LOG_FATAL || level == AV_LOG_ERROR)
   {
     char dest[1024 * 16];
 #ifdef _MSC_VER
@@ -101,10 +103,16 @@ bool mexImageFilter::action_handler(const mxArray *mxObj, const std::string &com
 
 void mexImageFilter::runSimple(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[])
 {
+    // configure
+  filtergraph.configure();
+
 }
 
 void mexImageFilter::runComplex(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[])
 {
+    // configure
+  filtergraph.configure();
+
 }
 
 void mexImageFilter::reset()
@@ -114,43 +122,59 @@ void mexImageFilter::reset()
 
 void mexImageFilter::init(const std::string &new_graph)
 {
-  av_log(NULL,AV_LOG_ERROR,"Starting init with filter graph: %s\n",new_graph);
-
   // release data in buffers
   for (auto src = sources.begin(); src < sources.end(); ++src) // release previously allocated resources
     src->clear();
   for (auto sink = sinks.begin(); sink < sinks.end(); ++sink) // release previously allocated resources
     sink->clear(true);
 
-  av_log(NULL,AV_LOG_ERROR,"Parsing the graph...\n");
-
   // create the new graph (automatically destroys previous one)
   filtergraph.parse(new_graph);
-
-  av_log(NULL,AV_LOG_ERROR,"Creating source buffers...\n");
 
   // create additional source & sink buffers and assign'em to filtergraph's named input & output pads
   string_vector ports = filtergraph.getInputNames();
   sources.reserve(ports.size());
-  av_log(NULL,AV_LOG_ERROR,"Allocating %d buffers...\n", ports.size());
   for (size_t i = sources.size(); i < ports.size(); ++i) // create more source buffers if not enough available
     sources.emplace_back();
-  av_log(NULL,AV_LOG_ERROR,"Associating buffers to the source filters...\n", ports.size());
   for (size_t i = 0; i < ports.size(); ++i) // link the source buffer to the filtergraph
     filtergraph.assignSource(ports[i], sources[i]);
 
-  av_log(NULL,AV_LOG_ERROR,"Creating sink buffers...\n");
-
   ports = filtergraph.getOutputNames();
   sinks.reserve(ports.size());
-  for (size_t i = sinks.size(); i < sinks.size(); ++i) // new source
+  for (size_t i = sinks.size(); i < ports.size(); ++i) // new source
     sinks.emplace_back();
-  for (size_t i = 0; i < sinks.size(); ++i) // new source
+  for (size_t i = 0; i < ports.size(); ++i) // new source
     filtergraph.assignSink(ports[i], sinks[i]);
 
-  av_log(NULL,AV_LOG_ERROR,"Finalizing filtergraph construction...\n");
-  // configure
-  filtergraph.configure();
+  // get the graph description back
+
+  // av_log(NULL, AV_LOG_ERROR, "tracing filter graph...");
+  // const ffmpeg::filter::SourceBase *src = filtergraph.findSourceByName("in");
+  // if (!src)
+  //   throw std::runtime_error("Source buffer not found.");
+  // const AVFilterContext *f = src->getAVFilterContext();
+  // if (!f)
+  //   throw std::runtime_error("Source filter context not found.");
+  // av_log(NULL, AV_LOG_ERROR, "%s:%d:%s\n", f->filter->name, f->nb_outputs, avfilter_pad_get_name(f->output_pads, 0));
+  // AVFilterLink* l = f->outputs[0];
+  // if (!l)
+  //   throw std::runtime_error("Source filter not linked to the scale filter.");
+  // f = l->dst;
+  // if (!f)
+  //   throw std::runtime_error("Scale filter not linked to the source filter.");
+  // av_log(NULL, AV_LOG_ERROR, "%s:%s->%s\n", f->filter->name, avfilter_pad_get_name(f->input_pads, 0), avfilter_pad_get_name(f->output_pads, 0));
+  // l = f->outputs[0];
+  // if (!l)
+  //   throw std::runtime_error("Scale filter not linked to buffersink filter.");
+  // f = l->dst;
+  // if (!f)
+  //   throw std::runtime_error("Scale filter link dst not valid.");
+  // av_log(NULL, AV_LOG_ERROR, "%s:->%s\n", f->filter->name, avfilter_pad_get_name(f->input_pads, 0));
+  char *dump = avfilter_graph_dump(filtergraph.getAVFilterGraph(), NULL);
+
+  av_log(NULL, AV_LOG_ERROR, "[parse] graph_desc dump: %s", dump);
+
+  av_free(dump);
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////

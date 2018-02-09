@@ -38,6 +38,8 @@ public:
   virtual bool blockTillFrameReady(const std::chrono::milliseconds &rel_time) { return src.blockTillReadyToPop(rel_time); }
   virtual int processFrame();
 
+  virtual bool updateMediaParameters() = 0;
+
 protected:
   IAVFrameSource &src;
   // AVBufferRef *hw_frames_ctx;

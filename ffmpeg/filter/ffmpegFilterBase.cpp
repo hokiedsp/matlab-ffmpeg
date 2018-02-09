@@ -45,6 +45,7 @@ AVFilterContext *Base::create_context(const std::string &fname, const std::strin
   if (context)
     throw ffmpegException("Object already has configured an AVFilter.");
 
+  av_log(NULL, AV_LOG_ERROR, "video source creating argument...");
   std::string new_args = generate_args();
 
   if (avfilter_graph_create_filter(&context,
