@@ -9,25 +9,19 @@
 namespace ffmpeg
 {
 // Base Thread-Safe Buffer Class
-class AVFrameBufferBase : protected BasicMediaParams, virtual public IMediaHandler
+class AVFrameBufferBase : public MediaHandler
 {
 public:
   virtual ~AVFrameBufferBase() {}
 
   AVFrameBufferBase(const AVMediaType mediatype = AVMEDIA_TYPE_UNKNOWN, const AVRational &tb = {0, 0})
-      : BasicMediaParams({mediatype, tb}) {}
+      : MediaHandler({mediatype, tb}) {}
 
   // copy constructor
-  AVFrameBufferBase(const AVFrameBufferBase &other) : BasicMediaParams(other) {}
+  AVFrameBufferBase(const AVFrameBufferBase &other) : MediaHandler(other) {}
 
   // move constructor
-  AVFrameBufferBase(AVFrameBufferBase &&other) noexcept : BasicMediaParams(other) {}
-
-  const BasicMediaParams &getBasicMediaParams() const { return (BasicMediaParams &)*this; }
-  AVMediaType getMediaType() const { return type; }
-  std::string getMediaTypeString() const { return av_get_media_type_string(type); }
-  AVRational getTimeBase() const { return time_base; }
-  void setTimeBase(const AVRational &tb) { time_base = tb; }
+  AVFrameBufferBase(AVFrameBufferBase &&other) noexcept : MediaHandler(other) {}
 
 protected:
   std::mutex m; // mutex to access the buffer
@@ -49,6 +43,11 @@ public:
 
   // move constructor
   AVFrameSinkBase(AVFrameSinkBase &&other) noexcept : AVFrameBufferBase(other) {}
+
+  virtual bool ready() const
+  {
+    return true;
+  }
 
   virtual void clear(const bool deep = false)
   {
@@ -157,6 +156,8 @@ public:
   AVFrameSourceBase(const AVFrameSourceBase &other) : AVFrameBufferBase(other) {}
   // move constructor
   AVFrameSourceBase(AVFrameSourceBase &&other) noexcept : AVFrameBufferBase(other) {}
+
+  using AVFrameBufferBase::ready;
 
   virtual void clear()
   {

@@ -38,6 +38,9 @@ public:
   virtual bool blockTillFrameReady(const std::chrono::milliseconds &rel_time) { return src.blockTillReadyToPop(rel_time); }
   virtual int processFrame();
 
+  /**
+   * \brief Load media parameters from its buffer
+   */
   virtual bool updateMediaParameters() = 0;
 
 protected:
@@ -47,34 +50,34 @@ protected:
 
 typedef std::vector<SourceBase *> Sources;
 
-class VideoSource : public SourceBase, private VideoParams, virtual public IVideoHandler
+class VideoSource : public SourceBase, virtual public VideoHandler
 {
 public:
   VideoSource(Graph &fg, IAVFrameSource &buf);
 
-  using SourceBase::getBasicMediaParams;
-  const VideoParams& getVideoParams() const { return (VideoParams&)*this; }
-
   AVFilterContext *configure(const std::string &name = "");
   std::string generate_args();
 
-  // void parameters_from_stream();
-  // void parameters_from_frame(const AVFrame *frame);
+  /**
+   * \brief Load media parameters from its buffer
+   */
+  bool updateMediaParameters();
 
 private:
   int sws_flags;
 };
-class AudioSource : public SourceBase, private AudioParams, virtual public IAudioHandler
+class AudioSource : public SourceBase, virtual public AudioHandler
 {
 public:
   AudioSource(Graph &fg, IAVFrameSource &buf);
   
-  using SourceBase::getBasicMediaParams;
-
-  const AudioParams& getAudioParams() const { return (AudioParams&)*this; }
-
   AVFilterContext *configure(const std::string &name = "");
   std::string generate_args();
+
+  /**
+   * \brief Load media parameters from its buffer
+   */
+  bool updateMediaParameters();
 
 private:
 };

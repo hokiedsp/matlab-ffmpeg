@@ -1,5 +1,6 @@
 #pragma once
 
+#include "mexParsers.h"
 #include "mexClassHandler.h"
 #include "mexAllocator.h"
 #include "ffmpegAVFrameImageComponentSource.h"
@@ -28,18 +29,35 @@ protected:
   void set_prop(const mxArray *, const std::string name, const mxArray *value);
   mxArray *get_prop(const mxArray *, const std::string name);
 
-  void runSimple(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[]);  //    out = runSimple(obj, in);
-  void runComplex(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[]); //    varargout = readFrame(obj, varargin);
   void reset();                                                                // reset(obj);
 
-  static void getFilters(int nlhs, mxArray *plhs[]);      // formats = getFilters();
-  static void getVideoFormats(int nlhs, mxArray *plhs[]); // formats = getVideoFormats();
+  void runSimple(const mxArray *mxObj, mxArray *&out, const mxArray *in);  //    out = runSimple(obj, in);
+  void runComplex(const mxArray *mxObj, mxArray *&out, const mxArray *in); //    varargout = readFrame(obj, varargin);
+  const uint8_t *getMxImageData(const mxArray *mxData, int &width, int &height, int &depth);
+
+  mxArray *isValidInputName(const mxArray *prhs); // tf = isInputName(obj,name)
+
+  void syncInputFormat(const mxArray *mxObj);
+  void syncInputSAR(const mxArray *mxObj);
+
+/////////////////
+
+  static mxArray *getFilters(); // formats = getFilters();
+  static mxArray *getFormats(); // formats = getVideoFormats();
+  static mxArray *isSupportedFormat(const mxArray *prhs); // tf = isSupportedFormat(format_name);
+  static void validateSARString(const mxArray *prhs); // tf = isValidSAR(SARexpr);
+  static AVRational getSAR(const mxArray *mxObj);
 
 private:
   void init(const std::string &new_graph);
 
+  bool ran;     // true if filter graph has run with the current configuration
+  bool changedFormat; // true if there is a pending change on InputFormat
+  bool changedSAR;    // true if there is a pending change on InputSAR
+
   ffmpeg::filter::Graph filtergraph;
-  typedef std::vector<ffmpeg::AVFrameImageComponentSource> mexComponentSources;
+  typedef ffmpeg::AVFrameImageComponentSource mexComponentSource;
+  typedef std::vector<mexComponentSource> mexComponentSources;
   mexComponentSources sources;
 
   typedef ffmpeg::AVFrameVideoComponentSink<mexAllocator<uint8_t>> mexComponentSink;

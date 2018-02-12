@@ -10,8 +10,10 @@ extern "C" {
 }
 
 template <class UnaryPredicate>
-void getVideoFormats(int nlhs, mxArray *plhs[], UnaryPredicate pred) // formats = getVideoFormats();
+mxArray *getVideoFormats(UnaryPredicate pred) // formats = getVideoFormats();
 {
+  mxArray *plhs;
+
   // build a list of pixel format descriptors
   std::vector<const AVPixFmtDescriptor *> pix_descs;
   pix_descs.reserve(256);
@@ -34,27 +36,43 @@ void getVideoFormats(int nlhs, mxArray *plhs[], UnaryPredicate pred) // formats 
       "Log2ChromaW", "Log2ChromaH"
       };
 
-  plhs[0] = mxCreateStructMatrix(pix_descs.size(), 1, nfields, fieldnames);
+  plhs = mxCreateStructMatrix(pix_descs.size(), 1, nfields, fieldnames);
 
   for (int j = 0; j < pix_descs.size(); ++j)
   {
     const AVPixFmtDescriptor *pix_fmt_desc = pix_descs[j];
     AVPixelFormat pix_fmt = av_pix_fmt_desc_get_id(pix_fmt_desc);
-    mxSetField(plhs[0], j, "Name", mxCreateString(pix_fmt_desc->name));
-    mxSetField(plhs[0], j, "Alias", mxCreateString(pix_fmt_desc->alias));
-    mxSetField(plhs[0], j, "NumberOfComponents", mxCreateDoubleScalar(pix_fmt_desc->nb_components));
-    mxSetField(plhs[0], j, "Log2ChromaW", mxCreateDoubleScalar(pix_fmt_desc->log2_chroma_w));
-    mxSetField(plhs[0], j, "Log2ChromaH", mxCreateDoubleScalar(pix_fmt_desc->log2_chroma_h));
-    mxSetField(plhs[0], j, "BitsPerPixel", mxCreateDoubleScalar(av_get_bits_per_pixel(pix_fmt_desc)));
-    mxSetField(plhs[0], j, "Paletted", mxCreateString((pix_fmt_desc->flags & AV_PIX_FMT_FLAG_PAL) ? "on" : (pix_fmt_desc->flags & AV_PIX_FMT_FLAG_PSEUDOPAL) ? "pseudo" : "off"));
-    mxSetField(plhs[0], j, "HWAccel", mxCreateString((pix_fmt_desc->flags & AV_PIX_FMT_FLAG_HWACCEL) ? "on" : "off"));
-    mxSetField(plhs[0], j, "RGB", mxCreateString((pix_fmt_desc->flags & AV_PIX_FMT_FLAG_RGB) ? "on" : "off"));
-    mxSetField(plhs[0], j, "Alpha", mxCreateString((pix_fmt_desc->flags & AV_PIX_FMT_FLAG_ALPHA) ? "on" : "off"));
-    mxSetField(plhs[0], j, "Bayer", mxCreateString((pix_fmt_desc->flags & AV_PIX_FMT_FLAG_BAYER) ? "on" : "off"));
+    mxSetField(plhs, j, "Name", mxCreateString(pix_fmt_desc->name));
+    mxSetField(plhs, j, "Alias", mxCreateString(pix_fmt_desc->alias));
+    mxSetField(plhs, j, "NumberOfComponents", mxCreateDoubleScalar(pix_fmt_desc->nb_components));
+    mxSetField(plhs, j, "Log2ChromaW", mxCreateDoubleScalar(pix_fmt_desc->log2_chroma_w));
+    mxSetField(plhs, j, "Log2ChromaH", mxCreateDoubleScalar(pix_fmt_desc->log2_chroma_h));
+    mxSetField(plhs, j, "BitsPerPixel", mxCreateDoubleScalar(av_get_bits_per_pixel(pix_fmt_desc)));
+    mxSetField(plhs, j, "Paletted", mxCreateString((pix_fmt_desc->flags & AV_PIX_FMT_FLAG_PAL) ? "on" : (pix_fmt_desc->flags & AV_PIX_FMT_FLAG_PSEUDOPAL) ? "pseudo" : "off"));
+    mxSetField(plhs, j, "HWAccel", mxCreateString((pix_fmt_desc->flags & AV_PIX_FMT_FLAG_HWACCEL) ? "on" : "off"));
+    mxSetField(plhs, j, "RGB", mxCreateString((pix_fmt_desc->flags & AV_PIX_FMT_FLAG_RGB) ? "on" : "off"));
+    mxSetField(plhs, j, "Alpha", mxCreateString((pix_fmt_desc->flags & AV_PIX_FMT_FLAG_ALPHA) ? "on" : "off"));
+    mxSetField(plhs, j, "Bayer", mxCreateString((pix_fmt_desc->flags & AV_PIX_FMT_FLAG_BAYER) ? "on" : "off"));
   }
+
+  return plhs;
 }
 
-inline void getVideoFormats(int nlhs, mxArray *plhs[])
+inline mxArray *getVideoFormats()
 {
-  getVideoFormats(nlhs, plhs, [](const AVPixelFormat) { return true; });
+  return getVideoFormats([](const AVPixelFormat) { return true; });
+}
+
+template <class UnaryPredicate>
+mxArray *isSupportedVideoFormat(const mxArray *prhs, UnaryPredicate pred) // tf = isSupportedVideoFormat(name);
+{
+  // check again the ffmpeg list of pixel format descriptors
+  std::string name = mexGetString(prhs);
+  AVPixelFormat pix_fmt = av_get_pix_fmt(name.c_str());
+  return mxCreateLogicalScalar(pred(pix_fmt));
+}
+
+inline mxArray *isSupportedVideoFormat(const mxArray *prhs)
+{
+  return isSupportedVideoFormat(prhs, [](const AVPixelFormat) { return true; });
 }

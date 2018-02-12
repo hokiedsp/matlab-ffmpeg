@@ -60,6 +60,7 @@ public:
    * \returns True if new frame
    */
   virtual int processFrame();
+  virtual int processFrame(const std::chrono::milliseconds &rel_time);
 
   virtual void blockTillBufferReady() { sink.blockTillReadyToPush(); }
   virtual bool blockTillBufferReady(const std::chrono::milliseconds &rel_time) { return sink.blockTillReadyToPush(rel_time); }
@@ -73,13 +74,10 @@ protected:
 
 typedef std::vector<SinkBase *> Sinks;
 
-class VideoSink : public SinkBase, public VideoParams, virtual public IVideoHandler
+class VideoSink : public SinkBase, virtual public VideoHandler
 {
 public:
   VideoSink(Graph &fg, IAVFrameSink &buf);      // connected to a buffer (data from non-FFmpeg source)
-
-  using SinkBase::getBasicMediaParams;
-  const VideoParams& getVideoParams() const { return (VideoParams&)*this; }
 
   AVFilterContext *configure(const std::string &name = "");
   /**
@@ -90,13 +88,10 @@ public:
   // std::string choose_pix_fmts();
 };
 
-class AudioSink : public SinkBase, public AudioParams, virtual public IAudioHandler
+class AudioSink : public SinkBase, virtual public AudioHandler
 {
 public:
   AudioSink(Graph &fg, IAVFrameSink &buf); // connected to a buffer (data from non-FFmpeg source)
-
-  using SinkBase::getBasicMediaParams;
-  const AudioParams& getAudioParams() const { return (AudioParams&)*this; }
 
   AVFilterContext *configure(const std::string &name = "");
 

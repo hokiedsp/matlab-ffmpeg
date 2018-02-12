@@ -15,8 +15,7 @@ using namespace ffmpeg;
 using namespace ffmpeg::filter;
 
 ///////////////////////////////////////////////////////////
-SinkBase::SinkBase(Graph &fg, IAVFrameSink &buf)
-    : EndpointBase(fg, dynamic_cast<IMediaHandler &>(buf)), sink(buf) {}
+SinkBase::SinkBase(Graph &fg, IAVFrameSink &buf) : EndpointBase(fg, buf), sink(buf) {}
 
 AVFilterContext *SinkBase::configure(const std::string &name)
 { // configure the AVFilterContext
@@ -47,9 +46,23 @@ int SinkBase::processFrame()
   return ret;
 }
 
+int SinkBase::processFrame(const std::chrono::milliseconds &rel_time)
+{
+  AVFrame *frame = NULL;
+  int ret = av_buffersink_get_frame(context, frame);
+  bool eof = (ret != AVERROR_EOF);
+  if (ena && (ret == 0 || eof))
+  {
+    sink.push(eof ? NULL : frame, rel_time);
+    if (eof)
+      ena = false;
+  }
+  return ret;
+}
+
 ////////////////////////////////
 VideoSink::VideoSink(Graph &fg, IAVFrameSink &buf)
-    : SinkBase(fg, buf), VideoParams(dynamic_cast<IVideoHandler &>(buf).getVideoParams()) { }
+    : SinkBase(fg, buf), VideoHandler(dynamic_cast<IVideoHandler &>(buf)) { }
 AVFilterContext *VideoSink::configure(const std::string &name)
 { // configure the AVFilterContext
   create_context("buffersink", name);
@@ -68,7 +81,7 @@ void VideoSink::sync()
 
 ////////////////////////////////
 AudioSink::AudioSink(Graph &fg, IAVFrameSink &buf)
-    : SinkBase(fg, buf), AudioParams(dynamic_cast<IAudioHandler &>(buf).getAudioParams()) {}
+    : SinkBase(fg, buf), AudioHandler(dynamic_cast<IAudioHandler &>(buf)) {}
 AVFilterContext *AudioSink::configure(const std::string &name)
 {
   // clears ena flag

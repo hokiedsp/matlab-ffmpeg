@@ -15,19 +15,13 @@ namespace ffmpeg
 {
 namespace filter
 {
-class EndpointBase : public Base, protected BasicMediaParams, virtual public IMediaHandler
+class EndpointBase : public Base, virtual public MediaHandler
 {
 public:
   // AVMediaType type;   AVRational time_base
-  EndpointBase(Graph &parent, const AVMediaType type, const AVRational &tb = {0, 0}) : Base(parent), BasicMediaParams({type, tb}) {}
-  EndpointBase(Graph &parent, const IMediaHandler &mdev) : Base(parent), BasicMediaParams(mdev.getBasicMediaParams()) {}
+  EndpointBase(Graph &parent, const AVMediaType type, const AVRational &tb = {0, 0}) : Base(parent), MediaHandler(type, tb) {}
+  EndpointBase(Graph &parent, const IMediaHandler &mdev) : Base(parent), MediaHandler(mdev) {}
   virtual ~EndpointBase() {}
-
-  const BasicMediaParams &getBasicMediaParams() const { return (BasicMediaParams &)*this; }
-  AVMediaType getMediaType() const { return type; }
-  std::string getMediaTypeString() const { return av_get_media_type_string(type); }
-  AVRational getTimeBase() const { return time_base; }
-  void setTimeBase(const AVRational &tb) { time_base = tb; }
 
   virtual int processFrame() = 0;
 };

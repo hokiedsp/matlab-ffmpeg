@@ -2,28 +2,8 @@
 
 using namespace ffmpeg;
 
-InputVideoStream::InputVideoStream(AVStream *st, IAVFrameSink *buf)
- : InputStream(st, buf)
-{
-  bparams.type = AVMEDIA_TYPE_VIDEO;
-}
+InputVideoStream::InputVideoStream(AVStream *st, IAVFrameSink *buf) : InputStream(st, buf) {}
 InputVideoStream::~InputVideoStream() {}
-
-void InputVideoStream::open(AVStream *s)
-{
-  InputStream::open(s);
-  if (st)
-  {
-    AVCodecParameters *par = st->codecpar;
-    vparams = {(AVPixelFormat)par->codec_type, par->width, par->height, par->sample_aspect_ratio};
-  }
-}
-void InputVideoStream::close()
-{
-  InputStream::close();
-  vparams = {AV_PIX_FMT_NONE, 0, 0, {0, 0}};
-  bparams.type = AVMEDIA_TYPE_VIDEO;
-}
 
 AVRational InputVideoStream::getAvgFrameRate() const { return st ? st->avg_frame_rate : AVRational({0, 0}); }
 

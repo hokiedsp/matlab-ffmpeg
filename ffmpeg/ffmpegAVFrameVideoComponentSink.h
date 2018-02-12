@@ -19,18 +19,18 @@ namespace ffmpeg
  *  An AVFrame sink, which converts a received video AVFrame to component data (e.g., RGB)
  */
 template <class Allocator = ffmpegAllocator<uint8_t>()>
-class AVFrameVideoComponentSink : public AVFrameSinkBase, protected VideoParams, virtual public IVideoHandler
+class AVFrameVideoComponentSink : public AVFrameSinkBase, public VideoHandler
 {
 public:
   AVFrameVideoComponentSink(const AVRational &tb = {0, 0})
-      : AVFrameSinkBase(AVMEDIA_TYPE_VIDEO, tb), VideoParams({AV_PIX_FMT_NONE, 0, 0, {0, 0}}), desc(NULL),
+      : AVFrameSinkBase(AVMEDIA_TYPE_VIDEO, tb), desc(NULL),
         nb_frames(1), time_buf(NULL), frame_data_sz(0), data_buf(NULL), has_eof(false), wr_time(NULL), wr_data(NULL)
   {
   }
 
   // copy constructor
   AVFrameVideoComponentSink(const AVFrameVideoComponentSink &other)
-      : AVFrameSinkBase(other), VideoParams(other),
+      : AVFrameSinkBase(other), VideoHandler(other),
         nb_frames(other.nb_frames), frame_data_sz(other.frame_data_sz), has_eof(other.has_eof)
   {
     copy_buffers(other);
@@ -38,7 +38,7 @@ public:
 
   // move constructor
   AVFrameVideoComponentSink(AVFrameVideoComponentSink &&other) noexcept
-      : AVFrameSinkBase(other), VideoParams(other), nb_frames(other.nb_frames),
+      : AVFrameSinkBase(other), VideoHandler(other), nb_frames(other.nb_frames),
         time_buf(other.time_buf), frame_data_sz(other.frame_data_sz), data_buf(other.data_buf),
         has_eof(other.has_eof), wr_time(other.wr_time), wr_data(other.wr_data)
   {
@@ -52,14 +52,12 @@ public:
 
   virtual ~AVFrameVideoComponentSink()
   {
+    av_log(NULL,AV_LOG_INFO,"destructing AVFrameVideoComponentSink");
     std::unique_lock<std::mutex> l_rx(m);
     allocator.deallocate((uint8_t *)time_buf, nb_frames * sizeof(double));
     allocator.deallocate(data_buf, nb_frames * width * height);
+    av_log(NULL,AV_LOG_INFO,"destructed AVFrameVideoComponentSink");
   }
-
-  using AVFrameSinkBase::getBasicMediaParams;
-
-  const VideoParams &AVFrameVideoComponentSink::getVideoParams() const { return (VideoParams &)*this; }
 
   bool supportedFormat(int format) const
   {
@@ -103,7 +101,7 @@ public:
     if (reallocate)
     {
       reset_threadunsafe(0);
-      if (nframes) //notify the reader for the buffer availability
+      if (nb_frames) //notify the reader for the buffer availability
         cv_rx.notify_one();
     }
     else
@@ -216,14 +214,12 @@ protected:
   {
     if (frame)
     {
-      // if buffer format has not been set
-      if (!time_buf)
+      // if buffer format has not been set or frame parameters changed, reallocate the buffer
+      if (!time_buf || frame->format != format || frame->width != width || frame->height != height)
       {
-        *(VideoParams *)this = {(AVPixelFormat)frame->format, frame->width, frame->height, frame->sample_aspect_ratio};
+        setVideoParams(VideoParams({(AVPixelFormat)frame->format, frame->width, frame->height, frame->sample_aspect_ratio}));
         reallocate_threadunsafe();
       }
-      else if (frame->format != format || frame->width != width || frame->height != height) // format must match
-        throw ffmpegException("[ffmpeg::AVFrameVideoComponentSink::push_threadunsafe] Frame data does not match the buffer configuration.");
 
       // copy time
       if (frame->pts != AV_NOPTS_VALUE)

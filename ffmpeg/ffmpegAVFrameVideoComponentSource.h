@@ -18,11 +18,11 @@ namespace ffmpeg
  * \brief An AVFrame sink for a video stream to store frames' component data
  *  An AVFrame sink, which converts a received video AVFrame to component data (e.g., RGB)
  */
-class AVFrameVideoComponentSource : public AVFrameSourceBase, protected VideoParams, virtual public IVideoHandler
+class AVFrameVideoComponentSource : public AVFrameSourceBase, public VideoHandler
 {
 public:
   AVFrameVideoComponentSource(const size_t w, const size_t h, const AVPixelFormat fmt, const AVRational &tb = {0, 0})
-      : AVFrameSourceBase(AVMEDIA_TYPE_VIDEO, tb), VideoParams(w, h, {1, 1}, fmt), desc(av_pix_fmt_desc_get(fmt)), nb_frames(-1),
+      : AVFrameSourceBase(AVMEDIA_TYPE_VIDEO, tb), VideoHandler(w, h, {1, 1}, fmt), desc(av_pix_fmt_desc_get(fmt)), nb_frames(-1),
         next_time(0), has_eof(false)
   {
   }
@@ -32,7 +32,7 @@ public:
 
   // copy constructor
   AVFrameVideoComponentSource(const AVFrameVideoComponentSource &other)
-      : AVFrameSourceBase(other), VideoParams(other),
+      : AVFrameSourceBase(other), VideoHandler(other),
         nb_frames(other.nb_frames), has_eof(other.has_eof), next_time(other.next_time)
   {
     copy_queue(other);
@@ -40,7 +40,7 @@ public:
 
   // move constructor
   AVFrameVideoComponentSource(AVFrameVideoComponentSource &&other) noexcept
-      : AVFrameSourceBase(other), VideoParams(other), time_base(other.time_base), nb_frames(other.nb_frames),
+      : AVFrameSourceBase(other), VideoHandler(other), time_base(other.time_base), nb_frames(other.nb_frames),
         has_eof(other.has_eof), frame_queue(other.frame_queue), next_time(other.next_time)
   {
     // reset other's data
@@ -54,10 +54,6 @@ public:
     reset();
   }
 
-  using AVFrameSourceBase::getBasicMediaParams;
-
-  const VideoParams& AVFrameVideoComponentSource::getVideoParams() const { return (VideoParams&)*this; }
-
   bool supportedFormat(int format) const
   {
     // must <= 8-bit/component
@@ -70,6 +66,11 @@ public:
       if (desc->comp[i].depth > 8) return false;
 
     return true;
+  }
+
+  bool ready() const
+  {
+    return AVFrameSourceBase::ready() && VideoHandler::ready();
   }
 
   void reset(const size_t nframes = 0, const AVPixelFormat fmt = AV_PIX_FMT_NONE) // must re-implement to allocate data_buf

@@ -10,8 +10,8 @@ classdef ImageFilter < matlab.mixin.SetGet & matlab.mixin.CustomDisplay
    %   OBJ = FFMPEG.IMAGEFILTER(..., 'P1', V1, 'P2', V2, ...)
    %   constructs an image filter object, assigning values V1, V2, etc.
    %   to the specified properties P1, P2, etc. Note that the property
-   %   value pairs can be in any format supported by the SET function, e.g.
-   %   parameter-value string pairs, structures, or parameter-value cell
+   %   val pairs can be in any format supported by the SET function, e.g.
+   %   parameter-val string pairs, structures, or parameter-val cell
    %   array pairs.
    %
    %   Methods:
@@ -24,7 +24,7 @@ classdef ImageFilter < matlab.mixin.SetGet & matlab.mixin.CustomDisplay
    %     FilterGraph   - Implemented filtergraph string
    %     InputNames    - Names of the input nodes
    %     OutputNames   - Names of the output nodes
-   %                        
+   %
    %     Tag           - Generic string for the user to set.
    %     UserData      - Generic field for any user-defined data.
    %
@@ -34,23 +34,25 @@ classdef ImageFilter < matlab.mixin.SetGet & matlab.mixin.CustomDisplay
    %
    %   Example:
    %
-   %   See also 
+   %   See also
    %
    
-   properties(Access='public', Dependent)
-      FilterGraph   % - Implemented filtergraph string
-   end
-   
    properties(GetAccess='public', SetAccess='private', Dependent)
+      FilterGraph   % - Implemented filtergraph string
       InputNames    % - Names of the input nodes
       OutputNames   % - Names of the output nodes
+   end
+   
+   properties(GetAccess='public', SetAccess='public', SetObservable)
+      InputFormat = 'rgb24'   % - PixelFormat of the input image (if multiple-input with multiple formats, use struct to specify each input's)
+      InputSAR = 1            % - SAR of the input image (if multiple-input with multiple formats, use struct to specify each input's)
    end
    
    properties(GetAccess='public', SetAccess='public')
       Tag = '';       % Generic string for the user to set.
       UserData        % Generic field for any user-defined data.
    end
-      
+   
    properties (SetAccess = private, Hidden = true)
       backend % Handle to the backend C++ class instance
    end
@@ -72,12 +74,16 @@ classdef ImageFilter < matlab.mixin.SetGet & matlab.mixin.CustomDisplay
          % instantiate the MEX backend
          ffmpegsetenv(); % make sure ffmpeg DLLs are in the system path
          ffmpeg.ImageFilter.mexfcn(obj);
-
+         
+         % set listener for the InputFormat
+         addlistener(obj,'InputFormat','PostSet',@(~,~)ffmpeg.ImageFilter.mexfcn(obj,'syncInputFormat'));
+         addlistener(obj,'InputSAR','PostSet',@(~,~)ffmpeg.ImageFilter.mexfcn(obj,'syncInputSAR'));
+         
          % set all options
          if nargin>0
             set(obj,varargin{:});
          end
-
+         
       end
       
       function delete(obj)
@@ -86,20 +92,20 @@ classdef ImageFilter < matlab.mixin.SetGet & matlab.mixin.CustomDisplay
          end
       end
       
-      varargout = run(obj,varargin)
+      B = run(obj,varargin)
       
       function reset(obj)
-      % FFMPEG.IMAGEFILTER.RESET   Reset FFmpeg states
-      %   RESET(OBJ) resets internal FFmpeg states by reconstruct the
-      %   filtergraph object
-      ffmpeg.ImageFilter.mexfcn(obj, 'reset');
+         % FFMPEG.IMAGEFILTER.RESET   Reset FFmpeg states
+         %   RESET(OBJ) resets internal FFmpeg states by reconstruct the
+         %   filtergraph object
+         ffmpeg.ImageFilter.mexfcn(obj, 'reset');
       end
       
       function tf = isSimple(obj)
-      % FFMPEG.IMAGEFILTER.ISSIMPLE   True if simple filter graph
-      %   ISSIMPLE(OBJ) returns true if loaded filter graph is simple,
-      %   i.e., an one-input one-output graph.
-      tf = ffmpeg.ImageFilter.mexfcn(obj, 'isSimple');
+         % FFMPEG.IMAGEFILTER.ISSIMPLE   True if simple filter graph
+         %   ISSIMPLE(OBJ) returns true if loaded filter graph is simple,
+         %   i.e., an one-input one-output graph.
+         tf = ffmpeg.ImageFilter.mexfcn(obj, 'isSimple');
       end
    end
    
@@ -174,33 +180,89 @@ classdef ImageFilter < matlab.mixin.SetGet & matlab.mixin.CustomDisplay
    %------------------------------------------------------------------
    methods
       % Properties that are not dependent on underlying object.
-      function set.Tag(obj, value)
-         validateattributes( value, {'char'}, {}, class(obj), 'Tag');
-         obj.Tag = value;
+      function set.Tag(obj, val)
+         validateattributes( val, {'char'}, {}, class(obj), 'Tag');
+         obj.Tag = val;
       end
       
       % Properties that are dependent on underlying object.
-      function value = get.FilterGraph(obj)
-         value = ffmpeg.ImageFilter.mexfcn(obj,'get','FilterGraph');
+      function val = get.FilterGraph(obj)
+         val = ffmpeg.ImageFilter.mexfcn(obj,'get','FilterGraph');
       end
       
-      function set.FilterGraph(obj,value)
-         validateattributes(value,{'char'},{'row'},class(obj),'FilterGraph');
-         ffmpeg.ImageFilter.mexfcn(obj,'set','FilterGraph',value);
+      function set.FilterGraph(obj,val)
+         validateattributes(val,{'char'},{'row'},class(obj),'FilterGraph');
+         ffmpeg.ImageFilter.mexfcn(obj,'set','FilterGraph',val);
+         % if success, update InputFormat & InputSAR properties
+
+         % synch format & SAR; if input names are not the same, use default
+         inputs = obj.InputNames;
+         if isstruct(obj.InputFormat) && ~isempty(setxor(inputs,fieldnames(obj.InputFormat)))
+            obj.InputFormat = 'rgb24';
+         else
+            ffmpeg.ImageFilter.mexfcn(obj,'syncInputFormat');
+         end
+         if isstruct(obj.InputSAR) && ~isempty(setxor(inputs,fieldnames(obj.InputSAR)))
+            obj.InputSAR = 1;
+         else
+            ffmpeg.ImageFilter.mexfcn(obj,'syncInputSAR');
+         end
       end
-
-      function value = get.InputNames(obj)
-         value = ffmpeg.ImageFilter.mexfcn(obj,'get','InputNames');
+      
+      function val = get.InputNames(obj)
+         val = ffmpeg.ImageFilter.mexfcn(obj,'get','InputNames');
       end
-
-      function value = get.OutputNames(obj)
-         value = ffmpeg.ImageFilter.mexfcn(obj,'get','OutputNames');
+      
+      function val = get.OutputNames(obj)
+         val = ffmpeg.ImageFilter.mexfcn(obj,'get','OutputNames');
       end
-
-
+      
+      function set.InputFormat(obj,val)
+         if ischar(val)
+            if ~(isrow(val) && ffmpeg.ImageFilter.mexfcn('isSupportedFormat',val))
+               error('Unsupported input format specified.');
+            end
+         elseif isstruct(val)
+            if ~(isscalar(val) && isempty(setxor(obj.InputNames,fieldnames(val))) ...
+              && all(structfun(@(f)ischar(f) && isrow(f) ...
+                  && ffmpeg.ImageFilter.mexfcn('isSupportedFormat',f),val))) %#ok
+               error('Unsupported input format specified.')
+            end
+         else
+            error('InputFormat must be a string or a struct with input names as field names and their formats as the values.');
+         end
+         obj.InputFormat = val;
+      end
+      
+      function set.InputSAR(obj,val)
+         % val could be a scalar between 0 and 1 
+         if isstruct(val)
+            if ~(isscalar(val) && isempty(setxor(obj.InputNames,fieldnames(val))) ...
+              && all(structfun(@(f)ischar(f) && isrow(f) ...
+                  && ffmpeg.ImageFilter.isValidSAR(f),val))) %#ok
+               error('Input sample-aspect-ratio (SAR) must be provided for all inputs.');
+            end
+         else
+            ffmpeg.ImageFilter.isValidSAR(val);
+         end
+         obj.InputSAR = val;
+      end
    end
    
-
+   methods (Access=private, Static)
+      function tf = isValidSAR(sar)
+         tf = true;
+         try % possibly a number between 0 and 1
+            validateattributes(sar,{'single','double'},{'scalar','positive','finite'});
+         catch % or two-element vector to represent a ratio sar(1)/sar(2)
+            try
+               validateattributes(sar,{'numeric'},{'numel',2,'positive','integer'});
+            catch % or a string expression
+               ffmpeg.ImageFilter.mexfcn('validateSARString',sar);
+            end
+         end
+      end
+   end
    %------------------------------------------------------------------
    % Overrides for Custom Display
    %------------------------------------------------------------------
@@ -212,8 +274,9 @@ classdef ImageFilter < matlab.mixin.SetGet & matlab.mixin.CustomDisplay
             error('Non-scalar object not supported.');
          end
          
-         propGroups(1) = PropertyGroup( {'FilterGraph', 'Tag', 'UserData'});
+         propGroups(1) = PropertyGroup( {'FilterGraph', 'InputFormat', 'InputSAR'});
          propGroups(2) = PropertyGroup( {'InputNames', 'OutputNames'});
+         propGroups(3) = PropertyGroup( {'Tag', 'UserData'});
       end
    end
    

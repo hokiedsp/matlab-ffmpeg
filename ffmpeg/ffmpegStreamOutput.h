@@ -17,10 +17,10 @@ namespace ffmpeg
 /**
  * \brief Class to manage AVStream
  */
-class OutputStream : public BaseStream
+class OutputStream : virtual public BaseStream
 {
 public:
-  OutputStream(IAVFrameSource *buf = NULL);
+  OutputStream(IAVFrameSource *buf);
   virtual ~OutputStream();
 
   virtual bool ready();
@@ -34,7 +34,11 @@ public:
   IAVFrameSource *getBuffer() const;
   IAVFrameSource *releaseBuffer();
 
-  virtual int reset() { avcodec_flush_buffers(ctx); return 0; } // reset decoder states
+  virtual int reset()
+  {
+    avcodec_flush_buffers(ctx);
+    return 0;
+  } // reset decoder states
   virtual int OutputStream::processFrame(AVPacket *packet);
 
 protected:
@@ -44,75 +48,26 @@ protected:
 
 typedef std::vector<OutputStream *> OutputStreamPtrs;
 
-class OutputVideoStream : public OutputStream, virtual IVideoHandler
+class OutputVideoStream : public VideoStream, public OutputStream
 {
 public:
   OutputVideoStream(IAVFrameSource *buf = NULL);
   virtual ~OutputVideoStream();
 
-  const VideoParams &getVideoParams() const { return vparams; }
-
-  AVStream *open()
-  {
-    AVStream *s = OutputStream::open();
-    if (st)
-    {
-      AVCodecParameters *par = st->codecpar;
-      vparams = {(AVPixelFormat)par->codec_type, par->width, par->height, par->sample_aspect_ratio};
-    }
-    return s;
-  }
-  void close()
-  {
-    bparams.type = AVMEDIA_TYPE_VIDEO;
-    vparams = {AV_PIX_FMT_NONE, 0, 0, {0, 0}};
-  }
-
   AVPixelFormats getPixelFormats() const;
-  AVPixelFormat getPixelFormat() const;
-
   AVPixelFormat choose_pixel_fmt(AVPixelFormat target) const;
   AVPixelFormats choose_pix_fmts() const;
 
-  using OutputStream::getBasicMediaParams;
-
 private:
   bool keep_pix_fmt;
-  VideoParams vparams;
 };
 
-class OutputAudioStream : public OutputStream, virtual IAudioHandler
+class OutputAudioStream : public AudioStream, public OutputStream
 {
 public:
-  OutputAudioStream(IAVFrameSource *buf = NULL)
-      : OutputStream(buf), aparams({AV_SAMPLE_FMT_NONE, 0, 0})
-  {
-    bparams.type = AVMEDIA_TYPE_AUDIO;
-  }
+  OutputAudioStream(IAVFrameSource *buf = NULL) : OutputStream(buf) {}
   virtual ~OutputAudioStream() {}
 
-  const AudioParams &getAudioParams() const { return aparams; }
-
-  AVStream *open()
-  {
-    AVStream *s = OutputStream::open();
-    if (st)
-    {
-      AVCodecParameters *par = st->codecpar;
-      aparams = {(AVSampleFormat)par->codec_type, par->channels, par->channel_layout};
-    }
-    return s;
-  }
-  void close()
-  {
-    OutputStream::close();
-    bparams.type = AVMEDIA_TYPE_AUDIO;
-    aparams = {AV_SAMPLE_FMT_NONE, 0, 0};
-  }
-
-  using OutputStream::getBasicMediaParams;
-
 private:
-  AudioParams aparams;
 };
 }

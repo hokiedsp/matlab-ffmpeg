@@ -24,8 +24,11 @@ extern "C" {
 #include <vector>
 #include <map>
 #include <utility>
+#include <chrono>
 
 typedef std::vector<std::string> string_vector;
+
+using namespace std::chrono_literals;
 
 namespace ffmpeg
 {
@@ -94,11 +97,30 @@ public:
    * finalizeGraph instantiates all the endpoint filter elements (buffer, buffersink, abuffer, or abuffersink)
    * as assigned by user.
    * 
-   * \note Step 4 in building a new filter graph
+   * \note Lst step in building a new filter graph
    * \note Not thread-safe. Must be called while the object's thread is paused
    * 
    */
-  void finalizeGraph();
+  void configure();
+
+  /**
+   * \brief Returns true if the filter graph is ready to run
+   * 
+   * \returns true if filter graph is ready to run
+   */
+  bool ready();
+
+  /**
+   * \brief Update the frame data
+   * 
+   * finalizeGraph instantiates all the endpoint filter elements (buffer, buffersink, abuffer, or abuffersink)
+   * as assigned by user.
+   * 
+   * \note Lst step in building a new filter graph
+   * \note Not thread-safe. Must be called while the object's thread is paused
+   * 
+   */
+  void updateParameters();
 
   /**
    * \brief Reset filter graph state / flush internal buffers
@@ -114,6 +136,29 @@ public:
    */
   void flush();
 
+  /**
+   * \brief Thread-free execution of the filter graph
+   * 
+   * runOnce() executes one filtering transaction without the threaded portion of 
+   * ffmpeg::filter::Graph class. The input/source AVFrame buffers linked to the filter 
+   * graph must be pre-populated. If no AVFrame could be retrieved, the function throws
+   * an exception. 
+   * 
+   * On the other end, the output AVFrame buffers should have enough capacity
+   * so that all the filtered output AVFrame could be captured. If an output buffer remains
+   * full after \var rel_time milliseconds, the filtered AVFrame will be dropped.
+   * 
+   * \note runOnce() assumes that the thread of ffmpeg::filter::Graph object is not running.
+   *       So, make sure to stop the thread before running this function.
+   * 
+   * \param[in] rel_time the maximum time to spend waiting for exclusive access to each 
+   *                     source/sink buffer.
+   * \throws ffmpegException if fails to retrieve any input AVFrame from input source buffers.
+   * \throws ffmpegException if input buffer returns an error during frame retrieval.
+   * \throws ffmpegException if output buffer returns an error during frame retrieval.
+   */
+  void runOnce(const std::chrono::milliseconds &rel_time = 1000ms);
+
   AVFilterGraph *getAVFilterGraph() const { return graph; }
 
   int insert_filter(AVFilterContext *&last_filter, int &pad_idx,
@@ -123,31 +168,74 @@ public:
   string_vector getInputNames() const { return Graph::get_names(inputs); }
   string_vector getOutputNames() const { return Graph::get_names(outputs); }
 
+  IAVFrameSource *getInputBuffer(std::string name = "")
+  {
+    if (name.empty())
+      return inputs.begin()->second.buf;
+    else
+      return inputs.at(name).buf;
+  }
+  IAVFrameSink *getOutputBuffer(std::string name = "")
+  {
+    if (name.empty())
+      return outputs.begin()->second.buf;
+    else
+      return outputs.at(name).buf;
+  }
+
+  template<typename UnaryFunction>
+  void forEachInput(UnaryFunction f)
+  {
+    for (auto it = inputs.begin(); it != inputs.end(); ++it)
+      f(it->first, it->second.buf, it->second.filter);
+  }
+
+  template<typename UnaryFunction>
+  void forEachInputName(UnaryFunction f)
+  {
+    for (auto it = inputs.begin(); it != inputs.end(); ++it)
+      f(it->first);
+  }
+
+  template<typename UnaryFunction>
+  void forEachInputFilter(UnaryFunction f)
+  {
+    for (auto it = inputs.begin(); it != inputs.end(); ++it)
+      f(it->first, it->second.filter);
+  }
+
+  template<typename UnaryFunction>
+  void forEachInputBuffer(UnaryFunction f)
+  {
+    for (auto it = inputs.begin(); it != inputs.end(); ++it)
+      f(it->first, it->second.buf);
+  }
+
   bool isSimple() const { return inputs.size() == 1 && outputs.size() == 1; }
   
-  const SourceBase *findSourceByName(const std::string &name)
+  bool isSource(const std::string &name)
   {
     try
     {
-      const SourceInfo &src = inputs.at(name);
-      return src.filter;
+      inputs.at(name);
+      return true;
     }
     catch (...)
     {
-      return NULL;
+      return false;
     }
   }
 
-  const SinkBase *findSinkByName(const std::string &name)
+  bool isSink(const std::string &name)
   {
     try
     {
       const SinkInfo &sink = outputs.at(name);
-      return sink.filter;
+      return true;
     }
     catch (...)
     {
-      return NULL;
+      return false;
     }
   }
 
@@ -155,8 +243,6 @@ public:
 protected:
   // thread function: responsible to read packet and send it to ffmpeg decoder
   void thread_fcn();
-
-  void configure();
 
   template <typename EP, typename VEP, typename AEP, typename BUFF>
   void assign_endpoint(EP *&ep, AVMediaType type, BUFF &buf)
@@ -190,6 +276,7 @@ private:
   typedef struct
   {
     AVMediaType type;
+    IAVFrameSource *buf;
     SourceBase *filter;
     AVFilterContext *other;
     int otherpad;
@@ -197,6 +284,7 @@ private:
   typedef struct
   {
     AVMediaType type;
+    IAVFrameSink *buf;
     SinkBase *filter;
     AVFilterContext *other;
     int otherpad;

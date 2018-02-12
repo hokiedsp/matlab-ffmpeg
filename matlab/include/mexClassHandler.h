@@ -1,36 +1,15 @@
 #pragma once
 
+#include "mexGetString.h" // to convert char mexArray to std::string
+#include "mexRuntimeError.h" // for mexRuntimeError runtime exception class
+
 #include <mex.h>
 #include <stdint.h>
-#include <string>
-#include <cstring>
-#include <typeinfo>
-#include <stdexcept>
-#include <algorithm>
-
-class mexRuntimeError : public std::runtime_error
-{
-public:
-  mexRuntimeError(char const *const message) throw() : std::runtime_error(message)
-  {
-  }
-  mexRuntimeError(char const *ident, char const *const message) throw() : std::runtime_error(message), id_str(ident)
-  {
-  }
-  mexRuntimeError(std::string &message) throw() : std::runtime_error(message.c_str())
-  {
-  }
-  mexRuntimeError(std::string &ident, std::string &message) throw() : std::runtime_error(message.c_str()), id_str(ident)
-  {
-  }
-  mexRuntimeError(std::string &ident, char const *const message) throw() : std::runtime_error(message), id_str(ident)
-  {
-  }
-  virtual char const *id() const throw() { return id_str.c_str(); }
-
-private:
-  std::string id_str;
-};
+// #include <string>
+// #include <cstring>
+// #include <typeinfo>
+// #include <stdexcept>
+// #include <algorithm>
 
 #define CLASS_HANDLE_SIGNATURE 0xFF00F0A5
 template <class base>
@@ -95,23 +74,6 @@ inline void destroyObject(mexClassHandle<base> *in)
   }
 }
 
-std::string mexGetString(const mxArray *array)
-{
-  // ideally use std::codecvt but VSC++ does not support this particular template specialization as of 2017
-  // mxChar *str_utf16 = mxGetChars(array);
-  // if (str_utf16==NULL)
-  //   throw 0;
-  // std::string str = std::wstring_convert<std::codecvt_utf8_utf16<mxChar>, mxChar>{}.to_bytes(str_utf16);
-
-  mwSize len = mxGetNumberOfElements(array);
-  std::string str;
-  str.resize(len + 1);
-  if (mxGetString(array, &str.front(), str.size()) != 0)
-    throw mexRuntimeError("notString", "Failed to convert MATLAB string.");
-  str.resize(len); // remove the trailing NULL character
-  return str;
-}
-
 /// mexClassHandler
 /// Function to handle MATLAB class member mex-function calls. The associated MATLAB class must have a (private)
 /// property named 'backend' which stores the C++ class object handle (must inherit mexClassHandle).
@@ -145,9 +107,7 @@ void mexClassHandler(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[])
   try
   {
     if (nrhs < 1)
-    {
       throw mexRuntimeError(class_name + ":mex:invalidInput", "Needs at least one input argument.");
-    }
 
     if (!mxIsClass(prhs[0], class_name.c_str())) // static action
     {

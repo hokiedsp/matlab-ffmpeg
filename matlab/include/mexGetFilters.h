@@ -6,17 +6,16 @@ extern "C" {
 }
 
 template <class UnaryPredicate>
-void getFilters(int nlhs, mxArray *plhs[], UnaryPredicate pred) // formats = getVideoFormats();
+mxArray *getFilters(UnaryPredicate pred) // formats = getFilters();
 {
   // build a list of pixel format descriptors
   std::vector<const AVFilter *> filters;
-  filters.reserve(256);
+  filters.reserve(512);
   for (const AVFilter *filter = avfilter_next(NULL);
        filter != NULL;
        filter = avfilter_next(filter))
     if (pred(filter))
       filters.push_back(filter);
-
   std::sort(filters.begin(), filters.end(),
             [](const AVFilter *a, const AVFilter *b) -> bool { return strcmp(a->name, b->name) < 0; });
 
@@ -25,17 +24,17 @@ void getFilters(int nlhs, mxArray *plhs[], UnaryPredicate pred) // formats = get
       "Name", "Description", "InputType", "NumberOfVideoInputs", "NumberOfAudioInputs",
       "OutputType", "NumberOfVideoOutputs", "NumberOfAudioOutputs", "CommandInput", "TimelineSupport", "Multithreaded"};
 
-  plhs[0] = mxCreateStructMatrix(filters.size(), 1, nfields, fieldnames);
+  mxArray *plhs = mxCreateStructMatrix(filters.size(), 1, nfields, fieldnames);
 
   for (int j = 0; j < filters.size(); ++j)
   {
     const AVFilter *filter = filters[j];
 
-    mxSetField(plhs[0], j, "Name", mxCreateString(filter->name));
-    mxSetField(plhs[0], j, "Description", mxCreateString(filter->description));
-    mxSetField(plhs[0], j, "CommandInput", mxCreateString((filter->process_command) ? "on" : "off"));
-    mxSetField(plhs[0], j, "TimelineSupport", mxCreateString((filter->flags & AVFILTER_FLAG_SUPPORT_TIMELINE) ? "on" : "off"));
-    mxSetField(plhs[0], j, "Multithreaded", mxCreateString((filter->flags & AVFILTER_FLAG_SLICE_THREADS) ? "on" : "off"));
+    mxSetField(plhs, j, "Name", mxCreateString(filter->name));
+    mxSetField(plhs, j, "Description", mxCreateString(filter->description));
+    mxSetField(plhs, j, "CommandInput", mxCreateString((filter->process_command) ? "on" : "off"));
+    mxSetField(plhs, j, "TimelineSupport", mxCreateString((filter->flags & AVFILTER_FLAG_SUPPORT_TIMELINE) ? "on" : "off"));
+    mxSetField(plhs, j, "Multithreaded", mxCreateString((filter->flags & AVFILTER_FLAG_SLICE_THREADS) ? "on" : "off"));
 
     const std::string iostr[2] = {"Input", "Output"};
     for (int i = 0; i < 2; i++)
@@ -58,14 +57,14 @@ void getFilters(int nlhs, mxArray *plhs[], UnaryPredicate pred) // formats = get
       if (nvideo)
       {
         if (naudio)
-          mxSetField(plhs[0], j, type_field.c_str(), mxCreateString("mixed"));
+          mxSetField(plhs, j, type_field.c_str(), mxCreateString("mixed"));
         else
-          mxSetField(plhs[0], j, type_field.c_str(), mxCreateString("video"));
+          mxSetField(plhs, j, type_field.c_str(), mxCreateString("video"));
       }
       else if (naudio)
-          mxSetField(plhs[0], j, type_field.c_str(), mxCreateString("audio"));
+          mxSetField(plhs, j, type_field.c_str(), mxCreateString("audio"));
       else
-          mxSetField(plhs[0], j, type_field.c_str(), mxCreateString("unspecified"));
+          mxSetField(plhs, j, type_field.c_str(), mxCreateString("unspecified"));
       
       bool dyn = (!i && (filter->flags & AVFILTER_FLAG_DYNAMIC_INPUTS)) ||
                           (i && (filter->flags & AVFILTER_FLAG_DYNAMIC_OUTPUTS));
@@ -73,13 +72,14 @@ void getFilters(int nlhs, mxArray *plhs[], UnaryPredicate pred) // formats = get
       if (dyn && !nvideo) nvideo = -1;
     
       const std::string num = "NumberOf";
-      mxSetField(plhs[0], j, (num+"Video"+iostr[i]+'s').c_str(), mxCreateDoubleScalar(nvideo));
-      mxSetField(plhs[0], j, (num+"Audio"+iostr[i]+'s').c_str(), mxCreateDoubleScalar(naudio));
+      mxSetField(plhs, j, (num+"Video"+iostr[i]+'s').c_str(), mxCreateDoubleScalar(nvideo));
+      mxSetField(plhs, j, (num+"Audio"+iostr[i]+'s').c_str(), mxCreateDoubleScalar(naudio));
     }
   }
+  return plhs;
 }
 
-inline void getFilters(int nlhs, mxArray *plhs[])
+inline mxArray *getFilters()
 {
-  getFilters(nlhs, plhs, [](const AVFilter*) { return true; });
+  return getFilters([](const AVFilter*) { return true; });
 }

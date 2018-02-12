@@ -1,5 +1,7 @@
 #include "mexImageFilter.h"
 
+#include "mexParsers.h"
+
 extern "C" {
 #include <libswscale/swscale.h>
 // #include <libavfilter/avfiltergraph.h>
@@ -37,8 +39,10 @@ void mexFunction(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[])
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
-mexImageFilter::mexImageFilter(int nrhs, const mxArray *prhs[]) {}
-mexImageFilter::~mexImageFilter() {}
+mexImageFilter::mexImageFilter(int nrhs, const mxArray *prhs[]) : ran(false), changedFormat(false), changedSAR(false) {}
+mexImageFilter::~mexImageFilter() {
+  av_log(NULL,AV_LOG_INFO,"destructed mexImageFilter");
+}
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -91,28 +95,171 @@ bool mexImageFilter::action_handler(const mxArray *mxObj, const std::string &com
     return true;
 
   if (command == "runSimple")
-    runSimple(nlhs, plhs, nrhs, prhs);
+    runSimple(mxObj, plhs[0], prhs[0]);
   else if (command == "runComplex")
-    runComplex(nlhs, plhs, nrhs, prhs);
+    runComplex(mxObj, plhs[0], prhs[0]);
   else if (command == "reset")
     reset();
   else if (command == "isSimple")
     plhs[0] = mxCreateLogicalScalar(filtergraph.isSimple());
+  else if (command == "isValidInputName")
+    plhs[0] = isValidInputName(prhs[0]);
+  else if (command == "syncInputFormat")
+    syncInputFormat(mxObj);
+  else if (command == "syncInputSAR")
+    syncInputSAR(mxObj);
+
   return true;
 }
 
-void mexImageFilter::runSimple(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[])
+// outimg = runSimple(inimg)
+void mexImageFilter::runSimple(const mxArray *mxObj, mxArray *&mxOut, const mxArray *mxIn)
 {
-    // configure
-  filtergraph.configure();
+  // check to make sure filter graph is ready to go: AVFilterGraph is present and SourceInfo and SinkInfo maps are fully populated
+  filtergraph.ready();
 
+  // get the input buffer
+  mexComponentSource &src = *dynamic_cast<mexComponentSource *>(filtergraph.getInputBuffer());
+
+  // get the input image (guaranteed to be nonempty uint8 array)
+  int width, height, depth;
+  const uint8_t *in = mexImageFilter::getMxImageData(mxIn, width, height, depth);
+
+  // check to see if width or height changed
+  bool changedDims = (ran && (width != src.getWidth() || height != src.getHeight()));
+
+  bool config = !ran;
+  bool reconfig = ran || changedFormat || changedSAR || changedDims;
+  if (ran) // clear ran flag to sync with Matlab OBJ
+    ran = false;
+
+  // sync format & sar if changed in MATLAB
+  if (changedFormat)
+    syncInputFormat(mxObj);
+  if (changedSAR)
+    syncInputSAR(mxObj);
+
+  // check the depth against the format
+  const AVPixFmtDescriptor *desc = av_pix_fmt_desc_get(src.getFormat());
+  if (desc->nb_components != depth)
+    throw std::runtime_error("The depth of the image data does not match the image format's.");
+
+  // set the buffer's dimensional parameters
+  src.setWidth(width);
+  src.setHeight(height);
+
+  av_log(NULL, AV_LOG_INFO, "format:%s:width:%d:height:%d:sar:%d:%d", src.getFormatName(), src.getWidth(),
+         src.getHeight(), src.getSAR().num, src.getSAR().den);
+
+  // configure the filter graph
+  if (config)
+    filtergraph.configure(); // new graph
+  else if (reconfig)
+    filtergraph.flush(); // recreate AVFilterGraph with the same AVFrame buffers
+
+  if (!filtergraph.ready()) // something went wrong
+    throw std::runtime_error("Failed to configure the filter graph.");
+
+  // send the image data to the buffer
+  src.load(in);
+
+  // run the filter
+  filtergraph.runOnce();
+
+  // get the output
+  uint8_t *data;
+  mexComponentSink &sink = *dynamic_cast<mexComponentSink *>(filtergraph.getOutputBuffer());
+  if (!sink.release(&data)) // grab entire the data buffer
+    throw std::runtime_error("No output data were produced by the filter graph.");
+
+  // output format
+  desc = av_pix_fmt_desc_get(sink.getFormat());
+  mwSize dims[3] = {(mwSize)sink.getWidth(), (mwSize)sink.getHeight(), (mwSize)desc->nb_components};
+  mxOut = mxCreateNumericMatrix(0, 0, mxUINT8_CLASS, mxREAL);
+  mxSetDimensions(mxOut, dims, 3);
+  mxSetData(mxOut, data);
 }
 
-void mexImageFilter::runComplex(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[])
+// Soutimg = runComplex(Sinimg)
+void mexImageFilter::runComplex(const mxArray *mxObj, mxArray *&mxOut, const mxArray *mxIn)
 {
-    // configure
-  filtergraph.configure();
+  // configure
+  // filtergraph.configure();
+}
 
+const uint8_t *mexImageFilter::getMxImageData(const mxArray *mxData, int &width, int &height, int &depth)
+{
+  // width & height are presented backwards to account for difference in column/row-major data storage
+  const mwSize *dims = mxGetDimensions(mxData);
+  width = (int)dims[0]; 
+  height = (int)dims[1];
+  depth = mxGetNumberOfDimensions(mxData) < 3 ? 1 : (int)dims[2];
+  return (uint8_t *)mxGetData(mxData);
+}
+
+void mexImageFilter::syncInputFormat(const mxArray *mxObj)
+{
+  mxArray *mxFmt = mxGetProperty(mxObj, 0, "InputFormat");
+  if (mxIsStruct(mxFmt))
+  {
+    filtergraph.forEachInputBuffer([&](const std::string &name, ffmpeg::IAVFrameSource *buf) {
+      std::string fmt_str = mexGetString(mxGetField(mxFmt, 0, name.c_str()));
+      AVPixelFormat fmt = av_get_pix_fmt(fmt_str.c_str());
+      mexComponentSource *src = dynamic_cast<mexComponentSource *>(buf);
+      if (!ran)
+        src->setFormat(fmt);
+      else if (!changedFormat && fmt != src->getFormat())
+        changedFormat = true;
+    });
+  }
+  else
+  {
+    std::string fmt_str = mexGetString(mxFmt);
+    AVPixelFormat fmt = av_get_pix_fmt(fmt_str.c_str());
+    filtergraph.forEachInputBuffer([&](const std::string &name, ffmpeg::IAVFrameSource *buf) {
+      mexComponentSource *src = dynamic_cast<mexComponentSource *>(buf);
+      if (!ran)
+        src->setFormat(fmt);
+      else if (!changedFormat && fmt != src->getFormat())
+        changedFormat = true;
+    });
+  }
+  if (!ran && changedFormat) // sync'd
+    changedFormat = false;
+
+  av_log(NULL,AV_LOG_INFO,"InputFormat synchronized.\n");
+}
+
+void mexImageFilter::syncInputSAR(const mxArray *mxObj)
+{
+  mxArray *mxSAR = mxGetProperty(mxObj, 0, "InputSAR");
+
+  if (mxIsStruct(mxSAR))
+  {
+    filtergraph.forEachInputBuffer([&](const std::string &name, ffmpeg::IAVFrameSource *buf) {
+      AVRational sar = mexImageFilter::getSAR(mxGetField(mxSAR, 0, name.c_str()));
+      mexComponentSource *src = dynamic_cast<mexComponentSource *>(buf);
+      if (!ran)
+        src->setSAR(sar);
+      else if (!changedSAR && av_cmp_q(sar, src->getSAR()))
+        changedSAR = true;
+    });
+  }
+  else
+  {
+    AVRational sar = mexImageFilter::getSAR(mxSAR);
+    filtergraph.forEachInputBuffer([&](const std::string &name, ffmpeg::IAVFrameSource *buf) {
+      mexComponentSource *src = dynamic_cast<mexComponentSource *>(buf);
+      if (!ran)
+        src->setSAR(sar);
+      else if (!changedSAR && av_cmp_q(sar, src->getSAR()))
+        changedSAR = true;
+    });
+  }
+  if (!ran && changedSAR)
+    changedSAR = false; // sync'ed
+
+  av_log(NULL,AV_LOG_INFO,"InputSAR synchronized.\n");
 }
 
 void mexImageFilter::reset()
@@ -137,74 +284,49 @@ void mexImageFilter::init(const std::string &new_graph)
   for (size_t i = sources.size(); i < ports.size(); ++i) // create more source buffers if not enough available
     sources.emplace_back();
   for (size_t i = 0; i < ports.size(); ++i) // link the source buffer to the filtergraph
-    filtergraph.assignSource(ports[i], sources[i]);
+    filtergraph.assignSource(sources[i], ports[i]);
 
   ports = filtergraph.getOutputNames();
   sinks.reserve(ports.size());
   for (size_t i = sinks.size(); i < ports.size(); ++i) // new source
     sinks.emplace_back();
   for (size_t i = 0; i < ports.size(); ++i) // new source
-    filtergraph.assignSink(ports[i], sinks[i]);
+    filtergraph.assignSink(sinks[i], ports[i]);
+  
+  ran = false;
+}
 
-  // inst
-  finalizeGraph()
-
-  // get the graph description back
-
-  // av_log(NULL, AV_LOG_ERROR, "tracing filter graph...");
-  // const ffmpeg::filter::SourceBase *src = filtergraph.findSourceByName("in");
-  // if (!src)
-  //   throw std::runtime_error("Source buffer not found.");
-  // const AVFilterContext *f = src->getAVFilterContext();
-  // if (!f)
-  //   throw std::runtime_error("Source filter context not found.");
-  // av_log(NULL, AV_LOG_ERROR, "%s:%d:%s\n", f->filter->name, f->nb_outputs, avfilter_pad_get_name(f->output_pads, 0));
-  // AVFilterLink* l = f->outputs[0];
-  // if (!l)
-  //   throw std::runtime_error("Source filter not linked to the scale filter.");
-  // f = l->dst;
-  // if (!f)
-  //   throw std::runtime_error("Scale filter not linked to the source filter.");
-  // av_log(NULL, AV_LOG_ERROR, "%s:%s->%s\n", f->filter->name, avfilter_pad_get_name(f->input_pads, 0), avfilter_pad_get_name(f->output_pads, 0));
-  // l = f->outputs[0];
-  // if (!l)
-  //   throw std::runtime_error("Scale filter not linked to buffersink filter.");
-  // f = l->dst;
-  // if (!f)
-  //   throw std::runtime_error("Scale filter link dst not valid.");
-  // av_log(NULL, AV_LOG_ERROR, "%s:->%s\n", f->filter->name, avfilter_pad_get_name(f->input_pads, 0));
-  char *dump = avfilter_graph_dump(filtergraph.getAVFilterGraph(), NULL);
-
-  av_log(NULL, AV_LOG_ERROR, "[parse] graph_desc dump: %s", dump);
-
-  av_free(dump);
+mxArray *mexImageFilter::isValidInputName(const mxArray *prhs) // tf = isInputName(obj,name)
+{
+  return mxCreateLogicalScalar(filtergraph.isSource(mexGetString(prhs)));
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
+/// StATIC ROUTINES
 
 bool mexImageFilter::static_handler(const std::string &command, int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[])
 {
   if (command == "getFilters")
-  {
-    mexImageFilter::getFilters(nlhs, plhs);
-  }
+    plhs[0] = mexImageFilter::getFilters();
   else if (command == "getFormats")
-  {
-    mexImageFilter::getVideoFormats(nlhs, plhs);
-  }
+    plhs[0] = mexImageFilter::getFormats();
+  else if (command == "isSupportedFormat")
+    plhs[0] = mexImageFilter::isSupportedFormat(prhs[0]);
+  else if (command == "validateSARString")
+    mexImageFilter::validateSARString(prhs[0]);
   else
     return false;
   return true;
 }
 
-void mexImageFilter::getFilters(int nlhs, mxArray *plhs[])
+mxArray *mexImageFilter::getFilters()
 {
   // make sure all the filters are registered
   avfilter_register_all();
 
-  ::getFilters(nlhs, plhs, [](const AVFilter *filter) -> bool {
+  return ::getFilters([](const AVFilter *filter) -> bool {
 
-    if (strcmp(filter->name, "buffer") || strcmp(filter->name, "buffersink") || strcmp(filter->name, "fifo"))
+    if (!(strcmp(filter->name, "buffer") && strcmp(filter->name, "buffersink") && strcmp(filter->name, "fifo")))
       return false;
 
     // filter must be a non-audio filter
@@ -222,9 +344,9 @@ void mexImageFilter::getFilters(int nlhs, mxArray *plhs[])
   });
 }
 
-void mexImageFilter::getVideoFormats(int nlhs, mxArray *plhs[])
+mxArray *mexImageFilter::getFormats()
 {
-  ::getVideoFormats(nlhs, plhs, [](const AVPixelFormat pix_fmt) -> bool {
+  return getVideoFormats([](const AVPixelFormat pix_fmt) -> bool {
     // must <= 8-bit/component
     const AVPixFmtDescriptor *desc = av_pix_fmt_desc_get(pix_fmt);
     if (!desc || desc->flags & AV_PIX_FMT_FLAG_BITSTREAM) // invalid format
@@ -238,4 +360,48 @@ void mexImageFilter::getVideoFormats(int nlhs, mxArray *plhs[])
     // supported by SWS library
     return sws_isSupportedInput(pix_fmt) && sws_isSupportedOutput(pix_fmt);
   });
+}
+
+// tf = isSupportedFormat(format_name);
+mxArray *mexImageFilter::isSupportedFormat(const mxArray *prhs)
+{
+  return ::isSupportedVideoFormat(prhs, [](const AVPixelFormat pix_fmt) -> bool {
+    // must <= 8-bit/component
+    const AVPixFmtDescriptor *desc = av_pix_fmt_desc_get(pix_fmt);
+    if (!desc || desc->flags & AV_PIX_FMT_FLAG_BITSTREAM) // invalid format
+      return false;
+
+    // depths of all components must be single-byte
+    for (int i = 0; i < desc->nb_components; ++i)
+      if (desc->comp[i].depth > 8)
+        return false;
+
+    // supported by SWS library
+    return sws_isSupportedInput(pix_fmt) && sws_isSupportedOutput(pix_fmt);
+  });
+}
+
+// validateSARString(SAR_expression);
+void mexImageFilter::validateSARString(const mxArray *prhs)
+{
+  AVRational sar = mexParseRatio(prhs);
+  if (sar.num <= 0 || sar.den <= 0)
+    mexErrMsgTxt("SAR expression must result in a positive rational number.");
+}
+
+AVRational mexImageFilter::getSAR(const mxArray *mxSAR)
+{
+  if (mxIsScalar(mxSAR))
+  {
+    return av_d2q(mxGetScalar(mxSAR), INT_MAX);
+  }
+  else if (mxIsChar(mxSAR))
+  {
+    return mexParseRatio(mxSAR);
+  }
+  else // 2-elem
+  {
+    double *data = mxGetPr(mxSAR);
+    return av_make_q((int)data[0], (int)data[1]);
+  }
 }

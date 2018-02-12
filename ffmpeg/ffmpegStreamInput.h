@@ -16,7 +16,7 @@ namespace ffmpeg
 /**
  * \brief Class to manage AVStream
  */
-class InputStream : public BaseStream
+class InputStream : virtual public BaseStream
 {
 public:
   InputStream(AVStream *st = NULL, IAVFrameSink *buf = NULL);
@@ -44,23 +44,13 @@ protected:
 
 typedef std::vector<InputStream *> InputStreamPtrs;
 
-class InputVideoStream : public InputStream, virtual public IVideoHandler
+class InputVideoStream : public VideoStream, public InputStream
 {
 public:
   InputVideoStream(AVStream *st = NULL, IAVFrameSink *buf = NULL);
   virtual ~InputVideoStream();
 
-  const VideoParams &getVideoParams() const
-  {
-    return vparams;
-  }
-
   AVRational getAvgFrameRate() const;
-
-  int getWidth() const;
-  int getHeight() const;
-  AVPixelFormat getPixelFormat() const;
-  AVRational getSAR() const;
 
   // int getBitsPerPixel() const;
 
@@ -68,37 +58,18 @@ public:
   // size_t getNbPixelComponents() const;
 
   // size_t getFrameSize() const;
-  void open(AVStream *st);
-  void close();
-
-  using InputStream::getBasicMediaParams;
-
 private:
-  BasicMediaParams bparams;
-  VideoParams vparams;
 };
 
-class InputAudioStream : public InputStream, virtual public IAudioHandler
+class InputAudioStream : public AudioStream, public InputStream
 {
 public:
   InputAudioStream(AVStream *st = NULL, IAVFrameSink *buf = NULL);
   virtual ~InputAudioStream();
 
-  const AudioParams &getAudioParams() const { return aparams; }
-
-  AVSampleFormat getSampleFormat() const;
-  int getChannels() const;
-  uint64_t getChannelLayout() const;
-
   void open(AVStream *st);
   void close();
-  // bparams = (st) ? BasicMediaParams({st->codecpar->codec_type, st->time_base}) : BasicMediaParams({AVMEDIA_TYPE_AUDIO, {0, 0}});
-  // aparams = (st) ? AudioParams({st->codecpar->codec_type, st->channels, st->channel_layout}) : AudioParams({AV_SAMPLE_FMT_NONE, 0, 0});
-
-  using InputStream::getBasicMediaParams;
 
 private:
-  BasicMediaParams bparams;
-  AudioParams aparams;
 };
 }

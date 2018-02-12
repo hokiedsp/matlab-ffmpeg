@@ -53,9 +53,6 @@ void InputStream::open(AVStream *s)
   st = s;
   ctx = dec_ctx;
   st->discard = AVDISCARD_NONE;
-
-  // load 
-  bparams = {ctx->codec_type, ctx->time_base};
 }
 
 IAVFrameSink *InputStream::setgetBuffer(IAVFrameSink *other_buf) { std::swap(sink, other_buf); return other_buf; }
