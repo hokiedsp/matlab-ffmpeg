@@ -19,7 +19,7 @@ BaseStream::~BaseStream()
 // IMediaHandler interface functions
 BasicMediaParams BaseStream::getBasicMediaParams() const { return {getMediaType(), getTimeBase()}; }
 AVMediaType BaseStream::getMediaType() const { return ctx ? ctx->codec_type : AVMEDIA_TYPE_UNKNOWN; }
-std::string BaseStream::getMediaTypeString() const { return av_get_media_type_string(getMediaType()); }
+std::string BaseStream::getMediaTypeString() const { return ctx ? av_get_media_type_string(ctx->codec_type):"unknown"; }
 AVRational BaseStream::getTimeBase() const { return (st) ? st->time_base : (ctx) ? ctx->time_base : AVRational({0, 0}); }
 void BaseStream::setTimeBase(const AVRational &tb)
 {

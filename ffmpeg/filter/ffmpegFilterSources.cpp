@@ -122,9 +122,9 @@ bool VideoSource::updateMediaParameters()
   setVideoParams(dynamic_cast<IVideoHandler &>(src).getVideoParams());
 
   // check for validity
-  if (format == AV_PIX_FMT_NONE || time_base.num == 0 || time_base.den == 0 ||
-      width == 0 || height == 0 || sample_aspect_ratio.num == 0 || sample_aspect_ratio.den == 0)
-    return false;
+  // if (format == AV_PIX_FMT_NONE || time_base.num == 0 || time_base.den == 0 ||
+  //     width == 0 || height == 0 || sample_aspect_ratio.num == 0 || sample_aspect_ratio.den == 0)
+  //   return false;
 
   // if filter context has already been set, propagate the parameters to it as well
   if (context)
@@ -184,13 +184,13 @@ std::string AudioSource::generate_args()
    */
 bool AudioSource::updateMediaParameters()
 {
-  *(BasicMediaParams *)this = dynamic_cast<IMediaHandler &>(src).getBasicMediaParams();
-  *(AudioParams *)this = dynamic_cast<IAudioHandler &>(src).getAudioParams();
+  setTimeBase(src.getTimeBase());
+  setAudioParams(dynamic_cast<IAudioHandler &>(src).getAudioParams());
 
   // validate the parameters
-  if (format == AV_SAMPLE_FMT_NONE || time_base.num == 0 || time_base.den == 0 || 
-      sample_rate == 0 ||channel_layout == 0)
-    return false;
+  // if (format == AV_SAMPLE_FMT_NONE || time_base.num == 0 || time_base.den == 0 || 
+  //     sample_rate == 0 ||channel_layout == 0)
+  //   return false;
 
   // if filter context has already been set, propagate the parameters to it as well
   if (context)

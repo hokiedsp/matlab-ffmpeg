@@ -52,11 +52,9 @@ public:
 
   virtual ~AVFrameVideoComponentSink()
   {
-    av_log(NULL,AV_LOG_INFO,"destructing AVFrameVideoComponentSink");
     std::unique_lock<std::mutex> l_rx(m);
     allocator.deallocate((uint8_t *)time_buf, nb_frames * sizeof(double));
     allocator.deallocate(data_buf, nb_frames * width * height);
-    av_log(NULL,AV_LOG_INFO,"destructed AVFrameVideoComponentSink");
   }
 
   bool supportedFormat(int format) const

@@ -25,14 +25,11 @@ Graph::Graph(const std::string &filtdesc) : graph(NULL), inmon_status(0)
 }
 Graph::~Graph()
 {
-    av_log(NULL,AV_LOG_INFO,"destructing filter::Graph");
   destroy(true);
-  av_log(NULL,AV_LOG_INFO,"done destructing filter::Graph");
 }
 
 void Graph::destroy(const bool complete)
 {
-  av_log(NULL,AV_LOG_INFO,"beginning of filter::Graph::destroy");
   for (auto p = inputs.begin(); p != inputs.end(); ++p)
   {
     p->second.other = NULL;
@@ -66,7 +63,6 @@ void Graph::destroy(const bool complete)
 
   if (graph)
     avfilter_graph_free(&graph);
-  av_log(NULL,AV_LOG_INFO,"end of filter::Graph::destroy");
 }
 
 void Graph::parse(const std::string &new_desc)
@@ -302,13 +298,13 @@ void Graph::configure()
   {
     SourceBase *src = in->second.filter;
     if (!src) // also check for buffer states
-      throw ffmpegException("Source filter is not set.");
+      throw ffmpegException("[ffmpeg::filter::Graph::configure] Source filter is not set.");
 
     // load media parameters from buffer
     if (!src->updateMediaParameters())
-      throw ffmpegException("Source buffer does not have media parameters to configure source filter.");
+      throw ffmpegException("[ffmpeg::filter::Graph::configure] Source buffer does not have all the necessary media parameters to configure source filter.");
 
-    // configure filter
+    // configure filter (constructs the filter context)
     src->configure(in->first);
 
     // link filter
@@ -320,7 +316,7 @@ void Graph::configure()
   {
     SinkBase *sink = out->second.filter;
     if (!sink)
-      throw ffmpegException("Sink filter is not set.");
+      throw ffmpegException("[ffmpeg::filter::Graph::configure] Sink filter is not set.");
 
     // configure filter
     sink->configure(out->first);
@@ -331,7 +327,7 @@ void Graph::configure()
   // finalize the graph
   av_log(NULL, AV_LOG_ERROR, "[configure] Finalizing filter graph...\n");
   if (avfilter_graph_config(graph, NULL) < 0)
-    throw ffmpegException("Failed to finalize the filter graph.");
+    throw ffmpegException("[ffmpeg::filter::Graph::configure] Failed to finalize the filter graph.");
 
   /* limit the lists of allowed formats to the ones selected, to
      * make sure they stay the same if the filtergraph is reconfigured later */

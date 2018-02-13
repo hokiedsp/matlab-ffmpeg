@@ -40,9 +40,7 @@ void mexFunction(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[])
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
 mexImageFilter::mexImageFilter(int nrhs, const mxArray *prhs[]) : ran(false), changedFormat(false), changedSAR(false) {}
-mexImageFilter::~mexImageFilter() {
-  av_log(NULL,AV_LOG_INFO,"destructed mexImageFilter");
-}
+mexImageFilter::~mexImageFilter() {}
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -118,6 +116,13 @@ void mexImageFilter::runSimple(const mxArray *mxObj, mxArray *&mxOut, const mxAr
   // check to make sure filter graph is ready to go: AVFilterGraph is present and SourceInfo and SinkInfo maps are fully populated
   filtergraph.ready();
 
+  {
+    av_log(NULL,AV_LOG_INFO,"\n[runSimple]constructing dummy ImageComponentSource\n");
+    ffmpeg::AVFrameImageComponentSource test;
+    av_log(NULL,AV_LOG_INFO,"[runSimple]ImageComponentSource:mediatype:%s:time_base:%d/%d\n",
+      test.getMediaTypeString(), test.getTimeBaseRef().num,test.getTimeBaseRef().den);
+  }
+
   // get the input buffer
   mexComponentSource &src = *dynamic_cast<mexComponentSource *>(filtergraph.getInputBuffer());
 
@@ -148,8 +153,8 @@ void mexImageFilter::runSimple(const mxArray *mxObj, mxArray *&mxOut, const mxAr
   src.setWidth(width);
   src.setHeight(height);
 
-  av_log(NULL, AV_LOG_INFO, "format:%s:width:%d:height:%d:sar:%d:%d", src.getFormatName(), src.getWidth(),
-         src.getHeight(), src.getSAR().num, src.getSAR().den);
+  av_log(NULL, AV_LOG_INFO, "format:%s:width:%d:height:%d:sar:%d:%d:time_base:%d:%d\n", src.getFormatName(), src.getWidth(),
+         src.getHeight(), src.getSAR().num, src.getSAR().den,src.getTimeBaseRef().num,src.getTimeBaseRef().den);
 
   // configure the filter graph
   if (config)

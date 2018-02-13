@@ -23,17 +23,16 @@ class AVFrameImageComponentSource : public AVFrameSourceBase, public IVideoHandl
 {
 public:
   AVFrameImageComponentSource()
-      : AVFrameSourceBase(AVMEDIA_TYPE_VIDEO, {0, 0}), desc(NULL),
+      : AVFrameSourceBase(AVMEDIA_TYPE_VIDEO, AVRational({1, 1})), desc(NULL),
         next_time(0), status(0), frame(NULL)
   {
-    frame = av_frame_alloc();
-    if (!frame)
-      throw ffmpegException("[ffmpeg::AVFrameImageComponentSource] Could not allocate video frame.");
+    av_log(NULL,AV_LOG_INFO,"[AVFrameImageComponentSource:default] time_base:1/1->%d/%d\n",time_base.num,time_base.den);
+    av_log(NULL,AV_LOG_INFO,"[AVFrameImageComponentSource:default] mediatype:%s->%s\n",av_get_media_type_string(AVMEDIA_TYPE_VIDEO),av_get_media_type_string(type));
   }
 
   // copy constructor
   AVFrameImageComponentSource(const AVFrameImageComponentSource &other)
-      : AVFrameSourceBase(other), desc(other.desc),
+      : AVFrameSourceBase(other), desc(other.desc), frame(NULL),
         status(other.status), next_time(other.next_time)
   {
     frame = AVFrameImageComponentSource::copy_frame(other.frame, true);
@@ -49,9 +48,7 @@ public:
 
   virtual ~AVFrameImageComponentSource()
   {
-    av_log(NULL,AV_LOG_INFO,"destructing AVFrameImageComponentSource");
     clear();
-    av_log(NULL,AV_LOG_INFO,"destructed AVFrameImageComponentSource");
   }
 
   // implement IVideoHandler functions
@@ -74,7 +71,7 @@ public:
   void setVideoParams(const IVideoHandler &other) { setVideoParams(other.getVideoParams()); }
 
   AVPixelFormat getFormat() const { return frame ? (AVPixelFormat)frame->format : AV_PIX_FMT_NONE; }
-  std::string getFormatName() const { return av_get_pix_fmt_name(getFormat()); }
+  std::string getFormatName() const { return frame ? av_get_pix_fmt_name((AVPixelFormat)frame->format) : ""; }
   int getWidth() const { return frame ? frame->width : 0; }
   int getHeight() const { return frame ? frame->height : 0; }
   AVRational getSAR() const { return frame ? frame->sample_aspect_ratio : AVRational{0, 0}; }
@@ -313,9 +310,6 @@ protected:
     if (frame)
       av_frame_free(&frame);
 
-    // clear the data parameters
-    *(VideoParams *)this = {AV_PIX_FMT_NONE, 0, 0, {0, 0}};
-
     // reset the eof flag and write pointer positions
     status = 0;
     next_time = 0;
@@ -359,12 +353,14 @@ private:
    */
   static AVFrame *copy_frame(const AVFrame *src, const bool writable)
   {
+    if (!src) return NULL;
+
     AVFrame *rval = av_frame_clone(src);
     if (!rval)
-      throw ffmpegException("[ffmpeg::AVFrameImageComponentSource::copy_queue] Could not allocate video frame.");
+      throw ffmpegException("[ffmpeg::AVFrameImageComponentSource::copy_frame] Could not allocate video frame.");
 
     if (writable && rval->buf[0] && av_frame_make_writable(rval) < 0)
-      throw ffmpegException("[ffmpeg::AVFrameImageComponentSource::copy_queue] Could not make the copied video frame writable.");
+      throw ffmpegException("[ffmpeg::AVFrameImageComponentSource::copy_frame] Could not make the copied video frame writable.");
     
     return rval;
   }

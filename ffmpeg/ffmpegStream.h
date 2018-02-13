@@ -69,7 +69,7 @@ class VideoStream : virtual public BaseStream, virtual public IVideoHandler
                : VideoParams({AV_PIX_FMT_NONE, 0, 0, AVRational({0, 0})});
   }
   AVPixelFormat getFormat() const { return ctx ? ctx->pix_fmt : AV_PIX_FMT_NONE; }
-  std::string getFormatName() const { return av_get_pix_fmt_name(getFormat()); }
+  std::string getFormatName() const { return ctx ? av_get_pix_fmt_name(ctx->pix_fmt) : ""; }
   int getWidth() const { return ctx ? ctx->width : 0; }
   int getHeight() const { return ctx ? ctx->height : 0; }
   AVRational getSAR() const { return ctx ? ctx->sample_aspect_ratio : AVRational({0, 0}); }
@@ -91,7 +91,7 @@ class AudioStream : virtual public BaseStream, virtual public IAudioHandler
   }
 
   AVSampleFormat getFormat() const { return ctx ? ctx->sample_fmt : AV_SAMPLE_FMT_NONE; }
-  std::string getFormatName() const { return av_get_sample_fmt_name(getFormat()); }
+  std::string getFormatName() const { return ctx ? av_get_sample_fmt_name(ctx->sample_fmt) : ""; }
   int getChannels() const { return ctx ? ctx->channels : 0; };
   uint64_t getChannelLayout() const { return ctx ? ctx->channel_layout : 0; };
   int getSampleRate() const { return ctx ? ctx->sample_rate : 0; }

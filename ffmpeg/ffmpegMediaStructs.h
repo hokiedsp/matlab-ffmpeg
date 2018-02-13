@@ -16,11 +16,6 @@ struct BasicMediaParams
 {
   AVMediaType type; // AVMEDIA_TYPE_SUBTITLE for sub2video
   AVRational time_base;
-
-  bool isValid() const
-  {
-    return type != AVMEDIA_TYPE_UNKNOWN && time_base.num != 0 && time_base.den != 0;
-  }
 };
 
 struct VideoParams
@@ -95,15 +90,24 @@ public:
 
 class MediaHandler : protected BasicMediaParams, virtual public IMediaHandler
 {
+protected:
+  MediaHandler() : BasicMediaParams({AVMEDIA_TYPE_UNKNOWN, AVRational({0,0})})
+   {
+      av_log(NULL,AV_LOG_INFO,"[MediaHandler:default] default constructor\n");
+   }
 public:
-  MediaHandler(const AVMediaType t = AVMEDIA_TYPE_UNKNOWN, const AVRational &tb = {0, 0}) : BasicMediaParams({t, tb}) {}
+  MediaHandler(const AVMediaType t, const AVRational &tb = {0, 0}) : BasicMediaParams({t, tb})
+   {
+    av_log(NULL,AV_LOG_INFO,"[MediaHandler:regular] time_base:%d/%d\n",tb.num,tb.den);
+    av_log(NULL,AV_LOG_INFO,"[MediaHandler:regular] mediatype:%s\n",av_get_media_type_string(t));
+   }
   MediaHandler(const IMediaHandler &other) : BasicMediaParams(other.getBasicMediaParams()) {}
 
   BasicMediaParams getBasicMediaParams() const { return *this; }
   const BasicMediaParams &getBasicMediaParamsRef() const { return *this; }
 
   AVMediaType getMediaType() const { return type; }
-  std::string getMediaTypeString() const { return av_get_media_type_string(type); }
+  std::string getMediaTypeString() const { return (type==AVMEDIA_TYPE_UNKNOWN)?"unknown":av_get_media_type_string(type); }
   AVRational getTimeBase() const { return time_base; }
   const AVRational &getTimeBaseRef() const { return time_base; }
   void setTimeBase(const AVRational &tb) { time_base = tb; }

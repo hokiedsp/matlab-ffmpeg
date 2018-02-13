@@ -19,7 +19,7 @@ class EndpointBase : public Base, virtual public MediaHandler
 {
 public:
   // AVMediaType type;   AVRational time_base
-  EndpointBase(Graph &parent, const AVMediaType type, const AVRational &tb = {0, 0}) : Base(parent), MediaHandler(type, tb) {}
+  explicit EndpointBase(Graph &parent, const AVMediaType type, const AVRational &tb = {0, 0}) : Base(parent), MediaHandler(type, tb) {}
   EndpointBase(Graph &parent, const IMediaHandler &mdev) : Base(parent), MediaHandler(mdev) {}
   virtual ~EndpointBase() {}
 
