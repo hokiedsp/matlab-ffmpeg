@@ -15,13 +15,13 @@ public:
   virtual ~AVFrameBufferBase() {}
 
 protected:
-  // default constructor shall only be called implicitly while consturcting its virtually inheriting derived classes
+  // default constructor shall only be called implicitly while consturucting its virtually inheriting derived classes
   AVFrameBufferBase()
   {
     av_log(NULL, AV_LOG_INFO, "[AVFrameBufferBase:default] default constructor\n");
   }
 
-  AVFrameBufferBase(const AVMediaType mediatype, const AVRational &tb)
+  AVFrameBufferBase(const AVMediaType mediatype, const AVRational &tb) : MediaHandler(mediatype, tb)
   {
     av_log(NULL, AV_LOG_INFO, "[AVFrameBufferBase:regular] mediatype:%s->%s :: time_base:%d/%d->%d/%d\n",
            av_get_media_type_string(mediatype), av_get_media_type_string(type), tb.num, tb.den, time_base.num, time_base.den);
@@ -40,8 +40,7 @@ protected:
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
 // Base Thread-Safe Sink Class
-class AVFrameSinkBase : public IAVFrameSink,
-                        public AVFrameBufferBase
+class AVFrameSinkBase : public IAVFrameSink, public AVFrameBufferBase
 {
 protected:
   AVFrameSinkBase() {}; // must be default-constructable
@@ -172,13 +171,8 @@ public:
   virtual ~AVFrameSourceBase(){};
 
 protected:
-  AVFrameSourceBase(const AVMediaType mediatype, const AVRational &tb)
+  AVFrameSourceBase(const AVMediaType mediatype, const AVRational &tb) : AVFrameBufferBase(mediatype, tb)
   {
-    // since it could be inherited virtually, default-construct base classes then
-    // set the parameters after its base classes are constructed
-    type = mediatype;
-    time_base = tb;
-
     av_log(NULL, AV_LOG_INFO, "[AVFrameSourceBase:default] time_base:%d/%d->%d/%d\n", tb.num, tb.den, time_base.num, time_base.den);
     av_log(NULL, AV_LOG_INFO, "[AVFrameSourceBase:default] mediatype:%s->%s\n", av_get_media_type_string(mediatype), av_get_media_type_string(type));
   }

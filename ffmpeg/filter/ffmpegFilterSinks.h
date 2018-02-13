@@ -74,7 +74,7 @@ protected:
 
 typedef std::vector<SinkBase *> Sinks;
 
-class VideoSink : public SinkBase, virtual public VideoHandler
+class VideoSink : public SinkBase, public VideoHandler
 {
 public:
   VideoSink(Graph &fg, IAVFrameSink &buf);      // connected to a buffer (data from non-FFmpeg source)
@@ -88,7 +88,7 @@ public:
   // std::string choose_pix_fmts();
 };
 
-class AudioSink : public SinkBase, virtual public AudioHandler
+class AudioSink : public SinkBase, public AudioHandler
 {
 public:
   AudioSink(Graph &fg, IAVFrameSink &buf); // connected to a buffer (data from non-FFmpeg source)

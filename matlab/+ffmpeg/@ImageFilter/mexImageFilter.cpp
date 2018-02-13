@@ -116,13 +116,6 @@ void mexImageFilter::runSimple(const mxArray *mxObj, mxArray *&mxOut, const mxAr
   // check to make sure filter graph is ready to go: AVFilterGraph is present and SourceInfo and SinkInfo maps are fully populated
   filtergraph.ready();
 
-  {
-    av_log(NULL,AV_LOG_INFO,"\n[runSimple]constructing dummy ImageComponentSource\n");
-    ffmpeg::AVFrameImageComponentSource test;
-    av_log(NULL,AV_LOG_INFO,"[runSimple]ImageComponentSource:mediatype:%s:time_base:%d/%d\n",
-      test.getMediaTypeString(), test.getTimeBaseRef().num,test.getTimeBaseRef().den);
-  }
-
   // get the input buffer
   mexComponentSource &src = *dynamic_cast<mexComponentSource *>(filtergraph.getInputBuffer());
 
@@ -162,16 +155,21 @@ void mexImageFilter::runSimple(const mxArray *mxObj, mxArray *&mxOut, const mxAr
   else if (reconfig)
     filtergraph.flush(); // recreate AVFilterGraph with the same AVFrame buffers
 
+  // send the image data to the buffer
+    av_log(NULL, AV_LOG_INFO, "[runOnce] Loading the input data...\n");
+    src.load(in);
+
+  // make sure everything is ready to go
+    av_log(NULL, AV_LOG_INFO, "[runOnce] Final check...\n");
   if (!filtergraph.ready()) // something went wrong
     throw std::runtime_error("Failed to configure the filter graph.");
 
-  // send the image data to the buffer
-  src.load(in);
-
   // run the filter
+    av_log(NULL, AV_LOG_INFO, "[runOnce] RUN!!...\n");
   filtergraph.runOnce();
 
   // get the output
+    av_log(NULL, AV_LOG_INFO, "[runOnce] Retrieve the output data...\n");
   uint8_t *data;
   mexComponentSink &sink = *dynamic_cast<mexComponentSink *>(filtergraph.getOutputBuffer());
   if (!sink.release(&data)) // grab entire the data buffer

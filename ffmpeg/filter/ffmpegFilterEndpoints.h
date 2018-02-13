@@ -15,7 +15,7 @@ namespace ffmpeg
 {
 namespace filter
 {
-class EndpointBase : public Base, virtual public MediaHandler
+class EndpointBase : public Base, public MediaHandler
 {
 public:
   // AVMediaType type;   AVRational time_base

@@ -72,6 +72,9 @@ AVFilterContext *VideoSink::configure(const std::string &name)
 
 void VideoSink::sync()
 {
+  if (!context || context->inputs[0])
+    throw ffmpegException("[ffmpeg::filter::VideoSink::sync] AVFilterContext not set or parameters not yet available.");
+
   format = (AVPixelFormat)av_buffersink_get_format(context);
   width = av_buffersink_get_w(context);
   height = av_buffersink_get_h(context);
@@ -95,6 +98,9 @@ AVFilterContext *AudioSink::configure(const std::string &name)
 
 void AudioSink::sync()
 {
+  if (!context)
+    throw ffmpegException("[ffmpeg::filter::VideoSink::sync] AVFilterContext not set.");
+  
   format = (AVSampleFormat)av_buffersink_get_format(context);
   time_base = av_buffersink_get_time_base(context);
   channel_layout = av_buffersink_get_channel_layout(context);

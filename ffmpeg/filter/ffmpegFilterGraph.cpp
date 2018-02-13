@@ -197,15 +197,24 @@ bool Graph::ready()
 {
   // AVFilterGraph must been defined and output buffer must be non-empty
   if (!graph || outputs.empty())
+  {
+    av_log(NULL, AV_LOG_ERROR, "[ffmpage::filter::Graph::ready] AVFilterGraph not allocated or filter has no output\n");
     return false;
+  }
 
   // every input & output buffers must have IAVFrameSource/IAVFrameSink associated with it
   for (auto it = inputs.begin(); it != inputs.end(); ++it)
     if (!it->second.buf || it->second.buf->ready())
+    {
+      av_log(NULL, AV_LOG_ERROR, "[ffmpage::filter::Graph::ready] Input '%s' is not ready\n", it->first.c_str());
       return false;
+    }
   for (auto it = outputs.begin(); it != outputs.end(); ++it)
     if (!it->second.buf || it->second.buf->ready())
+    {
+      av_log(NULL, AV_LOG_ERROR, "[ffmpage::filter::Graph::ready] Output '%s' is not ready\n", it->first.c_str());
       return false;
+    }
 
   return true;
 }
@@ -325,15 +334,8 @@ void Graph::configure()
     sink->link(out->second.other, out->second.otherpad);
   }
   // finalize the graph
-  av_log(NULL, AV_LOG_ERROR, "[configure] Finalizing filter graph...\n");
   if (avfilter_graph_config(graph, NULL) < 0)
     throw ffmpegException("[ffmpeg::filter::Graph::configure] Failed to finalize the filter graph.");
-
-  /* limit the lists of allowed formats to the ones selected, to
-     * make sure they stay the same if the filtergraph is reconfigured later */
-  av_log(NULL, AV_LOG_ERROR, "[configure] Syncing output buffers to the filter sinks...\n");
-  for (auto ofilter = outputs.begin(); ofilter != outputs.end(); ++ofilter)
-    ofilter->second.filter->sync();
 
   // fg->reconfiguration = 1;
 }
@@ -399,12 +401,12 @@ void Graph::runOnce(const std::chrono::milliseconds &rel_time)
     if (ret == 0)                                 // if success, set the flag to indicate the arrival
       new_frame = true;
     else if (ret != AVERROR(EAGAIN))
-      throw ffmpegException("Failed to process a filter graph input AVFrame.");
+      throw ffmpegException("[ffmpeg::filter::Graph::runOnce] Failed to process a filter graph input AVFrame.");
   }
 
   // if no frame arrived, error out
   if (!new_frame)
-    throw ffmpegException("No data were available to the filter graph.");
+    throw ffmpegException("[ffmpeg::filter::Graph::runOnce] No data were available to the filter graph.");
 
   // process all the output buffers
   new_frame = false;
@@ -420,7 +422,7 @@ void Graph::runOnce(const std::chrono::milliseconds &rel_time)
       else if (ret == AVERROR_EOF)
         ++eof_count; // check if received EOF
       else if (ret != AVERROR(EAGAIN))
-        throw ffmpegException("Failed to process a filter graph output AVFrame.");
+        throw ffmpegException("[ffmpeg::filter::Graph::runOnce] Failed to process a filter graph output AVFrame.");
     }
   } while (!(new_frame || eof_count < outputs.size()));
 }
