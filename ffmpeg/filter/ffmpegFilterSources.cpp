@@ -16,7 +16,13 @@ using namespace ffmpeg::filter;
 
 ///////////////////////////////////////////////////////////
 SourceBase::SourceBase(Graph &fg, IAVFrameSource &buf)
-    : EndpointBase(fg, buf), src(buf) {}
+    : EndpointBase(fg, buf), src(buf)
+{
+  frame = av_frame_alloc();
+  if (!frame)
+    throw ffmpegException("[ffmpeg::filter::SourceBase]Failed to allocate AVFrame.");
+}
+SourceBase::~SourceBase() { av_log(NULL,AV_LOG_INFO,"destroying SourceBase\n"); av_free(frame); av_log(NULL,AV_LOG_INFO,"destroyed SourceBase\n"); }
 
 void SourceBase::link(AVFilterContext *other, const unsigned otherpad, const unsigned pad, const bool issrc)
 {
@@ -28,10 +34,10 @@ void SourceBase::link(AVFilterContext *other, const unsigned otherpad, const uns
 
 int SourceBase::processFrame()
 {
-  AVFrame *frame;
   int ret = src.tryToPop(frame); // if frame==NULL, eos
   if (ret == 0)
     ret = av_buffersrc_add_frame_flags(context, frame, AV_BUFFERSRC_FLAG_KEEP_REF);
+  av_frame_unref(frame);
   return ret;
 }
 
@@ -139,7 +145,7 @@ bool VideoSource::updateMediaParameters()
       par->width = width;
       par->height = height;
       par->sample_aspect_ratio = sample_aspect_ratio;
-      par->frame_rate = {0,0}; //AVRational
+      par->frame_rate = {0, 0};  //AVRational
       par->hw_frames_ctx = NULL; // AVBufferRef *
 
       if (av_buffersrc_parameters_set(context, par) < 0)
@@ -188,7 +194,7 @@ bool AudioSource::updateMediaParameters()
   setAudioParams(dynamic_cast<IAudioHandler &>(src).getAudioParams());
 
   // validate the parameters
-  // if (format == AV_SAMPLE_FMT_NONE || time_base.num == 0 || time_base.den == 0 || 
+  // if (format == AV_SAMPLE_FMT_NONE || time_base.num == 0 || time_base.den == 0 ||
   //     sample_rate == 0 ||channel_layout == 0)
   //   return false;
 

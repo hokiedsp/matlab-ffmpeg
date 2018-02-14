@@ -29,6 +29,7 @@ class SinkBase : public EndpointBase
 {
 public:
   SinkBase(Graph &fg, IAVFrameSink &buf); // connected to a buffer (data from non-FFmpeg source)
+  virtual ~SinkBase();
 
   AVFilterContext *configure(const std::string &name = "");
 
@@ -68,6 +69,7 @@ public:
   virtual bool enabled() const { return ena; };
 
 protected:
+  AVFrame *frame; // allocated during construction, unref after at the end of processFrame, free during destruction
   IAVFrameSink &sink;
   bool ena;
 };
@@ -78,6 +80,7 @@ class VideoSink : public SinkBase, public VideoHandler
 {
 public:
   VideoSink(Graph &fg, IAVFrameSink &buf);      // connected to a buffer (data from non-FFmpeg source)
+  virtual ~VideoSink(){}
 
   AVFilterContext *configure(const std::string &name = "");
   /**
@@ -92,6 +95,7 @@ class AudioSink : public SinkBase, public AudioHandler
 {
 public:
   AudioSink(Graph &fg, IAVFrameSink &buf); // connected to a buffer (data from non-FFmpeg source)
+  virtual ~AudioSink(){}
 
   AVFilterContext *configure(const std::string &name = "");
 

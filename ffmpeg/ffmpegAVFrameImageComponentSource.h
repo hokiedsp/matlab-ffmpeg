@@ -2,6 +2,7 @@
 
 #include "ffmpegAVFrameBufferBases.h" // import AVFrameSinkBase
 #include "ffmpegException.h"          // import AVFrameSinkBase
+#include "ffmpegImageUtils.h"
 
 extern "C" {
 #include <libavutil/pixfmt.h>  // import AVPixelFormat
@@ -11,6 +12,8 @@ extern "C" {
 #include <libavutil/rational.h>
 #include <libavutil/frame.h>
 }
+
+#include <memory>
 
 namespace ffmpeg
 {
@@ -24,45 +27,75 @@ class AVFrameImageComponentSource : public AVFrameSourceBase, public IVideoHandl
 public:
   AVFrameImageComponentSource()
       : AVFrameSourceBase(AVMEDIA_TYPE_VIDEO, AVRational({1, 1})), desc(NULL),
-        next_time(0), status(0), frame(NULL)
+        next_time(0), status(0)
   {
-    av_log(NULL,AV_LOG_INFO,"[AVFrameImageComponentSource:default] time_base:1/1->%d/%d\n",time_base.num,time_base.den);
-    av_log(NULL,AV_LOG_INFO,"[AVFrameImageComponentSource:default] mediatype:%s->%s\n",av_get_media_type_string(AVMEDIA_TYPE_VIDEO),av_get_media_type_string(type));
+    frame = av_frame_alloc();
+    if (!frame)
+      throw ffmpegException("[ffmpeg::filter::AVFrameImageComponentSource]Failed to allocate AVFrame.");
+
+    av_log(NULL, AV_LOG_INFO, "[ffmpeg::AVFrameImageComponentSource:default] time_base:1/1->%d/%d\n", time_base.num, time_base.den);
+    av_log(NULL, AV_LOG_INFO, "[ffmpeg::AVFrameImageComponentSource:default] mediatype:%s->%s\n", av_get_media_type_string(AVMEDIA_TYPE_VIDEO), av_get_media_type_string(type));
   }
 
   // copy constructor
   AVFrameImageComponentSource(const AVFrameImageComponentSource &other)
-      : AVFrameSourceBase(other), desc(other.desc), frame(NULL),
+      : AVFrameSourceBase(other), desc(other.desc),
         status(other.status), next_time(other.next_time)
   {
-    frame = AVFrameImageComponentSource::copy_frame(other.frame, true);
+    frame = av_frame_clone(other.frame);
+    if (!frame)
+      throw ffmpegException("[ffmpeg::filter::AVFrameImageComponentSource]Failed to clone AVFrame.");
+    if (av_frame_make_writable(frame) < 0)
+      throw ffmpegException("[ffmpeg::filter::AVFrameImageComponentSource]Failed to make AVFrame writable.");
   }
 
   // move constructor
   AVFrameImageComponentSource(AVFrameImageComponentSource &&other) noexcept
-      : AVFrameSourceBase(other), desc(other.desc), frame(other.frame),
-        status(other.status), next_time(other.next_time)
+      : AVFrameSourceBase(other), desc(other.desc), frame(other.frame), status(other.status),
+        next_time(other.next_time)
   {
-    frame = NULL;
+    other.frame = av_frame_alloc();
   }
 
   virtual ~AVFrameImageComponentSource()
   {
-    clear();
+    av_log(NULL, AV_LOG_INFO, "destroying AVFrameImageComponentSource\n");
+    av_frame_free(&frame);
+    av_log(NULL, AV_LOG_INFO, "destroyed AVFrameImageComponentSource\n");
+  }
+
+  bool validVideoParams() const
+  {
+    return ((AVPixelFormat)frame->format != AV_PIX_FMT_NONE) &&
+           frame->width > 0 && frame->height > 0 &&
+           frame->sample_aspect_ratio.num != 0 && frame->sample_aspect_ratio.den != 0;
   }
 
   // implement IVideoHandler functions
-  VideoParams getVideoParams() const
+  VideoParams
+  getVideoParams() const
   {
-    return frame ? VideoParams({(AVPixelFormat)frame->format, frame->width, frame->height, frame->sample_aspect_ratio})
-                 : VideoParams({AV_PIX_FMT_NONE, 0, 0, AVRational({0, 0})});
+    return VideoParams({(AVPixelFormat)frame->format, frame->width, frame->height, frame->sample_aspect_ratio});
   }
+  AVPixelFormat getFormat() const { return (AVPixelFormat)frame->format; }
+  std::string getFormatName() const { return ((AVPixelFormat)frame->format != AV_PIX_FMT_NONE) ? av_get_pix_fmt_name((AVPixelFormat)frame->format) : ""; }
+  int getWidth() const { return frame->width; }
+  int getHeight() const { return frame->height; }
+  AVRational getSAR() const { return frame->sample_aspect_ratio; }
+
   void setVideoParams(const VideoParams &params)
   {
-    if (frame && frame->format == (int)params.format && frame->width == params.width &&
-        frame->height == params.height && !av_cmp_q(frame->sample_aspect_ratio, params.sample_aspect_ratio))
+    bool critical_change = frame->format != (int)params.format && frame->width != params.width && frame->height != params.height;
+
+    // if no parameters have changed, exit
+    if (!(critical_change && av_cmp_q(frame->sample_aspect_ratio, params.sample_aspect_ratio)))
       return;
-    reallocate_frame();
+
+    // if data critical parameters have changed, free frame data
+    if (critical_change)
+      release_frame();
+
+    // copy new parameter values
     frame->format = (int)params.format;
     frame->width = params.width;
     frame->height = params.height;
@@ -70,38 +103,31 @@ public:
   }
   void setVideoParams(const IVideoHandler &other) { setVideoParams(other.getVideoParams()); }
 
-  AVPixelFormat getFormat() const { return frame ? (AVPixelFormat)frame->format : AV_PIX_FMT_NONE; }
-  std::string getFormatName() const { return frame ? av_get_pix_fmt_name((AVPixelFormat)frame->format) : ""; }
-  int getWidth() const { return frame ? frame->width : 0; }
-  int getHeight() const { return frame ? frame->height : 0; }
-  AVRational getSAR() const { return frame ? frame->sample_aspect_ratio : AVRational{0, 0}; }
-
   void setFormat(const AVPixelFormat fmt)
   {
-    if (frame && frame->format == (int)fmt)
+    if (frame->format == (int)fmt)
       return;
-    reallocate_frame();
+    release_frame();
     frame->format = (int)fmt;
   }
   void setWidth(const int w)
   {
-    if (frame && frame->width == w)
+    if (frame->width == w)
       return;
-    reallocate_frame();
+    release_frame();
     frame->width = w;
   }
   void setHeight(const int h)
   {
-    if (frame && frame->height == h)
+    if (frame->height == h)
       return;
-    reallocate_frame();
+    release_frame();
     frame->height = h;
   }
   void setSAR(const AVRational &sar)
   {
-    if (frame && !av_cmp_q(frame->sample_aspect_ratio, sar))
+    if (!av_cmp_q(frame->sample_aspect_ratio, sar))
       return;
-    reallocate_frame();
     frame->sample_aspect_ratio = sar;
   }
 
@@ -109,24 +135,12 @@ public:
 
   bool ready() const
   {
-    return AVFrameSourceBase::ready() && frame && frame->format != AV_PIX_FMT_NONE &&
-           frame->width != 0 && frame->height != 0 &&
-           frame->sample_aspect_ratio.den != 0 && frame->sample_aspect_ratio.num != 0;
+    return AVFrameSourceBase::ready() && status != 0;
   }
 
   bool supportedFormat(int format) const
   {
-    // must <= 8-bit/component
-    const AVPixFmtDescriptor *desc = av_pix_fmt_desc_get((AVPixelFormat)format);
-    if (!desc || desc->flags & AV_PIX_FMT_FLAG_BITSTREAM) // invalid format
-      return false;
-
-    // depths of all components must be single-byte
-    for (int i = 0; i < desc->nb_components; ++i)
-      if (desc->comp[i].depth > 8)
-        return false;
-
-    return true;
+    return format != AV_PIX_FMT_NONE ? imageCheckComponentSize((AVPixelFormat)format) : false;
   }
 
   /**
@@ -153,52 +167,48 @@ public:
    * @param[in] frame_offset First frame offset relative to the first frame in the buffer. The offset is given in frames.
    * @return Number of frame available in the returned pointers.
   */
-  void load(const VideoParams &params, const uint8_t *pdata, uint64_t stride = 0)
+  void load(const VideoParams &params, const uint8_t *pdata, const int pdata_size, const int linesize = 0, const int compsize = 0)
   {
     // create new frame first without destroying current frame in case writing fails
-    AVFrame *new_frame = NULL;
-
     // if data is present, create new AVFrame, else mark it eof
     if (pdata)
     {
-      new_frame = av_frame_alloc();
+      int total_size = imageGetComponentBufferSize(params.format, params.width, params.height);
+      if (!total_size)
+        throw ffmpegException("[ffmpeg::AVFrameImageComponentSource::load] Critical image parameters missing.");
+      if (pdata_size < total_size)
+        throw ffmpegException("[ffmpeg::AVFrameImageComponentSource::load] Not enough data given to fill the image buffers.");
+
+      auto avFrameFree = [](AVFrame *frame) { av_frame_free(&frame); };
+      std::unique_ptr<AVFrame, decltype(avFrameFree)> new_frame(av_frame_alloc(), avFrameFree);
       if (!new_frame)
         throw ffmpegException("[ffmpeg::AVFrameImageComponentSource::load] Could not allocate video frame.");
       new_frame->format = params.format;
       new_frame->width = params.width;
       new_frame->height = params.height;
       new_frame->sample_aspect_ratio = params.sample_aspect_ratio;
-      if (av_frame_get_buffer(new_frame, 0) < 0)
+
+      if (av_frame_get_buffer(new_frame.get(), 0) < 0)
         throw ffmpegException("[ffmpeg::AVFrameImageComponentSource::load] Could not allocate the video frame data.");
-      if (av_frame_make_writable(new_frame) < 0)
+      if (av_frame_make_writable(new_frame.get()) < 0)
         throw ffmpegException("[ffmpeg::AVFrameImageComponentSource::load] Could not make the video frame writable.");
 
-      if (!stride)
-        stride = frame->width * frame->height;
-      for (int i = 0; i < desc->nb_components; ++i)
-      {
-        copy_component(pdata, desc->comp[i], new_frame);
-        pdata += stride;
-      }
-    }
+      imageCopyFromComponentBuffer(pdata, pdata_size, new_frame->data, new_frame->linesize,
+                                   (AVPixelFormat)new_frame->format, new_frame->width, new_frame->height,
+                                   linesize, compsize);
 
-    // successfully created a new frame, ready to update the buffer
-    std::unique_lock<std::mutex> l_tx(m);
+      // successfully created a new frame, ready to update the buffer
+      std::unique_lock<std::mutex> l_tx(m);
 
-    // if data already available, clear
-    if (frame)
-      av_frame_free(&frame);
-
-    // if NULL, queue NULL to indicate the end of stream
-    if (pdata)
-    {
-      frame = new_frame;
-      status = 1;
+      // if NULL, queue NULL to indicate the end of stream
+      av_frame_unref(frame);
+      av_frame_move_ref(frame, new_frame.get());
+      status = av_cmp_q(frame->sample_aspect_ratio, {0, 0}) ? 1 : 0; // if data filled,
     }
     else
     {
-      if (frame)
-        reallocate_frame(); // keep the parameters, but free the data buffers
+      std::unique_lock<std::mutex> l_tx(m);
+      av_frame_unref(frame);
       status = -1;
     }
 
@@ -216,43 +226,9 @@ public:
    * @param[in] frame_offset First frame offset relative to the first frame in the buffer. The offset is given in frames.
    * @return Number of frame available in the returned pointers.
   */
-  void load(const uint8_t *pdata, uint64_t stride = 0)
+  void load(const uint8_t *pdata, const int pdata_size, const int linesize = 0, const int compsize = 0)
   {
-    if (!ready())
-      throw ffmpegException("[ffmpeg::AVFrameImageComponentSource::load] Frame parameters are not completely loaded yet.");
-
-    // successfully created a new frame, ready to update the buffer
-    std::unique_lock<std::mutex> l_tx(m);
-
-    // if data already exists, reallocate
-    if (frame->data[0])
-      reallocate_frame();
-
-    // if data is present, create new AVFrame, else mark it eof
-    if (pdata)
-    {
-      if (av_frame_get_buffer(frame, 0) < 0)
-        throw ffmpegException("[ffmpeg::AVFrameImageComponentSource::load] Could not allocate the video frame data.");
-      if (av_frame_make_writable(frame) < 0)
-        throw ffmpegException("[ffmpeg::AVFrameImageComponentSource::load] Could not make the video frame writable.");
-
-      if (!stride)
-        stride = frame->width * frame->height;
-      for (int i = 0; i < desc->nb_components; ++i)
-      {
-        copy_component(pdata, desc->comp[i], frame);
-        pdata += stride;
-      }
-
-      status = 1;
-    }
-    else // eof
-    {
-      status = -1;
-    }
-
-    // notify that the frame data has been updated
-    cv_tx.notify_one();
+    load(getVideoParams(), pdata, pdata_size, linesize, compsize);
   }
 
   /**
@@ -260,10 +236,12 @@ public:
  * 
  * \note EOF signal gets popped only once and object goes dormant
  */
-  void markEOF()
+  void
+  markEOF()
   {
     std::unique_lock<std::mutex> l_tx(m);
     status = -1;
+    av_frame_unref(frame);
   }
 
 protected:
@@ -283,19 +261,18 @@ protected:
    * 
    * \returns Populated AVFrame. Caller is responsible to free.
    */
-  AVFrame *pop_threadunsafe()
+  void pop_threadunsafe(AVFrame *outgoing_frame)
   {
-    AVFrame *outgoing_frame = NULL;
     if (status > 0) // if data available
     {
-      outgoing_frame = AVFrameImageComponentSource::copy_frame(frame, false);
+      if (av_frame_ref(outgoing_frame, frame) < 0)
+        throw ffmpegException("[ffmpeg::AVFrameImageComponentSource::pop_threadunsafe] Failed to copy AVFrame.");
       outgoing_frame->pts = next_time++;
     }
     else //if (status < 0)
     {
       status = 0; // popped eof
     }
-    return outgoing_frame;
   }
 
   /**
@@ -308,7 +285,7 @@ protected:
   {
     // free all allocated AVFrames
     if (frame)
-      av_frame_free(&frame);
+      av_frame_unref(frame);
 
     // reset the eof flag and write pointer positions
     status = 0;
@@ -319,83 +296,31 @@ private:
   /**
    * \brief Reallocate object's AVFrame 
    * 
-   * reallocate_frame() unreferences the existing frame but maintains
+   * release_frame() unreferences the existing frame but maintains
    * the parameter values.
    * 
    */
-  void reallocate_frame()
+  void release_frame()
   {
-    if (frame) // already allocated
-    {
-      VideoParams params = getVideoParams();
-      av_frame_unref(frame);
+    // save the image parameters
+    VideoParams params = getVideoParams();
 
-      // copy back, cannot use setVideoParams() because it fires reallocate_frame() recursively
-      frame->format = (int)params.format;
-      frame->width = params.width;
-      frame->height = params.height;
-      frame->sample_aspect_ratio = params.sample_aspect_ratio;
-    }
-    else // new allocation
-    {
-      frame = av_frame_alloc();
-      if (!frame)
-        throw ffmpegException("[ffmpeg::AVFrameImageComponentSource] Could not allocate video frame.");
-    }
+    // release the FFmpeg frame buffers
+    av_frame_unref(frame);
+
+    // copy back image parameters, cannot use setVideoParams() because it fires release_frame() recursively
+    frame->format = (int)params.format;
+    frame->width = params.width;
+    frame->height = params.height;
+    frame->sample_aspect_ratio = params.sample_aspect_ratio;
+
+    status = 0;
   }
 
-  /**
-   * \brief Create a copy of a source AVFrame
-   * 
-   * \param[in] src Source AVFrame (must be populated with a valid Video AVFrame)
-   * \param[out] dst Destination AVFrame. Its content will be overwritten, and 
-   *                 allocated frame must be freed by the caller
-   */
-  static AVFrame *copy_frame(const AVFrame *src, const bool writable)
-  {
-    if (!src) return NULL;
-
-    AVFrame *rval = av_frame_clone(src);
-    if (!rval)
-      throw ffmpegException("[ffmpeg::AVFrameImageComponentSource::copy_frame] Could not allocate video frame.");
-
-    if (writable && rval->buf[0] && av_frame_make_writable(rval) < 0)
-      throw ffmpegException("[ffmpeg::AVFrameImageComponentSource::copy_frame] Could not make the copied video frame writable.");
-    
-    return rval;
-  }
-
-  /**
-   * \brief Copy one component of a frame
-   * 
-   * \param[in] data   Points to the top of the current component data to create a new AVFrame
-   * \param[in] d      Component descriptor of the current component
-   * \param[out] frame Points to already prepared AVFrame to populate
-  */
-  static void copy_component(const uint8_t *data, const AVComponentDescriptor &d, AVFrame *frame)
-  {
-    int lnsz = frame->linesize[d.plane];
-    uint8_t *dst = frame->data[d.plane];
-    uint8_t *dst_end = dst + frame->height * lnsz;
-    // Copy frame data
-    for (; dst < dst_end; dst += lnsz) // for each line
-    {
-      uint8_t *line = dst + d.offset;
-      for (int w = 0; w < frame->width; ++w) // for each column
-      {
-        // get the data
-        *line = (*(data++)) << d.shift;
-
-        // go to next pixel
-        line += d.step;
-      }
-    }
-  }
-
+  AVFrame *frame;
   const AVPixFmtDescriptor *desc;
 
   int64_t next_time; // increments after every pop
   int status;        // 0:not ready; >0:frame ready; <0:eof ready
-  AVFrame *frame;    // source image data
 };
 }

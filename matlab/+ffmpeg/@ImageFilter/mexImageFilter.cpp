@@ -11,6 +11,7 @@ extern "C" {
 }
 
 #include <stdexcept>
+#include <memory>
 
 #include <fstream>
 std::ofstream output("mextest.csv");
@@ -147,7 +148,7 @@ void mexImageFilter::runSimple(const mxArray *mxObj, mxArray *&mxOut, const mxAr
   src.setHeight(height);
 
   av_log(NULL, AV_LOG_INFO, "format:%s:width:%d:height:%d:sar:%d:%d:time_base:%d:%d\n", src.getFormatName(), src.getWidth(),
-         src.getHeight(), src.getSAR().num, src.getSAR().den,src.getTimeBaseRef().num,src.getTimeBaseRef().den);
+         src.getHeight(), src.getSAR().num, src.getSAR().den, src.getTimeBaseRef().num, src.getTimeBaseRef().den);
 
   // configure the filter graph
   if (config)
@@ -156,31 +157,38 @@ void mexImageFilter::runSimple(const mxArray *mxObj, mxArray *&mxOut, const mxAr
     filtergraph.flush(); // recreate AVFilterGraph with the same AVFrame buffers
 
   // send the image data to the buffer
-    av_log(NULL, AV_LOG_INFO, "[runOnce] Loading the input data...\n");
-    src.load(in);
+  av_log(NULL, AV_LOG_INFO, "[runOnce] Loading the input data...\n");
+  // src.load(in, (int)mxGetNumberOfElements(mxIn));
 
   // make sure everything is ready to go
-    av_log(NULL, AV_LOG_INFO, "[runOnce] Final check...\n");
-  if (!filtergraph.ready()) // something went wrong
-    throw std::runtime_error("Failed to configure the filter graph.");
+  // av_log(NULL, AV_LOG_INFO, "[runOnce] Final check...\n");
+  // if (!filtergraph.ready()) // something went wrong
+  //   throw std::runtime_error("Failed to configure the filter graph.");
 
-  // run the filter
-    av_log(NULL, AV_LOG_INFO, "[runOnce] RUN!!...\n");
-  filtergraph.runOnce();
+  // // run the filter
+  //   av_log(NULL, AV_LOG_INFO, "[runOnce] RUN!!...\n");
+  // filtergraph.runOnce();
+
+  // test direct transfer
+  // auto avFrameFree = [](AVFrame *frame) { av_frame_free(&frame); };
+  // std::unique_ptr<AVFrame, decltype(avFrameFree) *>
+  //     frame{av_frame_alloc(), avFrameFree};
+  // src.pop(frame.get());
 
   // get the output
-    av_log(NULL, AV_LOG_INFO, "[runOnce] Retrieve the output data...\n");
-  uint8_t *data;
-  mexComponentSink &sink = *dynamic_cast<mexComponentSink *>(filtergraph.getOutputBuffer());
-  if (!sink.release(&data)) // grab entire the data buffer
-    throw std::runtime_error("No output data were produced by the filter graph.");
+  // av_log(NULL, AV_LOG_INFO, "[runOnce] Retrieve the output data...\n");
+  // uint8_t *data;
+  // mexComponentSink &sink = *dynamic_cast<mexComponentSink *>(filtergraph.getOutputBuffer());
+  // sink.push(frame.get());
+  // if (!sink.release(&data)) // grab entire the data buffer
+  //   throw std::runtime_error("No output data were produced by the filter graph.");
 
-  // output format
-  desc = av_pix_fmt_desc_get(sink.getFormat());
-  mwSize dims[3] = {(mwSize)sink.getWidth(), (mwSize)sink.getHeight(), (mwSize)desc->nb_components};
+  // // output format
+  // desc = av_pix_fmt_desc_get(sink.getFormat());
+  // mwSize dims[3] = {(mwSize)sink.getWidth(), (mwSize)sink.getHeight(), (mwSize)desc->nb_components};
   mxOut = mxCreateNumericMatrix(0, 0, mxUINT8_CLASS, mxREAL);
-  mxSetDimensions(mxOut, dims, 3);
-  mxSetData(mxOut, data);
+  // mxSetDimensions(mxOut, dims, 3);
+  // mxSetData(mxOut, data);
 }
 
 // Soutimg = runComplex(Sinimg)
@@ -194,7 +202,7 @@ const uint8_t *mexImageFilter::getMxImageData(const mxArray *mxData, int &width,
 {
   // width & height are presented backwards to account for difference in column/row-major data storage
   const mwSize *dims = mxGetDimensions(mxData);
-  width = (int)dims[0]; 
+  width = (int)dims[0];
   height = (int)dims[1];
   depth = mxGetNumberOfDimensions(mxData) < 3 ? 1 : (int)dims[2];
   return (uint8_t *)mxGetData(mxData);
@@ -230,7 +238,7 @@ void mexImageFilter::syncInputFormat(const mxArray *mxObj)
   if (!ran && changedFormat) // sync'd
     changedFormat = false;
 
-  av_log(NULL,AV_LOG_INFO,"InputFormat synchronized.\n");
+  av_log(NULL, AV_LOG_INFO, "InputFormat synchronized.\n");
 }
 
 void mexImageFilter::syncInputSAR(const mxArray *mxObj)
@@ -262,7 +270,7 @@ void mexImageFilter::syncInputSAR(const mxArray *mxObj)
   if (!ran && changedSAR)
     changedSAR = false; // sync'ed
 
-  av_log(NULL,AV_LOG_INFO,"InputSAR synchronized.\n");
+  av_log(NULL, AV_LOG_INFO, "InputSAR synchronized.\n");
 }
 
 void mexImageFilter::reset()
@@ -295,7 +303,7 @@ void mexImageFilter::init(const std::string &new_graph)
     sinks.emplace_back();
   for (size_t i = 0; i < ports.size(); ++i) // new source
     filtergraph.assignSink(sinks[i], ports[i]);
-  
+
   ran = false;
 }
 

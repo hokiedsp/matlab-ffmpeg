@@ -25,8 +25,10 @@ Graph::Graph(const std::string &filtdesc) : graph(NULL), inmon_status(0)
 }
 Graph::~Graph()
 {
-  destroy(true);
-}
+av_log(NULL,AV_LOG_INFO,"destroying Graph\n");
+      destroy(true);
+av_log(NULL,AV_LOG_INFO,"destroyed Graph\n");
+    }
 
 void Graph::destroy(const bool complete)
 {
@@ -204,13 +206,13 @@ bool Graph::ready()
 
   // every input & output buffers must have IAVFrameSource/IAVFrameSink associated with it
   for (auto it = inputs.begin(); it != inputs.end(); ++it)
-    if (!it->second.buf || it->second.buf->ready())
+    if (!(it->second.buf && it->second.buf->ready()))
     {
       av_log(NULL, AV_LOG_ERROR, "[ffmpage::filter::Graph::ready] Input '%s' is not ready\n", it->first.c_str());
       return false;
     }
   for (auto it = outputs.begin(); it != outputs.end(); ++it)
-    if (!it->second.buf || it->second.buf->ready())
+    if (!(it->second.buf && it->second.buf->ready()))
     {
       av_log(NULL, AV_LOG_ERROR, "[ffmpage::filter::Graph::ready] Output '%s' is not ready\n", it->first.c_str());
       return false;

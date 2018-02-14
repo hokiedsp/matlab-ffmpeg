@@ -15,7 +15,18 @@ using namespace ffmpeg;
 using namespace ffmpeg::filter;
 
 ///////////////////////////////////////////////////////////
-SinkBase::SinkBase(Graph &fg, IAVFrameSink &buf) : EndpointBase(fg, buf), sink(buf) {}
+SinkBase::SinkBase(Graph &fg, IAVFrameSink &buf) : EndpointBase(fg, buf), sink(buf), ena(false)
+{
+  frame = av_frame_alloc();
+  if (!frame)
+    throw ffmpegException("[ffmpeg::filter::SinkBase]Failed to allocate AVFrame.");
+}
+SinkBase::~SinkBase()
+{
+  av_log(NULL, AV_LOG_INFO, "destroying SinkBase\n");
+  av_frame_free(&frame);
+  av_log(NULL, AV_LOG_INFO, "destroyed SinkBase\n");
+}
 
 AVFilterContext *SinkBase::configure(const std::string &name)
 { // configure the AVFilterContext
@@ -33,7 +44,6 @@ void SinkBase::link(AVFilterContext *other, const unsigned otherpad, const unsig
 
 int SinkBase::processFrame()
 {
-  AVFrame *frame = NULL;
   int ret = av_buffersink_get_frame(context, frame);
   bool eof = (ret != AVERROR_EOF);
   if (ret == 0 || eof)
@@ -42,13 +52,12 @@ int SinkBase::processFrame()
     if (eof)
       ena = false;
   }
-
+  av_frame_unref(frame);
   return ret;
 }
 
 int SinkBase::processFrame(const std::chrono::milliseconds &rel_time)
 {
-  AVFrame *frame = NULL;
   int ret = av_buffersink_get_frame(context, frame);
   bool eof = (ret != AVERROR_EOF);
   if (ena && (ret == 0 || eof))
@@ -57,6 +66,7 @@ int SinkBase::processFrame(const std::chrono::milliseconds &rel_time)
     if (eof)
       ena = false;
   }
+  av_frame_unref(frame);
   return ret;
 }
 

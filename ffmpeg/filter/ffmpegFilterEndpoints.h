@@ -21,7 +21,8 @@ public:
   // AVMediaType type;   AVRational time_base
   explicit EndpointBase(Graph &parent, const AVMediaType type, const AVRational &tb = {0, 0}) : Base(parent), MediaHandler(type, tb) {}
   EndpointBase(Graph &parent, const IMediaHandler &mdev) : Base(parent), MediaHandler(mdev) {}
-  virtual ~EndpointBase() {}
+  virtual ~EndpointBase() {av_log(NULL,AV_LOG_INFO,"destroying EndpointBase\n");
+}
 
   virtual int processFrame() = 0;
 };

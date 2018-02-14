@@ -1,6 +1,7 @@
 #pragma once
 
 #include "ffmpegAVFrameBufferBases.h" // import AVFrameSinkBase
+#include "ffmpegImageUtils.h"
 
 extern "C" {
 #include <libavutil/pixfmt.h>  // import AVPixelFormat
@@ -52,23 +53,17 @@ public:
 
   virtual ~AVFrameVideoComponentSink()
   {
+    av_log(NULL,AV_LOG_INFO,"destroying AVFrameVideoComponentSink\n");
     std::unique_lock<std::mutex> l_rx(m);
     allocator.deallocate((uint8_t *)time_buf, nb_frames * sizeof(double));
     allocator.deallocate(data_buf, nb_frames * width * height);
+    av_log(NULL,AV_LOG_INFO,"destroyed AVFrameVideoComponentSink\n");
   }
 
   bool supportedFormat(int format) const
   {
     // must <= 8-bit/component
-    const AVPixFmtDescriptor *desc = av_pix_fmt_desc_get((AVPixelFormat)format);
-    if (!desc || desc->flags & AV_PIX_FMT_FLAG_BITSTREAM) // invalid format
-      return false;
-
-    // depths of all components must be single-byte
-    for (int i = 0; i < desc->nb_components; ++i)
-      if (desc->comp[i].depth > 8) return false;
-
-    return true;
+    return format != AV_PIX_FMT_NONE ? imageCheckComponentSize((AVPixelFormat)format) : false;
   }
 
   /**
@@ -204,19 +199,23 @@ protected:
   bool readyToPush_threadunsafe() const // declared in AVFrameSinkBase
   {
     // no room or eof
-    return !(has_eof && time_buf) || nb_frames > (size_t)(wr_time - time_buf);
+    return !(has_eof && time_buf && (time_buf + nb_frames >= wr_time + frame_data_sz));
   }
 
   // safe to assume object is ready to accept a new frame
   int push_threadunsafe(AVFrame *frame)
   {
+    av_log(NULL,AV_LOG_INFO,"in push_threadunsafe\n");
     if (frame)
     {
+    av_log(NULL,AV_LOG_INFO,"received a frame\n");
       // if buffer format has not been set or frame parameters changed, reallocate the buffer
       if (!time_buf || frame->format != format || frame->width != width || frame->height != height)
       {
+    av_log(NULL,AV_LOG_INFO,"need to reallocate buffer\n");
         setVideoParams(VideoParams({(AVPixelFormat)frame->format, frame->width, frame->height, frame->sample_aspect_ratio}));
         reallocate_threadunsafe();
+    av_log(NULL,AV_LOG_INFO,"allocated %d bytes\n",frame_data_sz);
       }
 
       // copy time
@@ -224,17 +223,13 @@ protected:
         *wr_time = frame->pts;
       else
         *wr_time = -1;
+      av_log(NULL, AV_LOG_INFO, "pts=%d\n", *wr_time);
       ++wr_time;
 
       // copy data
-      int numpix = width * height;
-      uint8_t *wr_pos = wr_data;
-      for (int i = 0; i < desc->nb_components; ++i)
-      {
-        copy_component(frame, desc->comp[i], wr_pos);
-        wr_pos += numpix;
-      }
-      wr_data += frame_data_sz;
+      wr_data += imageCopyToComponentBuffer(wr_data, (int)frame_data_sz, frame->data, frame->linesize,
+                                            (AVPixelFormat)frame->format, frame->width, frame->height);
+      av_log(NULL, AV_LOG_INFO, "image data (%d bytes) written\n", wr_data - data_buf);
     }
     else // null frame == eof marker
     {
@@ -250,11 +245,12 @@ protected:
       *(VideoParams *)this = {AV_PIX_FMT_NONE, 0, 0, {0, 0}};
       reallocate_threadunsafe();
     }
-
-    // clear eof flag and reset write pointers
-    has_eof = false;
-    wr_time = time_buf;
-    wr_data = data_buf;
+    else
+    { // clear eof flag and reset write pointers
+      has_eof = false;
+      wr_time = time_buf;
+      wr_data = data_buf;
+    }
     return data_buf; // if data_buf is non-null, ready to fill more
   }
 
@@ -265,11 +261,16 @@ protected:
   void reallocate_threadunsafe()
   {
     // determine the data buffer size
-    frame_data_sz = width * height * ((desc) ? desc->nb_components : 0);
+    frame_data_sz = imageGetComponentBufferSize(desc, width, height);
 
     // reallocate
     time_buf = (int64_t *)allocator.allocate(nb_frames * sizeof(int64_t), (uint8_t *)time_buf);
     data_buf = allocator.allocate(nb_frames * frame_data_sz, data_buf);
+
+    // reset the eof flag and write pointer positions
+    has_eof = false;
+    wr_time = time_buf;
+    wr_data = data_buf;
   }
 
   virtual void reset_threadunsafe(const size_t nframes) // must re-implement to allocate data_buf
@@ -283,11 +284,6 @@ protected:
       nb_frames = nframes;
       reallocate_threadunsafe();
     }
-
-    // reset the eof flag and write pointer positions
-    has_eof = false;
-    wr_time = time_buf;
-    wr_data = data_buf;
   }
 
 private:
@@ -309,29 +305,6 @@ private:
     data_sz *= frame_data_sz; // convert to bytes from frames
     std::copy_n(other.data_buf, data_sz, data_buf);
     wr_data = data_buf + data_sz;
-  }
-
-  /**
-   * Copy one component of a frame
-  */
-  void copy_component(const AVFrame *frame, const AVComponentDescriptor &d, uint8_t *data)
-  {
-    int lnsz = frame->linesize[d.plane];
-    uint8_t *src = frame->data[d.plane];
-    uint8_t *src_end = src + height * lnsz;
-    // Copy frame data
-    for (; src < src_end; src += lnsz) // for each line
-    {
-      uint8_t *line = src + d.offset;
-      for (int w = 0; w < width; ++w) // for each column
-      {
-        // get the data
-        *(data++) = (*line) >> d.shift;
-
-        // go to next pixel
-        line += d.step;
-      }
-    }
   }
 
   Allocator allocator;

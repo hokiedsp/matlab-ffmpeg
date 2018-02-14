@@ -1,6 +1,7 @@
 #pragma once
 
 #include "ffmpegAVFrameBufferBases.h" // import AVFrameSinkBase
+#include "ffmpegImageUtils.h"
 
 extern "C" {
 #include <libavutil/pixfmt.h>  // import AVPixelFormat
@@ -56,16 +57,7 @@ public:
 
   bool supportedFormat(int format) const
   {
-    // must <= 8-bit/component
-    const AVPixFmtDescriptor *desc = av_pix_fmt_desc_get((AVPixelFormat)format);
-    if (!desc || desc->flags & AV_PIX_FMT_FLAG_BITSTREAM) // invalid format
-      return false;
-
-    // depths of all components must be single-byte
-    for (int i = 0; i < desc->nb_components; ++i)
-      if (desc->comp[i].depth > 8) return false;
-
-    return true;
+    return format != AV_PIX_FMT_NONE ? imageCheckComponentSize((AVPixelFormat)format) : false;
   }
 
   bool ready() const
@@ -100,7 +92,7 @@ public:
    * @param[in] stride [optional] Number of bytes allocated for each component. Default: height*width
    * @return Current total of frames written
   */
-  int64_t write(const uint8_t *pdata, const uint64_t stride = height * width)
+  int64_t write(const uint8_t *pdata, const int pdata_size, const int linesize = 0, const int compsize = 0)
   {
     if (has_eof)
       throw ffmpegException("[ffmpeg::AVFrameVideoComponentSource::write] Cannot add any more frames as end-of-stream has already been marked.");
@@ -123,11 +115,9 @@ public:
       if (av_frame_make_writable(new_frame) < 0)
         throw ffmpegException("[ffmpeg::AVFrameVideoComponentSource::write] Could not make the video frame writable.");
 
-      for (int i = 0; i < desc->nb_components; ++i)
-      {
-        copy_component(pdata, desc->comp[i], new_frame);
-        pdata += stride;
-      }
+      imageCopyFromComponentBuffer(pdata, pdata_size, new_frame->data, new_frame->linesize,
+                                   (AVPixelFormat)new_frame->format, new_frame->width, new_frame->height,
+                                   linesize, compsize);
       new_frame->pts = next_time++;
     }
 
@@ -147,10 +137,15 @@ protected:
     // no room or eof
     return !has_eof || nb_frames >= (rd_time - time_buf);
   }
-  AVFrame *pop_threadunsafe()
+  void pop_threadunsafe(AVFrame *frame)
   {
     AVFrame *rval = frame_queue.front();
     frame_queue.pop_front();
+
+    av_frame_unref(frame);
+    av_frame_move_ref(frame, rval);
+    av_frame_free(rval);
+
     return rval;
   }
 
@@ -194,29 +189,6 @@ private:
       if (av_frame_copy(frame, src) < 0)
         throw ffmpegException("[ffmpeg::AVFrameVideoComponentSource::copy_queue] Could not copy the data from the source frame.");
     })
-  }
-
-  /**
-   * Copy one component of a frame
-  */
-  static void copy_component(const uint8_t *data, const AVComponentDescriptor &d, AVFrame *frame)
-  {
-    int lnsz = frame->linesize[d.plane];
-    uint8_t *dst = frame->data[d.plane];
-    uint8_t *dst_end = dst + height * lnsz;
-    // Copy frame data
-    for (; dst < dst_end; dst += lnsz) // for each line
-    {
-      uint8_t *line = dst + d.offset;
-      for (int w = 0; w < width; ++w) // for each column
-      {
-        // get the data
-        *line = (*(data++)) << d.shift;
-
-        // go to next pixel
-        line += d.step;
-      }
-    }
   }
 
   AVPixelFormat pixfmt;

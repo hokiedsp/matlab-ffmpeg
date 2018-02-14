@@ -32,14 +32,17 @@ protected:
     // notify the source-end for the arrival of new data
     cv_tx.notify();
   }
-  AVFrame *pop_threadunsafe() // declared in AVFrameSourceBase
+  void pop_threadunsafe(AVFrame *frame) // declared in AVFrameSourceBase
   {
     // guaranteed readyToPop() returns true
     AVFrame *rval = Q.front();
     Q.pop();
+
+    av_frame_unref(frame);
+    av_frame_move_ref(frame, rval);
+    av_frame_free(rval);
     // notify the sink-end for the arrival of new data
     cv_rx.notify();
-    return rval;
   }
 
 private:

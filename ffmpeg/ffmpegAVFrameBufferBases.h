@@ -12,7 +12,10 @@ namespace ffmpeg
 class AVFrameBufferBase : public MediaHandler
 {
 public:
-  virtual ~AVFrameBufferBase() {}
+  virtual ~AVFrameBufferBase() {
+    av_log(NULL,AV_LOG_INFO,"destroying AVFrameBufferBase\n");
+    
+  }
 
 protected:
   // default constructor shall only be called implicitly while consturucting its virtually inheriting derived classes
@@ -192,12 +195,12 @@ public:
     clear_threadunsafe();
   }
 
-  int tryToPop(AVFrame *&frame)
+  int tryToPop(AVFrame *frame)
   {
     std::unique_lock<std::mutex> l_tx(m);
     if (readyToPop_threadunsafe())
     {
-      frame = pop_threadunsafe();
+      pop_threadunsafe(frame);
       return 0;
     }
     else
@@ -207,16 +210,16 @@ public:
     }
   }
 
-  void pop(AVFrame *&frame)
+  void pop(AVFrame *frame)
   {
     std::unique_lock<std::mutex> l_tx(m);
     while (!readyToPop_threadunsafe())
       cv_tx.wait(l_tx);
-    frame = pop_threadunsafe();
+    pop_threadunsafe(frame);
   }
 
   template <class Predicate>
-  int pop(AVFrame *&frame, Predicate pred)
+  int pop(AVFrame *frame, Predicate pred)
   {
     std::unique_lock<std::mutex> l_tx(m);
     bool ready = true;
@@ -225,7 +228,7 @@ public:
 
     if (ready)
     {
-      frame = pop_threadunsafe();
+      pop_threadunsafe(frame);
       return 0;
     }
     else
@@ -235,7 +238,7 @@ public:
     }
   }
 
-  int pop(AVFrame *&frame, const std::chrono::milliseconds &rel_time)
+  int pop(AVFrame *frame, const std::chrono::milliseconds &rel_time)
   {
     std::unique_lock<std::mutex> l_tx(m);
     std::cv_status status = std::cv_status::no_timeout;
@@ -243,7 +246,7 @@ public:
       status = cv_tx.wait_for(l_tx, rel_time);
     if (status == std::cv_status::no_timeout)
     {
-      frame = pop_threadunsafe();
+      pop_threadunsafe(frame);
       return 0;
     }
     else
@@ -254,7 +257,7 @@ public:
   }
 
   template <class Predicate>
-  int pop(AVFrame *&frame, const std::chrono::milliseconds &rel_time, Predicate pred)
+  int pop(AVFrame *frame, const std::chrono::milliseconds &rel_time, Predicate pred)
   {
     std::unique_lock<std::mutex> l_tx(m);
     bool ready = true;
@@ -262,7 +265,7 @@ public:
       ready = cv_tx.wait_for(m, rel_time, pred);
     if (ready)
     {
-      frame = pop_threadunsafe();
+      pop_threadunsafe(frame);
       return 0;
     }
     else
@@ -316,7 +319,7 @@ public:
 
 protected:
   virtual bool readyToPop_threadunsafe() const = 0;
-  virtual AVFrame *pop_threadunsafe() = 0;
+  virtual void pop_threadunsafe(AVFrame *frame) = 0;
   virtual void clear_threadunsafe() = 0;
 
   std::condition_variable cv_tx;

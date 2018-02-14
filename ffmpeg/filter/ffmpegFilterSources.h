@@ -26,6 +26,7 @@ class SourceBase : public EndpointBase
 {
 public:
   SourceBase(Graph &fg, IAVFrameSource &buf);
+  virtual ~SourceBase();
 
   // virtual AVFilterContext *configure(const std::string &name = "") = 0;
   // virtual void destroy(const bool deep = false);
@@ -44,6 +45,7 @@ public:
   virtual bool updateMediaParameters() = 0;
 
 protected:
+  AVFrame *frame;// allocated during construction, unref after at the end of processFrame, free during destruction
   IAVFrameSource &src;
   // AVBufferRef *hw_frames_ctx;
 };
@@ -54,6 +56,7 @@ class VideoSource : public SourceBase, virtual public VideoHandler
 {
 public:
   VideoSource(Graph &fg, IAVFrameSource &buf);
+  virtual ~VideoSource() {}
 
   AVFilterContext *configure(const std::string &name = "");
   std::string generate_args();
@@ -70,6 +73,7 @@ class AudioSource : public SourceBase, virtual public AudioHandler
 {
 public:
   AudioSource(Graph &fg, IAVFrameSource &buf);
+  virtual ~AudioSource() {}
   
   AVFilterContext *configure(const std::string &name = "");
   std::string generate_args();
