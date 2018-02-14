@@ -15,14 +15,8 @@ using namespace ffmpeg;
 using namespace ffmpeg::filter;
 
 ///////////////////////////////////////////////////////////
-SourceBase::SourceBase(Graph &fg, IAVFrameSource &buf)
-    : EndpointBase(fg, buf), src(buf)
-{
-  frame = av_frame_alloc();
-  if (!frame)
-    throw ffmpegException("[ffmpeg::filter::SourceBase]Failed to allocate AVFrame.");
-}
-SourceBase::~SourceBase() { av_log(NULL,AV_LOG_INFO,"destroying SourceBase\n"); av_free(frame); av_log(NULL,AV_LOG_INFO,"destroyed SourceBase\n"); }
+SourceBase::SourceBase(Graph &fg, IAVFrameSource &buf) : EndpointBase(fg, buf), src(buf) {}
+SourceBase::~SourceBase() { av_log(NULL,AV_LOG_INFO,"destroying SourceBase\n"); av_log(NULL,AV_LOG_INFO,"destroyed SourceBase\n"); }
 
 void SourceBase::link(AVFilterContext *other, const unsigned otherpad, const unsigned pad, const bool issrc)
 {

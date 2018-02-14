@@ -69,7 +69,6 @@ public:
   virtual bool enabled() const { return ena; };
 
 protected:
-  AVFrame *frame; // allocated during construction, unref after at the end of processFrame, free during destruction
   IAVFrameSink &sink;
   bool ena;
 };

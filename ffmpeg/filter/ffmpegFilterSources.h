@@ -45,7 +45,6 @@ public:
   virtual bool updateMediaParameters() = 0;
 
 protected:
-  AVFrame *frame;// allocated during construction, unref after at the end of processFrame, free during destruction
   IAVFrameSource &src;
   // AVBufferRef *hw_frames_ctx;
 };

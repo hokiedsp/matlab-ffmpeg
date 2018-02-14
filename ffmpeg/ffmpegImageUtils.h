@@ -12,7 +12,9 @@
 #include "ffmpegException.h"
 
 extern "C" {
-#include <libavutil/imgutils.h>
+// #include <libavutil/imgutils.h>
+#include <libavutil/pixfmt.h>
+#include <libavutil/pixdesc.h>
 }
 
 namespace ffmpeg
@@ -86,7 +88,7 @@ bool imageCheckComponentSize(const AVPixelFormat format, const int max = 8)
 int imageGetComponentBufferSize(const AVPixFmtDescriptor *pix_desc, const int width, const int height, const int dst_linesize = 0)
 {
   if (!pix_desc || !imageCheckComponentSize(pix_desc))
-    throw ffmpegException("[ffmpeg::imageGetComponentBufferSize] Unsupported pixel format specified.");
+    throw ffmpegException("[ffmpeg::imageGetComponentBufferSize] Unsupported pixel format (%s) specified.", pix_desc?pix_desc->name:"none");
   if (dst_linesize && dst_linesize < width)
     throw ffmpegException("[ffmpeg::imageGetComponentBufferSize] Destination linesize (%d) too small for the width (%d)",
                           dst_linesize, width);
@@ -115,21 +117,22 @@ int imageGetComponentBufferSize(const AVPixelFormat pix_fmt, const int width, co
   return imageGetComponentBufferSize(av_pix_fmt_desc_get(pix_fmt), width, height, dst_linesize);
 }
 
-#define imageGetComponentPixelValue(data, shift, mask) (((data) >> (shift)) && (mask))
-#define imageSetComponentPixelValue(data, shift, mask, value) data &= mask; data |= (((value) && (mask)) << (shift))
+#define imageGetComponentPixelValue(data, shift, mask) (((data) >> (shift)) & (mask))
+#define imageSetComponentPixelValue(data, shift, mask, value) data &= mask; data |= (((value) & (mask)) << (shift))
 
 // int av_image_copy_to_buffer(uint8_t *dst, int dst_size,
 //                             const uint8_t * const src_data[4], const int src_linesize[4],
 //                             enum AVPixelFormat pix_fmt, int width, int height, int align);
 
-#define FOR_EACH_COMPONENT_PIXEL_MACRO(DataType)                      \
-{                                                        \
+#define FOR_EACH_COMPONENT_PIXEL_MACRO(DataType)            \
+{                                                           \
     bool ok = true;                                         \
     for (int i = 0; ok && i < pix_desc->nb_components; ++i) \
     {                                                       \
       const AVComponentDescriptor &d = pix_desc->comp[i];   \
-      DataType *comp = img_data[i];                         \
-      int L = linesize[i];                                  \
+      int j = d.plane;                                      \
+      int L = linesize[j];                                  \
+      DataType *comp = img_data[j];                         \
       DataType *comp_end = comp + height * L;               \
       DataType mask = (DataType(1) << d.depth) - 1;         \
       for (; ok && comp < comp_end; comp += L)              \

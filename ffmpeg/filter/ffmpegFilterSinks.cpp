@@ -15,16 +15,10 @@ using namespace ffmpeg;
 using namespace ffmpeg::filter;
 
 ///////////////////////////////////////////////////////////
-SinkBase::SinkBase(Graph &fg, IAVFrameSink &buf) : EndpointBase(fg, buf), sink(buf), ena(false)
-{
-  frame = av_frame_alloc();
-  if (!frame)
-    throw ffmpegException("[ffmpeg::filter::SinkBase]Failed to allocate AVFrame.");
-}
+SinkBase::SinkBase(Graph &fg, IAVFrameSink &buf) : EndpointBase(fg, buf), sink(buf), ena(false) {}
 SinkBase::~SinkBase()
 {
   av_log(NULL, AV_LOG_INFO, "destroying SinkBase\n");
-  av_frame_free(&frame);
   av_log(NULL, AV_LOG_INFO, "destroyed SinkBase\n");
 }
 

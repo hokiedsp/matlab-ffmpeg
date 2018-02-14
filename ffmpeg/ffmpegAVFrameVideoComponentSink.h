@@ -3,6 +3,8 @@
 #include "ffmpegAVFrameBufferBases.h" // import AVFrameSinkBase
 #include "ffmpegImageUtils.h"
 
+#include "ffmpegLogUtils.h"
+
 extern "C" {
 #include <libavutil/pixfmt.h>  // import AVPixelFormat
 #include <libavutil/pixdesc.h> // import AVPixFmtDescriptor
@@ -24,7 +26,7 @@ class AVFrameVideoComponentSink : public AVFrameSinkBase, public VideoHandler
 {
 public:
   AVFrameVideoComponentSink(const AVRational &tb = {0, 0})
-      : AVFrameSinkBase(AVMEDIA_TYPE_VIDEO, tb), desc(NULL),
+      : AVFrameSinkBase(AVMEDIA_TYPE_VIDEO, tb),
         nb_frames(1), time_buf(NULL), frame_data_sz(0), data_buf(NULL), has_eof(false), wr_time(NULL), wr_data(NULL)
   {
   }
@@ -55,8 +57,11 @@ public:
   {
     av_log(NULL,AV_LOG_INFO,"destroying AVFrameVideoComponentSink\n");
     std::unique_lock<std::mutex> l_rx(m);
-    allocator.deallocate((uint8_t *)time_buf, nb_frames * sizeof(double));
-    allocator.deallocate(data_buf, nb_frames * width * height);
+    if (time_buf)
+    {
+      allocator.deallocate((uint8_t *)time_buf, nb_frames * sizeof(double));
+      allocator.deallocate(data_buf, nb_frames * width * height);
+    }
     av_log(NULL,AV_LOG_INFO,"destroyed AVFrameVideoComponentSink\n");
   }
 
@@ -90,17 +95,15 @@ public:
     if (time)
       *time = time_buf;
 
+    data_buf = wr_data = NULL;
+    time_buf = wr_time = NULL;
+
     // reallocate memory for the buffer
     if (reallocate)
     {
-      reset_threadunsafe(0);
+      reallocate_threadunsafe();
       if (nb_frames) //notify the reader for the buffer availability
         cv_rx.notify_one();
-    }
-    else
-    {
-      data_buf = wr_data = NULL;
-      time_buf = wr_time = NULL;
     }
 
     return rval; // number of frames
@@ -214,7 +217,7 @@ protected:
       {
     av_log(NULL,AV_LOG_INFO,"need to reallocate buffer\n");
         setVideoParams(VideoParams({(AVPixelFormat)frame->format, frame->width, frame->height, frame->sample_aspect_ratio}));
-        reallocate_threadunsafe();
+           reallocate_threadunsafe();
     av_log(NULL,AV_LOG_INFO,"allocated %d bytes\n",frame_data_sz);
       }
 
@@ -261,7 +264,7 @@ protected:
   void reallocate_threadunsafe()
   {
     // determine the data buffer size
-    frame_data_sz = imageGetComponentBufferSize(desc, width, height);
+    frame_data_sz = imageGetComponentBufferSize(format, width, height);
 
     // reallocate
     time_buf = (int64_t *)allocator.allocate(nb_frames * sizeof(int64_t), (uint8_t *)time_buf);
@@ -308,8 +311,6 @@ private:
   }
 
   Allocator allocator;
-
-  const AVPixFmtDescriptor *desc;
 
   size_t frame_data_sz; // size of each frame in number of bytes
 

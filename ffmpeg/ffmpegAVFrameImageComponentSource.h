@@ -4,6 +4,8 @@
 #include "ffmpegException.h"          // import AVFrameSinkBase
 #include "ffmpegImageUtils.h"
 
+// #include "ffmpegLogUtils.h"
+
 extern "C" {
 #include <libavutil/pixfmt.h>  // import AVPixelFormat
 #include <libavutil/pixdesc.h> // import AVPixFmtDescriptor
@@ -26,7 +28,7 @@ class AVFrameImageComponentSource : public AVFrameSourceBase, public IVideoHandl
 {
 public:
   AVFrameImageComponentSource()
-      : AVFrameSourceBase(AVMEDIA_TYPE_VIDEO, AVRational({1, 1})), desc(NULL),
+      : AVFrameSourceBase(AVMEDIA_TYPE_VIDEO, AVRational({1, 1})),
         next_time(0), status(0)
   {
     frame = av_frame_alloc();
@@ -39,7 +41,7 @@ public:
 
   // copy constructor
   AVFrameImageComponentSource(const AVFrameImageComponentSource &other)
-      : AVFrameSourceBase(other), desc(other.desc),
+      : AVFrameSourceBase(other),
         status(other.status), next_time(other.next_time)
   {
     frame = av_frame_clone(other.frame);
@@ -51,7 +53,7 @@ public:
 
   // move constructor
   AVFrameImageComponentSource(AVFrameImageComponentSource &&other) noexcept
-      : AVFrameSourceBase(other), desc(other.desc), frame(other.frame), status(other.status),
+      : AVFrameSourceBase(other), frame(other.frame), status(other.status),
         next_time(other.next_time)
   {
     other.frame = av_frame_alloc();
@@ -318,7 +320,6 @@ private:
   }
 
   AVFrame *frame;
-  const AVPixFmtDescriptor *desc;
 
   int64_t next_time; // increments after every pop
   int status;        // 0:not ready; >0:frame ready; <0:eof ready
