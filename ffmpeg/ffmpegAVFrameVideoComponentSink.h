@@ -55,14 +55,14 @@ public:
 
   virtual ~AVFrameVideoComponentSink()
   {
-    av_log(NULL,AV_LOG_INFO,"destroying AVFrameVideoComponentSink\n");
+    av_log(NULL, AV_LOG_INFO, "destroying AVFrameVideoComponentSink\n");
     std::unique_lock<std::mutex> l_rx(m);
     if (time_buf)
     {
       allocator.deallocate((uint8_t *)time_buf, nb_frames * sizeof(double));
       allocator.deallocate(data_buf, nb_frames * width * height);
     }
-    av_log(NULL,AV_LOG_INFO,"destroyed AVFrameVideoComponentSink\n");
+    av_log(NULL, AV_LOG_INFO, "destroyed AVFrameVideoComponentSink\n");
   }
 
   bool supportedFormat(int format) const
@@ -208,17 +208,17 @@ protected:
   // safe to assume object is ready to accept a new frame
   int push_threadunsafe(AVFrame *frame)
   {
-    av_log(NULL,AV_LOG_INFO,"in push_threadunsafe\n");
+    av_log(NULL, AV_LOG_INFO, "in push_threadunsafe\n");
     if (frame)
     {
-    av_log(NULL,AV_LOG_INFO,"received a frame\n");
+      av_log(NULL, AV_LOG_INFO, "received a frame\n");
       // if buffer format has not been set or frame parameters changed, reallocate the buffer
       if (!time_buf || frame->format != format || frame->width != width || frame->height != height)
       {
-    av_log(NULL,AV_LOG_INFO,"need to reallocate buffer\n");
+        av_log(NULL, AV_LOG_INFO, "need to reallocate buffer\n");
         setVideoParams(VideoParams({(AVPixelFormat)frame->format, frame->width, frame->height, frame->sample_aspect_ratio}));
-           reallocate_threadunsafe();
-    av_log(NULL,AV_LOG_INFO,"allocated %d bytes\n",frame_data_sz);
+        reallocate_threadunsafe();
+        av_log(NULL, AV_LOG_INFO, "allocated %d bytes\n", frame_data_sz);
       }
 
       // copy time
@@ -236,6 +236,7 @@ protected:
     }
     else // null frame == eof marker
     {
+      av_log(NULL, AV_LOG_INFO, "received an eof marker\n");
       has_eof = true;
     }
     return 0;

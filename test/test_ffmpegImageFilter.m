@@ -7,3 +7,4 @@ imgfilter = ffmpeg.ImageFilter('scale=640:360');
 imdata = imread('ngc6543a.jpg');
 filtdata = imgfilter.run(imdata);
 
+filtdata = imgfilter.run(imdata);

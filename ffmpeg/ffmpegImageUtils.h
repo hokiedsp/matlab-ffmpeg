@@ -117,13 +117,41 @@ int imageGetComponentBufferSize(const AVPixelFormat pix_fmt, const int width, co
   return imageGetComponentBufferSize(av_pix_fmt_desc_get(pix_fmt), width, height, dst_linesize);
 }
 
+/**
+ * \brief Get a pixel value from an AVFrame image buffer
+ * 
+ * imageGetComponentPixelValue macro shall be used to retrieve the pixel component value
+ * during the pix_op callback function in imageForEachComponentPixel() or 
+ * imageForEachConstComponentPixel(), with the corresponding inputs argument thereof.
+ * 
+ * \param[in] AVFrame buffer data bit-packed value
+ * \param[in] Number of least significant bits that must be shifted away to get the value.
+ * \param[in] Bit mask to obtain the pixel component value after shift.
+ * \returns   The pixel component value
+ */
 #define imageGetComponentPixelValue(data, shift, mask) (((data) >> (shift)) & (mask))
-#define imageSetComponentPixelValue(data, shift, mask, value) data &= mask; data |= (((value) & (mask)) << (shift))
+
+/**
+ * \brief Set a pixel value on an AVFrame image buffer
+ * 
+ * imageSetComponentPixelValue macro shall be used to set the pixel component value
+ * on an AVFrame image buffer during the pix_op callback function in 
+ * imageForEachComponentPixel() or imageForEachConstComponentPixel(), with the
+ * corresponding inputs argument thereof.
+ * 
+ * \param[out] AVFrame image buffer element to write the component pixel value to
+ * \param[in]  AVFrame buffer data bit-packed value
+ * \param[in]  Number of least significant bits that must be shifted away to get the value.
+ * \param[in]  Bit mask to obtain the pixel component value after shift.
+ * \param[in]  The pixel component value to set
+ */
+#define imageSetComponentPixelValue(data, shift, mask, value) (data) &= (mask); (data) |= (((value) & (mask)) << (shift))
 
 // int av_image_copy_to_buffer(uint8_t *dst, int dst_size,
 //                             const uint8_t * const src_data[4], const int src_linesize[4],
 //                             enum AVPixelFormat pix_fmt, int width, int height, int align);
 
+/* internal use only */
 #define FOR_EACH_COMPONENT_PIXEL_MACRO(DataType)            \
 {                                                           \
     bool ok = true;                                         \

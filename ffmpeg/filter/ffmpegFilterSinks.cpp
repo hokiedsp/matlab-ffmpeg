@@ -39,7 +39,7 @@ void SinkBase::link(AVFilterContext *other, const unsigned otherpad, const unsig
 int SinkBase::processFrame()
 {
   int ret = av_buffersink_get_frame(context, frame);
-  bool eof = (ret != AVERROR_EOF);
+  bool eof = (ret == AVERROR_EOF);
   if (ret == 0 || eof)
   {
     sink.push(eof ? NULL : frame);
@@ -53,7 +53,7 @@ int SinkBase::processFrame()
 int SinkBase::processFrame(const std::chrono::milliseconds &rel_time)
 {
   int ret = av_buffersink_get_frame(context, frame);
-  bool eof = (ret != AVERROR_EOF);
+  bool eof = (ret == AVERROR_EOF);
   if (ena && (ret == 0 || eof))
   {
     sink.push(eof ? NULL : frame, rel_time);

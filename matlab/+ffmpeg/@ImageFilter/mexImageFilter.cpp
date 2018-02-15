@@ -117,8 +117,9 @@ void mexImageFilter::runSimple(const mxArray *mxObj, mxArray *&mxOut, const mxAr
   // check to make sure filter graph is ready to go: AVFilterGraph is present and SourceInfo and SinkInfo maps are fully populated
   filtergraph.ready();
 
-  // get the input buffer
+  // get the input & output buffer
   mexComponentSource &src = *dynamic_cast<mexComponentSource *>(filtergraph.getInputBuffer());
+  mexComponentSink &sink = *dynamic_cast<mexComponentSink *>(filtergraph.getOutputBuffer());
 
   // get the input image (guaranteed to be nonempty uint8 array)
   int width, height, depth;
@@ -152,7 +153,10 @@ void mexImageFilter::runSimple(const mxArray *mxObj, mxArray *&mxOut, const mxAr
 
   // configure the filter graph
   if (config)
+  {
     filtergraph.configure(); // new graph
+    ran = true;
+  }
   else if (reconfig)
     filtergraph.flush(); // recreate AVFilterGraph with the same AVFrame buffers
 
@@ -161,38 +165,23 @@ void mexImageFilter::runSimple(const mxArray *mxObj, mxArray *&mxOut, const mxAr
   src.load(in, (int)mxGetNumberOfElements(mxIn));
 
   // make sure everything is ready to go
-  // av_log(NULL, AV_LOG_INFO, "[runOnce] Final check...\n");
-  // if (!filtergraph.ready()) // something went wrong
-  //   throw std::runtime_error("Failed to configure the filter graph.");
+  av_log(NULL, AV_LOG_INFO, "[runOnce] Final check...\n");
+  if (!filtergraph.ready()) // something went wrong
+    throw std::runtime_error("Failed to configure the filter graph.");
 
-  // // run the filter
-  //   av_log(NULL, AV_LOG_INFO, "[runOnce] RUN!!...\n");
-  // filtergraph.runOnce();
-
-const AVPixFmtDescriptor *pix_desc = av_pix_fmt_desc_get(src.getFormat());
-for (int i = 0; i < pix_desc->nb_components; ++i)
-{
-  const AVComponentDescriptor &d = pix_desc->comp[i];
-  uint8_t mask = (uint8_t(1) << d.depth) - 1;
-  av_log(NULL,AV_LOG_INFO,"RGB24[%d]::plane:%d::offset:%d::shift:%d::depth:%d::mask:0x%x\n",i,d.plane,d.offset,d.shift,d.depth,mask);
-
-  uint8_t value = 77;
-  uint8_t data;
-  imageSetComponentPixelValue(data, d.shift, mask, value);
-  uint8_t rval = imageGetComponentPixelValue(data, d.shift, mask);
-  av_log(NULL, AV_LOG_INFO, "RGB24[%d]::value:%d::data:%d::rval:%d\n", i, value, data, rval);
-}
+  // run the filter
+    av_log(NULL, AV_LOG_INFO, "[runOnce] RUN!!...\n");
+  filtergraph.runOnce();
 
 // test direct transfer
-auto avFrameFree = [](AVFrame *frame) { av_frame_free(&frame); };
-std::unique_ptr<AVFrame, decltype(avFrameFree)> frame(av_frame_alloc(), avFrameFree);
-src.pop(frame.get());
+// auto avFrameFree = [](AVFrame *frame) { av_frame_free(&frame); };
+// std::unique_ptr<AVFrame, decltype(avFrameFree)> frame(av_frame_alloc(), avFrameFree);
+// src.pop(frame.get());
 
 // get the output
 av_log(NULL, AV_LOG_INFO, "[runOnce] Retrieve the output data...\n");
 uint8_t *data;
-mexComponentSink &sink = *dynamic_cast<mexComponentSink *>(filtergraph.getOutputBuffer());
-sink.push(frame.get());
+// sink.push(frame.get());
 if (!sink.release(&data)) // grab entire the data buffer
   throw std::runtime_error("No output data were produced by the filter graph.");
 

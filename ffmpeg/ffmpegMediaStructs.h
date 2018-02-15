@@ -4,6 +4,8 @@
 #pragma warning(disable : 4250)
 #endif
 
+#include "ffmpegException.h"
+
 extern "C" {
 #include <libavutil/avutil.h>
 #include <libavutil/rational.h>
@@ -12,6 +14,8 @@ extern "C" {
 #include <libavutil/samplefmt.h>
 }
 
+namespace ffmpeg
+{
 struct BasicMediaParams
 {
   AVMediaType type; // AVMEDIA_TYPE_SUBTITLE for sub2video
@@ -81,9 +85,9 @@ public:
   virtual int getSampleRate() const = 0;
 
   virtual void setFormat(const AVSampleFormat fmt) = 0;
-  virtual void getChannels(const int ch) = 0;
+  virtual void setChannels(const int ch) = 0;
   virtual void setChannelLayout(const uint64_t layout) = 0;
-  virtual void getSampleRate(const int fs) = 0;
+  virtual void setSampleRate(const int fs) = 0;
 };
 
 /////////////////////
@@ -91,23 +95,24 @@ public:
 class MediaHandler : protected BasicMediaParams, virtual public IMediaHandler
 {
 protected:
-  MediaHandler() : BasicMediaParams({AVMEDIA_TYPE_UNKNOWN, AVRational({0,0})})
-   {
-      av_log(NULL,AV_LOG_INFO,"[MediaHandler:default] default constructor\n");
-   }
+  MediaHandler() : BasicMediaParams({AVMEDIA_TYPE_UNKNOWN, AVRational({0, 0})})
+  {
+    av_log(NULL, AV_LOG_INFO, "[MediaHandler:default] default constructor\n");
+  }
+
 public:
   MediaHandler(const AVMediaType t, const AVRational &tb = {0, 0}) : BasicMediaParams({t, tb})
-   {
-    av_log(NULL,AV_LOG_INFO,"[MediaHandler:regular] time_base:%d/%d\n",tb.num,tb.den);
-    av_log(NULL,AV_LOG_INFO,"[MediaHandler:regular] mediatype:%s\n",av_get_media_type_string(t));
-   }
+  {
+    av_log(NULL, AV_LOG_INFO, "[MediaHandler:regular] time_base:%d/%d\n", tb.num, tb.den);
+    av_log(NULL, AV_LOG_INFO, "[MediaHandler:regular] mediatype:%s\n", av_get_media_type_string(t));
+  }
   MediaHandler(const IMediaHandler &other) : BasicMediaParams(other.getBasicMediaParams()) {}
 
   BasicMediaParams getBasicMediaParams() const { return *this; }
   const BasicMediaParams &getBasicMediaParamsRef() const { return *this; }
 
   AVMediaType getMediaType() const { return type; }
-  std::string getMediaTypeString() const { return (type==AVMEDIA_TYPE_UNKNOWN)?"unknown":av_get_media_type_string(type); }
+  std::string getMediaTypeString() const { return (type == AVMEDIA_TYPE_UNKNOWN) ? "unknown" : av_get_media_type_string(type); }
   AVRational getTimeBase() const { return time_base; }
   const AVRational &getTimeBaseRef() const { return time_base; }
   void setTimeBase(const AVRational &tb) { time_base = tb; }
@@ -156,11 +161,6 @@ struct AudioHandler : protected AudioParams, virtual public IAudioHandler
   void setAudioParams(const AudioParams &params) { *static_cast<AudioParams *>(this) = params; }
   void setAudioParams(const IAudioHandler &other) { *static_cast<AudioParams *>(this) = other.getAudioParams(); }
 
-  AVSampleFormat format;
-  int channels;
-  uint64_t channel_layout;
-  int sample_rate;
-
   AVSampleFormat getFormat() const { return format; }
   std::string getFormatName() const { return av_get_sample_fmt_name(getFormat()); }
   int getChannels() const { return channels; };
@@ -168,12 +168,172 @@ struct AudioHandler : protected AudioParams, virtual public IAudioHandler
   int getSampleRate() const { return sample_rate; }
 
   void setFormat(const AVSampleFormat fmt) { format = fmt; }
-  void getChannels(const int ch) { channels = ch; };
+  void setChannels(const int ch) { channels = ch; };
   void setChannelLayout(const uint64_t layout) { channel_layout = layout; };
-  void getSampleRate(const int fs) { sample_rate = fs; }
+  void setSampleRate(const int fs) { sample_rate = fs; }
 
   virtual bool ready() const
   {
     return format != AV_SAMPLE_FMT_NONE && channels != 0 && channel_layout != 0 && sample_rate != 0;
   }
 };
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+/**
+ * \brief Proxy Media Handler
+ */
+class MediaHandlerProxy : virtual public IMediaHandler
+{
+protected:
+  MediaHandlerProxy() : src(NULL) {}
+  MediaHandlerProxy(IMediaHandler &base) : src(&base) {}
+
+public:
+  BasicMediaParams getBasicMediaParams() const { return src ? src->getBasicMediaParams() : BasicMediaParams({AVMEDIA_TYPE_UNKNOWN, {0, 0}}); }
+
+  AVMediaType getMediaType() const { return src ? src->getMediaType() : AVMEDIA_TYPE_UNKNOWN; }
+  std::string getMediaTypeString() const { return src ? src->getMediaTypeString() : "unknown"; }
+  AVRational getTimeBase() const { return src ? src->getTimeBase() : AVRational({0, 0}); }
+  void setTimeBase(const AVRational &tb)
+  {
+    if (src)
+      src->setTimeBase(tb);
+    else
+      throw ffmpegException("[ffmpeg::MediaHandlerProxy::setTimeBase] Proxy not connected.");
+  }
+
+protected:
+  IMediaHandler *src;
+
+  void attach_proxy(IMediaHandler &base) { src = &base; }
+  void detach_proxy() { src = NULL; }
+};
+
+struct VideoHandlerProxy : virtual public IVideoHandler
+{
+  VideoHandlerProxy() : src(NULL) {}
+  VideoHandlerProxy(IVideoHandler &base) : src(&base) {}
+
+  VideoParams getVideoParams() const { return src ? src->getVideoParams() : VideoParams({AV_PIX_FMT_NONE, 0, 0, {0, 0}}); }
+  AVPixelFormat getFormat() const { return src ? src->getFormat() : AV_PIX_FMT_NONE; }
+  std::string getFormatName() const { return src ? src->getFormatName() : ""; }
+  int getWidth() const { return src ? src->getWidth() : 0; };
+  int getHeight() const { return src ? src->getHeight() : 0; };
+  AVRational getSAR() const { return src ? src->getSAR() : AVRational({0, 0}); }
+
+  void setVideoParams(const VideoParams &params)
+  {
+    if (src)
+      src->setVideoParams(params);
+    else
+      throw ffmpegException("[ffmpeg::VideoHandlerProxy::setVideoParams] Proxy not connected.");
+  }
+  void setVideoParams(const IVideoHandler &other)
+  {
+    if (src)
+      src->setVideoParams(other.getVideoParams());
+    else
+      throw ffmpegException("[ffmpeg::VideoHandlerProxy::setVideoParams] Proxy not connected.");
+  }
+  void setFormat(const AVPixelFormat fmt)
+  {
+    if (src)
+      src->setFormat(fmt);
+    else
+      throw ffmpegException("[ffmpeg::VideoHandlerProxy::setFormat] Proxy not connected.");
+  }
+
+  void setWidth(const int w)
+  {
+    if (src)
+      src->setWidth(w);
+    else
+      throw ffmpegException("[ffmpeg::VideoHandlerProxy::setWidth] Proxy not connected.");
+  }
+
+  void setHeight(const int h)
+  {
+    if (src)
+      src->setHeight(h);
+    else
+      throw ffmpegException("[ffmpeg::VideoHandlerProxy::setHeight] Proxy not connected.");
+  }
+
+  void setSAR(const AVRational &sar)
+  {
+    if (src)
+      src->setSAR(sar);
+    else
+      throw ffmpegException("[ffmpeg::VideoHandlerProxy::setSAR] Proxy not connected.");
+  }
+
+protected:
+  IVideoHandler *src;
+
+  void attach_proxy(IVideoHandler &base) { src = &base; }
+  void detach_proxy() { src = NULL; }
+};
+
+struct AudioHandlerProxy : virtual public IAudioHandler
+{
+  AudioHandlerProxy() : src(NULL) {}
+  AudioHandlerProxy(IAudioHandler &base) : src(&base) {}
+
+  AudioParams getAudioParams() const { return src ? src->getAudioParams() : AudioParams({AV_SAMPLE_FMT_NONE, 0, 0, 0}); }
+  AVSampleFormat getFormat() const { return src ? src->getFormat() : AV_SAMPLE_FMT_NONE; }
+  std::string getFormatName() const { return src ? src->getFormatName() : ""; }
+  int getChannels() const { return src ? src->getChannels() : 0; };
+  uint64_t getChannelLayout() const { return src ? src->getChannelLayout() : 0; };
+  int getSampleRate() const { return src ? src->getSampleRate() : 0; }
+
+  void setAudioParams(const AudioParams &params)
+  {
+    if (src)
+      src->setAudioParams(params);
+    else
+      throw ffmpegException("[ffmpeg::AudioHandlerProxy::setAudioParams] Proxy not connected.");
+  }
+  void setAudioParams(const IAudioHandler &other)
+  {
+    if (src)
+      src->setAudioParams(other);
+    else
+      throw ffmpegException("[ffmpeg::AudioHandlerProxy::setAudioParams] Proxy not connected.");
+  }
+  void setFormat(const AVSampleFormat fmt)
+  {
+    if (src)
+      src->setFormat(fmt);
+    else
+      throw ffmpegException("[ffmpeg::AudioHandlerProxy::setFormat] Proxy not connected.");
+  }
+  void setChannels(const int ch)
+  {
+    if (ch)
+      src->setChannels(ch);
+    else
+      throw ffmpegException("[ffmpeg::AudioHandlerProxy::setChannels] Proxy not connected.");
+  };
+  void setChannelLayout(const uint64_t layout)
+  {
+    if (src)
+      src->setChannelLayout(layout);
+    else
+      throw ffmpegException("[ffmpeg::AudioHandlerProxy::setChannelLayout] Proxy not connected.");
+  };
+  void setSampleRate(const int fs)
+  {
+    if (src)
+      src->setSampleRate(fs);
+    else
+      throw ffmpegException("[ffmpeg::AudioHandlerProxy::setSampleRate] Proxy not connected.");
+  }
+
+protected:
+  IAudioHandler *src;
+
+  void attach_proxy(IAudioHandler &base) { src = &base; }
+  void detach_proxy() { src = NULL; }
+};
+}
