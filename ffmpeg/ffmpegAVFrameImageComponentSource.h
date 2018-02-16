@@ -24,42 +24,26 @@ namespace ffmpeg
  * \brief An AVFrame sink for a video stream to store frames' component data
  *  An AVFrame sink, which converts a received video AVFrame to component data (e.g., RGB)
  */
-class AVFrameImageComponentSource : public AVFrameSourceBase, public IVideoHandler
+class AVFrameImageComponentSource : public AVFrameSourceBase, public VideoAVFrameHandler
 {
 public:
   AVFrameImageComponentSource()
       : AVFrameSourceBase(AVMEDIA_TYPE_VIDEO, AVRational({1, 1})),
-        next_time(0), status(0)
-  {
-
-    av_log(NULL, AV_LOG_INFO, "[ffmpeg::AVFrameImageComponentSource:default] time_base:1/1->%d/%d\n", time_base.num, time_base.den);
-    av_log(NULL, AV_LOG_INFO, "[ffmpeg::AVFrameImageComponentSource:default] mediatype:%s->%s\n", av_get_media_type_string(AVMEDIA_TYPE_VIDEO), av_get_media_type_string(type));
-  }
+        next_time(0), status(0) {}
 
   // copy constructor
   AVFrameImageComponentSource(const AVFrameImageComponentSource &other)
-      : AVFrameSourceBase(other),
-        status(other.status), next_time(other.next_time)
-  {
-    frame = av_frame_clone(other.frame);
-    if (!frame)
-      throw ffmpegException("[ffmpeg::filter::AVFrameImageComponentSource]Failed to clone AVFrame.");
-    if (av_frame_make_writable(frame) < 0)
-      throw ffmpegException("[ffmpeg::filter::AVFrameImageComponentSource]Failed to make AVFrame writable.");
-  }
+      : AVFrameSourceBase(other), VideoAVFrameHandler(other),
+        status(other.status), next_time(other.next_time)  {}
 
   // move constructor
   AVFrameImageComponentSource(AVFrameImageComponentSource &&other) noexcept
-      : AVFrameSourceBase(other), frame(other.frame), status(other.status),
-        next_time(other.next_time)
-  {
-    other.frame = av_frame_alloc();
-  }
+      : AVFrameSourceBase(other), VideoAVFrameHandler(other), status(other.status),
+        next_time(other.next_time) {}
 
   virtual ~AVFrameImageComponentSource()
   {
     av_log(NULL, AV_LOG_INFO, "destroying AVFrameImageComponentSource\n");
-    av_frame_free(&frame);
     av_log(NULL, AV_LOG_INFO, "destroyed AVFrameImageComponentSource\n");
   }
 
@@ -97,12 +81,22 @@ public:
    * @param[in] frame_offset First frame offset relative to the first frame in the buffer. The offset is given in frames.
    * @return Number of frame available in the returned pointers.
   */
-  void load(const VideoParams &params, const uint8_t *pdata, const int pdata_size, const int linesize = 0, const int compsize = 0)
+  void load(VideoParams params, const uint8_t *pdata, const int pdata_size, const int linesize = 0, const int compsize = 0)
   {
     // create new frame first without destroying current frame in case writing fails
     // if data is present, create new AVFrame, else mark it eof
     if (pdata)
     {
+      // overwrite any invalid params values with the object's value
+      if (params.format != AV_PIX_FMT_NONE)
+        params.format = (AVPixelFormat)frame->format;
+      if (params.width > 0)
+        params.width = frame->width;
+      if (params.height > 0)
+        params.height = frame->height;
+      if (params.sample_aspect_ratio.num > 0 && params.sample_aspect_ratio.den > 0)
+        params.sample_aspect_ratio = frame->sample_aspect_ratio;
+
       int total_size = imageGetComponentBufferSize(params.format, params.width, params.height);
       if (!total_size)
         throw ffmpegException("[ffmpeg::AVFrameImageComponentSource::load] Critical image parameters missing.");
@@ -232,22 +226,9 @@ private:
    */
   void release_frame()
   {
-    // save the image parameters
-    VideoParams params = getVideoParams();
-
-    // release the FFmpeg frame buffers
-    av_frame_unref(frame);
-
-    // copy back image parameters, cannot use setVideoParams() because it fires release_frame() recursively
-    frame->format = (int)params.format;
-    frame->width = params.width;
-    frame->height = params.height;
-    frame->sample_aspect_ratio = params.sample_aspect_ratio;
-
+    VideoAVFrameHandler::release_frame();
     status = 0;
   }
-
-  AVFrame *frame;
 
   int64_t next_time; // increments after every pop
   int status;        // 0:not ready; >0:frame ready; <0:eof ready

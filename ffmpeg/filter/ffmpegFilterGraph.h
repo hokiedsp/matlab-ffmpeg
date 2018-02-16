@@ -211,6 +211,34 @@ public:
       f(it->first, it->second.buf);
   }
 
+  template<typename UnaryFunction>
+  void forEachOutput(UnaryFunction f)
+  {
+    for (auto it = outputs.begin(); it != outputs.end(); ++it)
+      f(it->first, it->second.buf, it->second.filter);
+  }
+
+  template<typename UnaryFunction>
+  void forEachOutputName(UnaryFunction f)
+  {
+    for (auto it = outputs.begin(); it != outputs.end(); ++it)
+      f(it->first);
+  }
+
+  template<typename UnaryFunction>
+  void forEachOutputFilter(UnaryFunction f)
+  {
+    for (auto it = outputs.begin(); it != outputs.end(); ++it)
+      f(it->first, it->second.filter);
+  }
+
+  template<typename UnaryFunction>
+  void forEachOutputBuffer(UnaryFunction f)
+  {
+    for (auto it = outputs.begin(); it != outputs.end(); ++it)
+      f(it->first, it->second.buf);
+  }
+
   bool isSimple() const { return inputs.size() == 1 && outputs.size() == 1; }
   
   bool isSource(const std::string &name)

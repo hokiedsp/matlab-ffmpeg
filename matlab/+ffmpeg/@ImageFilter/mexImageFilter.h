@@ -33,8 +33,7 @@ protected:
 
   void runSimple(const mxArray *mxObj, mxArray *&out, const mxArray *in);  //    out = runSimple(obj, in);
   void runComplex(const mxArray *mxObj, mxArray *&out, const mxArray *in); //    varargout = readFrame(obj, varargin);
-  const uint8_t *getMxImageData(const mxArray *mxData, int &width, int &height, int &depth);
-
+  
   mxArray *isValidInputName(const mxArray *prhs); // tf = isInputName(obj,name)
 
   void syncInputFormat(const mxArray *mxObj);
@@ -50,8 +49,9 @@ protected:
 
 private:
   void init(const std::string &new_graph);
+  const uint8_t *getMxImageData(const mxArray *mxData, int &width, int &height, int &depth);
 
-  bool ran;     // true if filter graph has run with the current configuration
+  bool ran;           // true if filter graph has run with the current configuration
   bool changedFormat; // true if there is a pending change on InputFormat
   bool changedSAR;    // true if there is a pending change on InputSAR
 

@@ -108,7 +108,6 @@ void AudioSink::sync()
   format = (AVSampleFormat)av_buffersink_get_format(context);
   time_base = av_buffersink_get_time_base(context);
   channel_layout = av_buffersink_get_channel_layout(context);
-  channels = av_buffersink_get_channels(context);
 
   // if linked to a stream
   // if (st)

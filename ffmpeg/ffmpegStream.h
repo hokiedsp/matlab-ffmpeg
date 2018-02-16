@@ -76,6 +76,8 @@ class VideoStream : virtual public BaseStream, virtual public IVideoHandler
 
   void setVideoParams(const VideoParams &params);
   void setVideoParams(const IVideoHandler &other);
+  void setValidVideoParams(const VideoParams &params);
+  void setValidVideoParams(const IVideoHandler &other);
   void setFormat(const AVPixelFormat fmt);
   void setWidth(const int w);
   void setHeight(const int h);
@@ -86,21 +88,24 @@ class AudioStream : virtual public BaseStream, virtual public IAudioHandler
 {
   AudioParams getAudioParams() const
   {
-    return ctx ? AudioParams({ctx->sample_fmt, ctx->channels, ctx->channel_layout, ctx->sample_rate})
-               : AudioParams({AV_SAMPLE_FMT_NONE, 0, 0, 0});
+    return ctx ? AudioParams({ctx->sample_fmt, ctx->channel_layout, ctx->sample_rate})
+               : AudioParams({AV_SAMPLE_FMT_NONE, 0, 0});
   }
 
   AVSampleFormat getFormat() const { return ctx ? ctx->sample_fmt : AV_SAMPLE_FMT_NONE; }
   std::string getFormatName() const { return ctx ? av_get_sample_fmt_name(ctx->sample_fmt) : ""; }
-  int getChannels() const { return ctx ? ctx->channels : 0; };
+  int getChannels() const { return ctx ? av_get_channel_layout_nb_channels(ctx->channel_layout) : 0; };
   uint64_t getChannelLayout() const { return ctx ? ctx->channel_layout : 0; };
+  std::string getChannelLayoutName() const;
   int getSampleRate() const { return ctx ? ctx->sample_rate : 0; }
 
   void setAudioParams(const AudioParams &params);
   void setAudioParams(const IAudioHandler &other);
-  virtual void setFormat(const AVSampleFormat fmt);
-  virtual void getChannels(const int ch);
-  virtual void setChannelLayout(const uint64_t layout);
-  virtual void getSampleRate(const int fs);
+  void setValidAudioParams(const AudioParams &params);
+  void setValidAudioParams(const IAudioHandler &other);
+  void setFormat(const AVSampleFormat fmt);
+  void setChannelLayout(const uint64_t layout);
+  void setChannelLayoutByName(const std::string &name);
+  void setSampleRate(const int fs);
 };
 }

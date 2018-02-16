@@ -171,11 +171,8 @@ std::string AudioSource::generate_args()
 {
   std::stringstream sout;
   sout << "time_base=" << time_base.num << 'x' << time_base.den << ':'
-       << "sample_fmt=" << av_get_sample_fmt_name(format) << ':';
-  if (channel_layout)
-    sout << "channel_layout=0x" << std::setbase(16) << channel_layout;
-  else
-    sout << "channels=" << channels;
+       << "sample_fmt=" << av_get_sample_fmt_name(format) << ':'
+       << "channel_layout=0x" << std::setbase(16) << channel_layout;
   return sout.str();
 }
 
