@@ -31,9 +31,6 @@ public:
       : AVFrameSourceBase(AVMEDIA_TYPE_VIDEO, AVRational({1, 1})),
         next_time(0), status(0)
   {
-    frame = av_frame_alloc();
-    if (!frame)
-      throw ffmpegException("[ffmpeg::filter::AVFrameImageComponentSource]Failed to allocate AVFrame.");
 
     av_log(NULL, AV_LOG_INFO, "[ffmpeg::AVFrameImageComponentSource:default] time_base:1/1->%d/%d\n", time_base.num, time_base.den);
     av_log(NULL, AV_LOG_INFO, "[ffmpeg::AVFrameImageComponentSource:default] mediatype:%s->%s\n", av_get_media_type_string(AVMEDIA_TYPE_VIDEO), av_get_media_type_string(type));
@@ -65,75 +62,6 @@ public:
     av_frame_free(&frame);
     av_log(NULL, AV_LOG_INFO, "destroyed AVFrameImageComponentSource\n");
   }
-
-  bool validVideoParams() const
-  {
-    return ((AVPixelFormat)frame->format != AV_PIX_FMT_NONE) &&
-           frame->width > 0 && frame->height > 0 &&
-           frame->sample_aspect_ratio.num != 0 && frame->sample_aspect_ratio.den != 0;
-  }
-
-  // implement IVideoHandler functions
-  VideoParams
-  getVideoParams() const
-  {
-    return VideoParams({(AVPixelFormat)frame->format, frame->width, frame->height, frame->sample_aspect_ratio});
-  }
-  AVPixelFormat getFormat() const { return (AVPixelFormat)frame->format; }
-  std::string getFormatName() const { return ((AVPixelFormat)frame->format != AV_PIX_FMT_NONE) ? av_get_pix_fmt_name((AVPixelFormat)frame->format) : ""; }
-  int getWidth() const { return frame->width; }
-  int getHeight() const { return frame->height; }
-  AVRational getSAR() const { return frame->sample_aspect_ratio; }
-
-  void setVideoParams(const VideoParams &params)
-  {
-    bool critical_change = frame->format != (int)params.format && frame->width != params.width && frame->height != params.height;
-
-    // if no parameters have changed, exit
-    if (!(critical_change && av_cmp_q(frame->sample_aspect_ratio, params.sample_aspect_ratio)))
-      return;
-
-    // if data critical parameters have changed, free frame data
-    if (critical_change)
-      release_frame();
-
-    // copy new parameter values
-    frame->format = (int)params.format;
-    frame->width = params.width;
-    frame->height = params.height;
-    frame->sample_aspect_ratio = params.sample_aspect_ratio;
-  }
-  void setVideoParams(const IVideoHandler &other) { setVideoParams(other.getVideoParams()); }
-
-  void setFormat(const AVPixelFormat fmt)
-  {
-    if (frame->format == (int)fmt)
-      return;
-    release_frame();
-    frame->format = (int)fmt;
-  }
-  void setWidth(const int w)
-  {
-    if (frame->width == w)
-      return;
-    release_frame();
-    frame->width = w;
-  }
-  void setHeight(const int h)
-  {
-    if (frame->height == h)
-      return;
-    release_frame();
-    frame->height = h;
-  }
-  void setSAR(const AVRational &sar)
-  {
-    if (!av_cmp_q(frame->sample_aspect_ratio, sar))
-      return;
-    frame->sample_aspect_ratio = sar;
-  }
-
-  ///////////////////////////////////////////////////////////////////////
 
   bool ready() const
   {

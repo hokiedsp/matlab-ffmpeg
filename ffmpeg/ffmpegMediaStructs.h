@@ -34,7 +34,6 @@ struct VideoParams
 struct AudioParams
 {
   AVSampleFormat format;
-  int channels;
   uint64_t channel_layout;
   int sample_rate;
 };
@@ -58,8 +57,8 @@ public:
   virtual VideoParams getVideoParams() const = 0;
   virtual void setVideoParams(const VideoParams &params) = 0;
   virtual void setVideoParams(const IVideoHandler &other) = 0;
-  virtual void setOnlyValidValidVideoParams(const VideoParams &params) = 0;
-  virtual void setOnlyValidVideoParams(const IVideoHandler &other) = 0;
+  virtual void setValidVideoParams(const VideoParams &params) = 0;
+  virtual void setValidVideoParams(const IVideoHandler &other) = 0;
 
   virtual AVPixelFormat getFormat() const = 0;
   virtual std::string getFormatName() const = 0;
@@ -79,18 +78,19 @@ public:
   virtual AudioParams getAudioParams() const = 0;
   virtual void setAudioParams(const AudioParams &params) = 0;
   virtual void setAudioParams(const IAudioHandler &other) = 0;
-  virtual void setOnlyAudioParams(const AudioParams &params) = 0;
-  virtual void setAudioParams(const IAudioHandler &other) = 0;
+  virtual void setValidAudioParams(const AudioParams &params) = 0;
+  virtual void setValidAudioParams(const IAudioHandler &other) = 0;
 
   virtual AVSampleFormat getFormat() const = 0;
   virtual std::string getFormatName() const = 0;
   virtual int getChannels() const = 0;
   virtual uint64_t getChannelLayout() const = 0;
+  virtual std::string getChannelLayoutName() const = 0;
   virtual int getSampleRate() const = 0;
 
   virtual void setFormat(const AVSampleFormat fmt) = 0;
-  virtual void setChannels(const int ch) = 0;
   virtual void setChannelLayout(const uint64_t layout) = 0;
+  void setChannelLayoutByName(const std::string &name) = 0;
   virtual void setSampleRate(const int fs) = 0;
 };
 
@@ -134,6 +134,18 @@ struct VideoHandler : protected VideoParams, virtual public IVideoHandler
   const VideoParams &getVideoParamsRef() const { return *this; }
   void setVideoParams(const VideoParams &params) { *static_cast<VideoParams *>(this) = params; }
   void setVideoParams(const IVideoHandler &other) { *static_cast<VideoParams *>(this) = other.getVideoParams(); }
+  void setValidVideoParams(const VideoParams &params)
+  {
+    if (params.format != AV_PIX_FMT_NONE)
+      format = params.format;
+    if (params.width > 0)
+      width = params.width;
+    if (params.height > 0)
+      height = params.height;
+    if (params.sample_aspect_ratio.num > 0 && params.sample_aspect_ratio.den > 0)
+      sample_aspect_ratio = params.sample_aspect_ratio;
+  }
+  void setValidVideoParams(const IVideoHandler &other) { setValidVideoParams(other.getValidVideoParams()); }
 
   AVPixelFormat getFormat() const { return format; }
   std::string getFormatName() const { return av_get_pix_fmt_name(getFormat()); }
@@ -156,24 +168,45 @@ struct VideoHandler : protected VideoParams, virtual public IVideoHandler
 
 struct AudioHandler : protected AudioParams, virtual public IAudioHandler
 {
-  AudioHandler(const AVSampleFormat fmt = AV_SAMPLE_FMT_NONE, const int ch = 0, const uint64_t layout = 0, const int fs = 0)
-      : AudioParams({fmt, ch, layout, fs}) {}
+  AudioHandler(const AVSampleFormat fmt = AV_SAMPLE_FMT_NONE, const uint64_t layout = 0, const int fs = 0)
+      : AudioParams({fmt, layout, fs}) {}
   AudioHandler(const IAudioHandler &other) : AudioParams(other.getAudioParams()) {}
 
   AudioParams getAudioParams() const { return *static_cast<const AudioParams *>(this); }
   const AudioParams &getAudioParamsRef() const { return *this; }
   void setAudioParams(const AudioParams &params) { *static_cast<AudioParams *>(this) = params; }
   void setAudioParams(const IAudioHandler &other) { *static_cast<AudioParams *>(this) = other.getAudioParams(); }
+  void setValidAudioParams(const AudioParams &params) {
+    if (params.format != AV_SAMPLE_FMT_NONE)
+      format = params.format;
+    if (params.sample_rate > 0)
+      sample_rate = params.sample_rate;
+    if (params.channel_layout)
+      channel_layout = params.channel_layout;
+  }
+  void setValidAudioParams(const IAudioHandler &other) { setValidAudioParams(other.getAudioParams()); }
 
   AVSampleFormat getFormat() const { return format; }
   std::string getFormatName() const { return av_get_sample_fmt_name(getFormat()); }
-  int getChannels() const { return channels; };
+  int getChannels() const { return av_get_channel_layout_nb_channels(channel_layout); };
   uint64_t getChannelLayout() const { return channel_layout; };
+  std::string getChannelLayoutName() const
+  {
+    int nb_channels = av_get_channel_layout_nb_channels(channel_layout);
+    if (nb_channels)
+    {
+      char buf[1024];
+      av_get_channel_layout_string(buf, 1024, nb_channels, channel_layout);
+      return buf;
+    }
+    else
+      return "";
+  }
   int getSampleRate() const { return sample_rate; }
 
   void setFormat(const AVSampleFormat fmt) { format = fmt; }
-  void setChannels(const int ch) { channels = ch; };
   void setChannelLayout(const uint64_t layout) { channel_layout = layout; };
+  void setChannelLayoutByName(const std::string &name) { channel_layout = av_get_channel_layout(name.c_str()); }
   void setSampleRate(const int fs) { sample_rate = fs; }
 
   virtual bool ready() const
@@ -226,6 +259,20 @@ struct VideoHandlerProxy : virtual public IVideoHandler
   int getHeight() const { return src ? src->getHeight() : 0; };
   AVRational getSAR() const { return src ? src->getSAR() : AVRational({0, 0}); }
 
+  void setValidVideoParams(const VideoParams &params)
+  {
+    if (src)
+      src->setValidVideoParams(params);
+    else
+      throw ffmpegException("[ffmpeg::VideoHandlerProxy::setValidVideoParams] Proxy not connected.");
+  }
+  void setValidVideoParams(const IVideoHandler &other)
+  {
+    if (src)
+      src->setValidVideoParams(other);
+    else
+      throw ffmpegException("[ffmpeg::VideoHandlerProxy::setValidVideoParams] Proxy not connected.");
+  }
   void setVideoParams(const VideoParams &params)
   {
     if (src)
@@ -289,6 +336,7 @@ struct AudioHandlerProxy : virtual public IAudioHandler
   std::string getFormatName() const { return src ? src->getFormatName() : ""; }
   int getChannels() const { return src ? src->getChannels() : 0; };
   uint64_t getChannelLayout() const { return src ? src->getChannelLayout() : 0; };
+  virtual std::string getChannelLayoutName()  { return src ? src->getChannelLayoutName() : ""; };
   int getSampleRate() const { return src ? src->getSampleRate() : 0; }
 
   void setAudioParams(const AudioParams &params)
@@ -305,6 +353,20 @@ struct AudioHandlerProxy : virtual public IAudioHandler
     else
       throw ffmpegException("[ffmpeg::AudioHandlerProxy::setAudioParams] Proxy not connected.");
   }
+  void setValidAudioParams(const AudioParams &params)
+  {
+    if (src)
+      src->setValidAudioParams(params);
+    else
+      throw ffmpegException("[ffmpeg::AudioHandlerProxy::setValidAudioParams] Proxy not connected.");
+  }
+  void setValidAudioParams(const IAudioHandler &other)
+  {
+    if (src)
+      src->setValidAudioParams(other);
+    else
+      throw ffmpegException("[ffmpeg::AudioHandlerProxy::setValidAudioParams] Proxy not connected.");
+  }
   void setFormat(const AVSampleFormat fmt)
   {
     if (src)
@@ -312,19 +374,19 @@ struct AudioHandlerProxy : virtual public IAudioHandler
     else
       throw ffmpegException("[ffmpeg::AudioHandlerProxy::setFormat] Proxy not connected.");
   }
-  void setChannels(const int ch)
-  {
-    if (ch)
-      src->setChannels(ch);
-    else
-      throw ffmpegException("[ffmpeg::AudioHandlerProxy::setChannels] Proxy not connected.");
-  };
   void setChannelLayout(const uint64_t layout)
   {
     if (src)
       src->setChannelLayout(layout);
     else
       throw ffmpegException("[ffmpeg::AudioHandlerProxy::setChannelLayout] Proxy not connected.");
+  };
+  void setChannelLayoutByName(const std::string &name)
+  {
+    if (src)
+      src->setChannelLayoutByName(name);
+    else
+      throw ffmpegException("[ffmpeg::AudioHandlerProxy::setChannelLayoutByName] Proxy not connected.");
   };
   void setSampleRate(const int fs)
   {
@@ -340,4 +402,306 @@ protected:
   void attach_proxy(IAudioHandler &base) { src = &base; }
   void detach_proxy() { src = NULL; }
 };
+////////////////////////////////
+
+
+struct AVFrameHandler
+{
+  public:
+    virtual ~AVFrameHandler()
+    {
+      av_frame_free(&frame);
+    }
+
+  protected:
+    AVFrameHandler()
+    {
+      frame = av_frame_alloc();
+      if (!frame)
+        throw ffmpegException("[ffmpeg::filter::AVFrameImageComponentSource]Failed to allocate AVFrame.");
+  }
+  // copy constructor
+  AVFrameHandler(const AVFrameHandler &other)
+  {
+    frame = av_frame_clone(other.frame);
+    if (!frame)
+      throw ffmpegException("[ffmpeg::filter::AVFrameImageComponentSource]Failed to clone AVFrame.");
+  }
+
+  // move constructor
+  AVFrameHandler(AVFrameImageComponentSource &&other) noexcept
+      : frame(other.frame)
+  {
+    other.frame = av_frame_alloc();
+  }
+
+  /**
+   * \brief Reallocate object's AVFrame 
+   * 
+   * release_frame() unreferences the existing frame but maintains
+   * the parameter values.
+   * 
+   */
+  virtual void release_frame()
+  {
+    // release the FFmpeg frame buffers
+    av_frame_unref(frame);
+  }
+
+  AVFrame *frame;
+};
+
+struct VideoAVFrameHandler : public AVFrameHandler, virtual public IVideoHandler
+{
+  VideoAVFrameHandler() {}
+  VideoAVFrameHandler(IVideoHandler &base) : { setVideoParams(base); }
+
+  bool validVideoParams() const
+  {
+    return ((AVPixelFormat)frame->format != AV_PIX_FMT_NONE) &&
+           frame->width > 0 && frame->height > 0 &&
+           frame->sample_aspect_ratio.num != 0 && frame->sample_aspect_ratio.den != 0;
+  }
+
+  // implement IVideoHandler functions
+  VideoParams  getVideoParams() const
+  {
+    return VideoParams({(AVPixelFormat)frame->format, frame->width, frame->height, frame->sample_aspect_ratio});
+  }
+  AVPixelFormat getFormat() const { return (AVPixelFormat)frame->format; }
+  std::string getFormatName() const { return ((AVPixelFormat)frame->format != AV_PIX_FMT_NONE) ? av_get_pix_fmt_name((AVPixelFormat)frame->format) : ""; }
+  int getWidth() const { return frame->width; }
+  int getHeight() const { return frame->height; }
+  AVRational getSAR() const { return frame->sample_aspect_ratio; }
+
+  void setVideoParams(const VideoParams &params)
+  {
+    bool critical_change = frame->format != (int)params.format && frame->width != params.width && frame->height != params.height;
+
+    // if no parameters have changed, exit
+    if (!(critical_change && av_cmp_q(frame->sample_aspect_ratio, params.sample_aspect_ratio)))
+      return;
+
+    // if data critical parameters have changed, free frame data
+    if (critical_change)
+      release_frame();
+
+    // copy new parameter values
+    frame->format = (int)params.format;
+    frame->width = params.width;
+    frame->height = params.height;
+    frame->sample_aspect_ratio = params.sample_aspect_ratio;
+  }
+  void setVideoParams(const IVideoHandler &other) { setVideoParams(other.getVideoParams()); }
+
+  void setValidVideoParams(const VideoParams &params)
+  {
+    bool critical_change = params.format != AV_PIX_FMT_NONE && frame->format != (int)params.format &&
+                           params.width > 0 && frame->width != params.width &&
+                           params.height > 0 && frame->height != params.height;
+
+    // if no parameters have changed, exit
+    if (!(critical_change &&
+          params.sample_aspect_ratio.num > 0 && params.sample_aspect_ratio.den > 0 &&
+          av_cmp_q(frame->sample_aspect_ratio, params.sample_aspect_ratio)))
+      return;
+
+    // if data critical parameters have changed, free frame data
+    if (critical_change)
+      release_frame();
+
+    // copy new parameter values
+    if (params.format!=AV_PIX_FMT_NONE) frame->format = (int)params.format;
+    if (params.width>0) frame->width = params.width;
+    if (params.height>0) frame->height = params.height;
+    if (params.sample_aspect_ratio.num > 0 && params.sample_aspect_ratio.den > 0)
+      frame->sample_aspect_ratio = params.sample_aspect_ratio;
+  }
+  void setValidVideoParams(const IVideoHandler &other) { setValidVideoParams(other.getVideoParams()); }
+
+  void setFormat(const AVPixelFormat fmt)
+  {
+    if (frame->format == (int)fmt)
+      return;
+    release_frame();
+    frame->format = (int)fmt;
+  }
+  void setWidth(const int w)
+  {
+    if (frame->width == w)
+      return;
+    release_frame();
+    frame->width = w;
+  }
+  void setHeight(const int h)
+  {
+    if (frame->height == h)
+      return;
+    release_frame();
+    frame->height = h;
+  }
+  void setSAR(const AVRational &sar)
+  {
+    if (!av_cmp_q(frame->sample_aspect_ratio, sar))
+      return;
+    frame->sample_aspect_ratio = sar;
+  }
+
+protected:
+
+  /**
+   * \brief Reallocate object's AVFrame 
+   * 
+   * release_frame() unreferences the existing frame but maintains
+   * the parameter values.
+   * 
+   */
+  virtual void release_frame()
+  {
+    // save the image parameters
+    VideoParams params = getVideoParams();
+
+    // release the FFmpeg frame buffers
+    av_frame_unref(frame);
+
+    // copy back image parameters, cannot use setVideoParams() because it fires release_frame() recursively
+    setVideoParams(params);
+  }
+};
+
+struct AudioAVFrameHandler : public AVFrameHandler, virtual public IAudioHandler
+{
+  AudioAVFrameHandler() {}
+  AudioAVFrameHandler(IAudioHandler &base) { setAudioParams(base); }
+
+  bool validAudioParams() const
+  {
+    return ((AVSampleFormat)frame->format != AV_SAMPLE_FMT_NONE) &&
+           getChannels() > 0 && frame->sample_rate > 0;
+  }
+
+  // implement IAudioHandler functions
+  AudioParams  getAudioParams() const
+  {
+    return AudioParams({(AVSampleFormat)frame->format, frame->channel_layout, frame->sample_rate});
+  }
+  AVSampleFormat getFormat() const { return (AVSampleFormat)frame->format; }
+  std::string getFormatName() const { return av_get_sample_fmt_name((AVSampleFormat)frame->format) : ""; }
+  int getChannels() const { return av_get_channel_layout_nb_channels(frame->channel_layout); }
+  uint64_t getChannelLayout() const { return frame->channel_layout; }
+  
+  int getSampleRate() const { return frame->sample_rate; }
+
+  void setAudioParams(const AudioParams &params)
+  {
+    bool critical_change = frame->format != (int)params.format && frame->channel_layout != params.channel_layout &&
+                           frame->height != params.height;
+
+    // if no parameters have changed, exit
+    if (!(critical_change && av_cmp_q(frame->sample_aspect_ratio, params.sample_aspect_ratio)))
+      return;
+
+    // if data critical parameters have changed, free frame data
+    if (critical_change)
+      release_frame();
+
+    // copy new parameter values
+    frame->format = (int)params.format;
+    frame->width = params.width;
+    frame->height = params.height;
+    frame->sample_aspect_ratio = params.sample_aspect_ratio;
+  }
+  void setAudioParams(const IAudioHandler &other) { setVideoParams(other.getVideoParams()); }
+
+  void setValidAudioParams(const AudioParams &params)
+  {
+    bool critical_change = params.format != AV_PIX_FMT_NONE && frame->format != (int)params.format &&
+                           params.width > 0 && frame->width != params.width &&
+                           params.height > 0 && frame->height != params.height;
+
+    // if no parameters have changed, exit
+    if (!(critical_change &&
+          params.sample_aspect_ratio.num > 0 && params.sample_aspect_ratio.den > 0 &&
+          av_cmp_q(frame->sample_aspect_ratio, params.sample_aspect_ratio)))
+      return;
+
+    // if data critical parameters have changed, free frame data
+    if (critical_change)
+      release_frame();
+
+    // copy new parameter values
+    if (params.format!=AV_PIX_FMT_NONE) frame->format = (int)params.format;
+    if (params.width>0) frame->width = params.width;
+    if (params.height>0) frame->height = params.height;
+    if (params.sample_aspect_ratio.num > 0 && params.sample_aspect_ratio.den > 0)
+      frame->sample_aspect_ratio = params.sample_aspect_ratio;
+  }
+  void setValidAudioParams(const IAudioHandler &other) { setValidAudioParams(other.getAudioParams()); }
+  
+  void setFormat(const AVSampleFormat fmt)
+  {
+    if (frame->format == (int)fmt)
+      return;
+    release_frame();
+    frame->format = (int)fmt;
+  }
+  void setChannels(const int ch)
+  {
+    if (frame->channels == ch)
+      return;
+    release_frame();
+    frame->channels = ch;
+  }
+  void setChannelLayout(const uint64_t layout)
+  {
+    if (frame->channel_layout == layout)
+      return;
+    release_frame();
+    frame->channel_layout = layout;
+  }
+  void setSampleRate(const int fs)
+  {
+    if (frame->sample_rate == fs)
+      return;
+    release_frame();
+    frame->sample_rate = fs;
+  }
+  int getChannels() const { return av_get_channel_layout_nb_channels(channel_layout); };
+  uint64_t getChannelLayout() const { return channel_layout; };
+  std::string getChannelLayoutName() const
+  {
+    int nb_channels = av_get_channel_layout_nb_channels(channel_layout);
+    if (nb_channels)
+    {
+      char buf[1024];
+      av_get_channel_layout_string(buf, 1024, nb_channels, channel_layout);
+      return buf;
+    }
+    else
+      return "";
+  }
+
+protected:
+
+  /**
+   * \brief Reallocate object's AVFrame 
+   * 
+   * release_frame() unreferences the existing frame but maintains
+   * the parameter values.
+   * 
+   */
+  virtual void release_frame()
+  {
+    // save the image parameters
+    AudioParams params = getAudioParams();
+
+    // release the FFmpeg frame buffers
+    av_frame_unref(frame);
+
+    // copy back image parameters, cannot use setVideoParams() because it fires release_frame() recursively
+    setAudioParams(params);
+  }
+};
+
 }
+
