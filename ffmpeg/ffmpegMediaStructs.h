@@ -77,8 +77,10 @@ class IAudioHandler : virtual public IMediaHandler
 {
 public:
   virtual AudioParams getAudioParams() const = 0;
-  virtual void setOnlyValidAudioParams(const AudioParams &params) = 0;
-  virtual void setOnlyValidAudioParams(const IAudioHandler &other) = 0;
+  virtual void setAudioParams(const AudioParams &params) = 0;
+  virtual void setAudioParams(const IAudioHandler &other) = 0;
+  virtual void setOnlyAudioParams(const AudioParams &params) = 0;
+  virtual void setAudioParams(const IAudioHandler &other) = 0;
 
   virtual AVSampleFormat getFormat() const = 0;
   virtual std::string getFormatName() const = 0;
