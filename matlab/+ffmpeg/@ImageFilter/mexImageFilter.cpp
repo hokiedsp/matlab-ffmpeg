@@ -196,8 +196,82 @@ mxSetData(mxOut, data);
 // Soutimg = runComplex(Sinimg)
 void mexImageFilter::runComplex(const mxArray *mxObj, mxArray *&mxOut, const mxArray *mxIn)
 {
-  // configure
-  // filtergraph.configure();
+  // check to make sure filter graph is ready to go: AVFilterGraph is present and SourceInfo and SinkInfo maps are fully populated
+  filtergraph.ready();
+
+  // check to see if width or height changed
+  bool config = !ran;
+
+  // sync format & sar if changed in MATLAB
+  if (changedFormat)
+    syncInputFormat(mxObj);
+  if (changedSAR)
+    syncInputSAR(mxObj);
+
+  // get the input & output buffer
+  filtergraph.forEachInputBuffer([&](const std::string &name, IAVFrameSource *srcbuf) {
+    mexComponentSource &src = *dynamic_cast<mexComponentSource *>(srcbuf);
+
+    // grab the input image array (field name )
+    mxArray *mxInImg = mxGetField(mxIn, 0, name.c_str());
+    if (mxInImg) // input specified
+
+      // get the input image (guaranteed to be nonempty uint8 array)
+      VideoParams params = {AV_PIX_FMT_NONE, 0, 0, {0, 0}};
+    int depth;
+    const uint8_t *in = mexImageFilter::getMxImageData(mxInImg, params.width, params.height, depth);
+
+    // check the depth against the format
+    const AVPixFmtDescriptor *desc = av_pix_fmt_desc_get(src.getFormat());
+    if (desc->nb_components != depth)
+      throw std::runtime_error("The depth of the image data does not match the image format's.");
+
+    // send the image data to the buffer
+    av_log(NULL, AV_LOG_INFO, "[runComplex] Loading the data to input '%s'...\n",name.c_str());
+    src.load(params, in, (int)mxGetNumberOfElements(mxIn));
+    av_log(NULL, AV_LOG_INFO, "\tformat:%s:width:%d:height:%d:sar:%d:%d:time_base:%d:%d\n", src.getFormatName(), src.getWidth(),
+           src.getHeight(), src.getSAR().num, src.getSAR().den, src.getTimeBaseRef().num, src.getTimeBaseRef().den);
+  });
+
+  // check to see if width or height changed
+  bool changedDims = (ran && (width != src.getWidth() || height != src.getHeight()));
+
+  bool reconfig = ran || changedFormat || changedSAR || changedDims;
+  if (ran) // clear ran flag to sync with Matlab OBJ
+    ran = false;
+
+  // configure the filter graph
+  if (config)
+  {
+    filtergraph.configure(); // new graph
+    ran = true;
+  }
+  else if (reconfig)
+    filtergraph.flush(); // recreate AVFilterGraph with the same AVFrame buffers
+
+  // make sure everything is ready to go
+  av_log(NULL, AV_LOG_INFO, "[runOnce] Final check...\n");
+  if (!filtergraph.ready()) // something went wrong
+    throw std::runtime_error("Failed to configure the filter graph.");
+
+  // run the filter
+    av_log(NULL, AV_LOG_INFO, "[runOnce] RUN!!...\n");
+  filtergraph.runOnce();
+
+// get the output
+  mexComponentSink &sink = *dynamic_cast<mexComponentSink *>(filtergraph.getOutputBuffer());
+av_log(NULL, AV_LOG_INFO, "[runOnce] Retrieve the output data...\n");
+uint8_t *data;
+// sink.push(frame.get());
+if (!sink.release(&data)) // grab entire the data buffer
+  throw std::runtime_error("No output data were produced by the filter graph.");
+
+// output format
+desc = av_pix_fmt_desc_get(sink.getFormat());
+mwSize dims[3] = {(mwSize)sink.getWidth(), (mwSize)sink.getHeight(), (mwSize)desc->nb_components};
+mxOut = mxCreateNumericMatrix(0, 0, mxUINT8_CLASS, mxREAL);
+mxSetDimensions(mxOut, dims, 3);
+mxSetData(mxOut, data);
 }
 
 const uint8_t *mexImageFilter::getMxImageData(const mxArray *mxData, int &width, int &height, int &depth)
