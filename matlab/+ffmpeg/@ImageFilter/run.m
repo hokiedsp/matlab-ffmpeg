@@ -38,15 +38,18 @@ end
 inputs = obj.InputNames;
 if isempty(inputs)
    narginchk(1,1); % does not take any input argument
+   if ~isempty(obj.InputNames)
+      error('The filter graph requires %d input images.',numel(obj.InputNames));
+   end
 elseif isstruct(A)
-   if ~(isscalar(A) && isempty(setxor(inputs,fieldnames(val))))
+   if ~(isscalar(A) && isempty(setxor(inputs,fieldnames(A))))
       error('A must be a scalar struct and defines all the filter ipnut names as its fields (case sensitive)');
    end
    structfun(@(f)validateattributes(f,{'uint8','single','double'},{'3d','nonsparse'}),A);
-   if ~any(structfun(@isempty,A))
+   if any(structfun(@isempty,A))
       error('At least one new image data must be given.');
    end
-   type = unique(struct2cell(structfun(@(f)class(f),A)));
+   type = unique(struct2cell(structfun(@(f)class(f),A,'UniformOutput',false)));
    if numel(type)>1 % if inputs are mixed type, return uint8
       type = 'uint8';
    else

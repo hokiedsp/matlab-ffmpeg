@@ -15,6 +15,11 @@ void Base::destroy(const bool deep)
   args.clear();
 }
 
+void Base::purge()
+{
+  context = NULL;
+}
+
 void Base::link(AVFilterContext *other, const unsigned otherpad, const unsigned pad, const bool issrc)
 {
   if (!context)

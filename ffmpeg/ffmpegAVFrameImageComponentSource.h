@@ -4,7 +4,7 @@
 #include "ffmpegException.h"          // import AVFrameSinkBase
 #include "ffmpegImageUtils.h"
 
-// #include "ffmpegLogUtils.h"
+#include "ffmpegLogUtils.h"
 
 extern "C" {
 #include <libavutil/pixfmt.h>  // import AVPixelFormat
@@ -43,13 +43,7 @@ public:
 
   virtual ~AVFrameImageComponentSource()
   {
-    av_log(NULL, AV_LOG_INFO, "destroying AVFrameImageComponentSource\n");
     av_log(NULL, AV_LOG_INFO, "destroyed AVFrameImageComponentSource\n");
-  }
-
-  bool ready() const
-  {
-    return AVFrameSourceBase::ready() && status != 0;
   }
 
   bool supportedFormat(int format) const
@@ -88,20 +82,21 @@ public:
     if (pdata)
     {
       // overwrite any invalid params values with the object's value
-      if (params.format != AV_PIX_FMT_NONE)
+      if (params.format == AV_PIX_FMT_NONE)
         params.format = (AVPixelFormat)frame->format;
-      if (params.width > 0)
+      if (params.width <= 0)
         params.width = frame->width;
-      if (params.height > 0)
+      if (params.height <= 0)
         params.height = frame->height;
-      if (params.sample_aspect_ratio.num > 0 && params.sample_aspect_ratio.den > 0)
+      if (av_cmp_q(params.sample_aspect_ratio, {0, 0}))
         params.sample_aspect_ratio = frame->sample_aspect_ratio;
+logVideoParams(params);
 
       int total_size = imageGetComponentBufferSize(params.format, params.width, params.height);
       if (!total_size)
         throw ffmpegException("[ffmpeg::AVFrameImageComponentSource::load] Critical image parameters missing.");
       if (pdata_size < total_size)
-        throw ffmpegException("[ffmpeg::AVFrameImageComponentSource::load] Not enough data given to fill the image buffers.");
+        throw ffmpegException("[ffmpeg::AVFrameImageComponentSource::load] Not enough data (%d bytes) given to fill the image buffers (%d bytes).", pdata_size, total_size);
 
       auto avFrameFree = [](AVFrame *frame) { av_frame_free(&frame); };
       std::unique_ptr<AVFrame, decltype(avFrameFree)> new_frame(av_frame_alloc(), avFrameFree);

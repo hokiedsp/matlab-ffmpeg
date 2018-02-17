@@ -407,6 +407,14 @@ protected:
 };
 ////////////////////////////////
 
+/**
+ * \brief Base class of VideoAVFrameHandler & AudioAVFrameHandler
+ * 
+ * AVFrameHandler wraps an AVFrame object, managing one instance through its life
+ * span. The derived classes may access \ref frame to perform all AVFrame related
+ * operations but shall not call av_frame_free() on \ref frame at any point.
+ * 
+ */
 struct AVFrameHandler
 {
 public:
@@ -481,7 +489,7 @@ struct VideoAVFrameHandler : public AVFrameHandler, virtual public IVideoHandler
     bool critical_change = frame->format != (int)params.format && frame->width != params.width && frame->height != params.height;
 
     // if no parameters have changed, exit
-    if (!(critical_change && av_cmp_q(frame->sample_aspect_ratio, params.sample_aspect_ratio)))
+    if (!(critical_change || av_cmp_q(frame->sample_aspect_ratio, params.sample_aspect_ratio)))
       return;
 
     // if data critical parameters have changed, free frame data
@@ -562,6 +570,9 @@ protected:
    */
   virtual void release_frame()
   {
+    // if no data buffers allocated, nothing to release
+    // if (!frame->buf[0]) return;
+
     // save the image parameters
     VideoParams params = getVideoParams();
 

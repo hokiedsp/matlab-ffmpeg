@@ -48,7 +48,7 @@ protected:
   static AVRational getSAR(const mxArray *mxObj);
 
 private:
-  void init(const std::string &new_graph);
+  void init(const mxArray *mxObj, const std::string &new_graph);
   const uint8_t *getMxImageData(const mxArray *mxData, int &width, int &height, int &depth);
 
   bool ran;           // true if filter graph has run with the current configuration

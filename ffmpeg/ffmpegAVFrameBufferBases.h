@@ -317,6 +317,11 @@ public:
     return ready;
   }
 
+  virtual bool ready() const
+  {
+    return time_base.num > 0 && time_base.den > 0;
+  }
+
 protected:
   virtual bool readyToPop_threadunsafe() const = 0;
   virtual void pop_threadunsafe(AVFrame *frame) = 0;

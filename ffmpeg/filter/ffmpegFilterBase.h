@@ -79,6 +79,14 @@ public:
   virtual void destroy(const bool deep = false);
   
   /**
+   * \brief Purge AVFilterContext
+   * 
+   * When the associated AVFilterGraph is destroyed, \ref context becomes invalid. ffmpeg::filter::Graph
+   * calls this function to make its filters deassociate invalidated AVFilterContexts.
+   */
+  virtual void purge();
+
+  /**
    * \brief Links the filter to another filter
    * 
    * A pure virtual function to link this filter with another

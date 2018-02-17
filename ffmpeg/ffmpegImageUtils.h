@@ -33,7 +33,7 @@ namespace ffmpeg
  * @returns             true if all components fit
  * @throws              ffmpegException null pix_desc
  */
-bool imageCheckComponentSize(const AVPixFmtDescriptor *pix_desc, const int max = 8)
+inline bool imageCheckComponentSize(const AVPixFmtDescriptor *pix_desc, const int max = 8)
 {
   if (!pix_desc)
     throw ffmpegException("Invalid pixel format given.");
@@ -62,7 +62,7 @@ bool imageCheckComponentSize(const AVPixFmtDescriptor *pix_desc, const int max =
  * @returns true if all components fit
  * @throws ffmpegException if invalid pixel format
  */
-bool imageCheckComponentSize(const AVPixelFormat format, const int max = 8)
+inline bool imageCheckComponentSize(const AVPixelFormat format, const int max = 8)
 {
   return imageCheckComponentSize(av_pix_fmt_desc_get(format), max);
 }
@@ -85,7 +85,7 @@ bool imageCheckComponentSize(const AVPixelFormat format, const int max = 8)
  * @throws ffmpegException if any component of the pixel format does not fit in a byte
  * @throws ffmpegException if non-zero dst_linesize < width
  */
-int imageGetComponentBufferSize(const AVPixFmtDescriptor *pix_desc, const int width, const int height, const int dst_linesize = 0)
+inline int imageGetComponentBufferSize(const AVPixFmtDescriptor *pix_desc, const int width, const int height, const int dst_linesize = 0)
 {
   if (!pix_desc || !imageCheckComponentSize(pix_desc))
     throw ffmpegException("[ffmpeg::imageGetComponentBufferSize] Unsupported pixel format (%s) specified.", pix_desc?pix_desc->name:"none");
@@ -112,7 +112,7 @@ int imageGetComponentBufferSize(const AVPixFmtDescriptor *pix_desc, const int wi
  * @throws ffmpegException if any component of the pixel format does not fit in a byte
  * @throws ffmpegException if non-zero dst_linesize < width
  */
-int imageGetComponentBufferSize(const AVPixelFormat pix_fmt, const int width, const int height, const int dst_linesize = 0)
+inline int imageGetComponentBufferSize(const AVPixelFormat pix_fmt, const int width, const int height, const int dst_linesize = 0)
 {
   return imageGetComponentBufferSize(av_pix_fmt_desc_get(pix_fmt), width, height, dst_linesize);
 }
@@ -296,7 +296,7 @@ void imageForEachConstComponentPixel(const uint8_t *const img_data[4], const int
  * @param dst_compsize[in]  the component size for dst; omit or <=0 ot use dst_linesize*height
  * @return                  the number of bytes written to dst
  */
-int imageCopyToComponentBuffer(uint8_t *dst, const int dst_size,
+inline int imageCopyToComponentBuffer(uint8_t *dst, const int dst_size,
                                const uint8_t *const src_data[4], const int src_linesize[4],
                                const AVPixFmtDescriptor *pix_desc, const int width, const int height,
                                int dst_linesize = 0, int dst_compsize = 0)
@@ -342,7 +342,7 @@ int imageCopyToComponentBuffer(uint8_t *dst, const int dst_size,
  * @param dst_linesize[in]  the assumed linesize alignment for dst
  * @return                  the number of bytes written to dst
  */
-int imageCopyToComponentBuffer(uint8_t *dst, const int dst_size,
+inline int imageCopyToComponentBuffer(uint8_t *dst, const int dst_size,
                                const uint8_t *const src_data[4], const int src_linesize[4],
                                const AVPixelFormat pix_fmt, const int width, const int height,
                                int dst_linesize = 0, int dst_compsize = 0)
@@ -373,7 +373,7 @@ int imageCopyToComponentBuffer(uint8_t *dst, const int dst_size,
  * @param src_compsize[in]  the component size for src; omit or <=0 ot use src_linesize*height
  * @return                  the number of bytes written to dst
  */
-int imageCopyFromComponentBuffer(const uint8_t *src, const int src_size,
+inline int imageCopyFromComponentBuffer(const uint8_t *src, const int src_size,
                                uint8_t * const dst_data[4], const int dst_linesize[4],
                                const AVPixFmtDescriptor *pix_desc, const int width, const int height,
                                int src_linesize = 0, int src_compsize = 0)
@@ -417,7 +417,7 @@ int imageCopyFromComponentBuffer(const uint8_t *src, const int src_size,
  * @param src_compsize[in]  the component size for src; omit or <=0 ot use src_linesize*height
  * @return                  the number of bytes written to dst
  */
-int imageCopyFromComponentBuffer(const uint8_t *src, const int src_size,
+inline int imageCopyFromComponentBuffer(const uint8_t *src, const int src_size,
                                  uint8_t *const dst_data[4], const int dst_linesize[4],
                                  const AVPixelFormat pix_fmt, const int width, const int height,
                                  int src_linesize = 0, int src_compsize = 0)

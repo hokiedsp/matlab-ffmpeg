@@ -71,7 +71,7 @@ public:
    *                 for a single-input graph with unnamed input.
    * \returns the reference of the created Source filter object
    */
-  SourceBase &assignSource(IAVFrameSource &buf, const std::string &name="in");
+  SourceBase &assignSource(IAVFrameSource &buf, const std::string &name = "in");
 
   /**
    * \brief Assign a sink buffer to a parsed filtergraph
@@ -89,7 +89,7 @@ public:
    *                 for a single-output graph with unnamed input.
    * \returns the reference of the created Source filter object
    */
-  SinkBase &assignSink(IAVFrameSink &buf, const std::string &name="out");
+  SinkBase &assignSink(IAVFrameSink &buf, const std::string &name = "out");
 
   /**
    * \brief Finalize the preparation of a new filtergraph
@@ -183,56 +183,56 @@ public:
       return outputs.at(name).buf;
   }
 
-  template<typename UnaryFunction>
+  template <typename UnaryFunction>
   void forEachInput(UnaryFunction f)
   {
     for (auto it = inputs.begin(); it != inputs.end(); ++it)
       f(it->first, it->second.buf, it->second.filter);
   }
 
-  template<typename UnaryFunction>
+  template <typename UnaryFunction>
   void forEachInputName(UnaryFunction f)
   {
     for (auto it = inputs.begin(); it != inputs.end(); ++it)
       f(it->first);
   }
 
-  template<typename UnaryFunction>
+  template <typename UnaryFunction>
   void forEachInputFilter(UnaryFunction f)
   {
     for (auto it = inputs.begin(); it != inputs.end(); ++it)
       f(it->first, it->second.filter);
   }
 
-  template<typename UnaryFunction>
+  template <typename UnaryFunction>
   void forEachInputBuffer(UnaryFunction f)
   {
     for (auto it = inputs.begin(); it != inputs.end(); ++it)
       f(it->first, it->second.buf);
   }
 
-  template<typename UnaryFunction>
+  template <typename UnaryFunction>
   void forEachOutput(UnaryFunction f)
   {
     for (auto it = outputs.begin(); it != outputs.end(); ++it)
       f(it->first, it->second.buf, it->second.filter);
   }
 
-  template<typename UnaryFunction>
+  template <typename UnaryFunction>
   void forEachOutputName(UnaryFunction f)
   {
     for (auto it = outputs.begin(); it != outputs.end(); ++it)
       f(it->first);
   }
 
-  template<typename UnaryFunction>
+  template <typename UnaryFunction>
   void forEachOutputFilter(UnaryFunction f)
   {
     for (auto it = outputs.begin(); it != outputs.end(); ++it)
       f(it->first, it->second.filter);
   }
 
-  template<typename UnaryFunction>
+  template <typename UnaryFunction>
   void forEachOutputBuffer(UnaryFunction f)
   {
     for (auto it = outputs.begin(); it != outputs.end(); ++it)
@@ -240,7 +240,7 @@ public:
   }
 
   bool isSimple() const { return inputs.size() == 1 && outputs.size() == 1; }
-  
+
   bool isSource(const std::string &name)
   {
     try
@@ -283,7 +283,7 @@ protected:
     switch (type)
     {
     case AVMEDIA_TYPE_VIDEO:
-        av_log(NULL,AV_LOG_ERROR,"creating video source node\n");
+      av_log(NULL, AV_LOG_ERROR, "creating video source node\n");
       ep = new VEP(*this, buf);
       break;
     case AVMEDIA_TYPE_AUDIO:
@@ -303,19 +303,24 @@ private:
 
   typedef struct
   {
+    AVFilterContext *other;
+    int otherpad;
+  } ConnectedTo;
+  typedef std::vector<ConnectedTo> ConnectionList;
+
+  typedef struct
+  {
     AVMediaType type;
     IAVFrameSource *buf;
     SourceBase *filter;
-    AVFilterContext *other;
-    int otherpad;
+    ConnectionList conns;
   } SourceInfo;
   typedef struct
   {
     AVMediaType type;
     IAVFrameSink *buf;
     SinkBase *filter;
-    AVFilterContext *other;
-    int otherpad;
+    ConnectionList conns;
   } SinkInfo;
   std::map<std::string, SourceInfo> inputs;
   std::map<std::string, SinkInfo> outputs;
@@ -337,6 +342,9 @@ private:
 
   void parse_sources(AVFilterInOut *ins);
   void parse_sinks(AVFilterInOut *outs);
+
+  void connect_nullsource(AVFilterInOut *in);
+  void connect_nullsink(AVFilterInOut *out);
 };
 }
 }

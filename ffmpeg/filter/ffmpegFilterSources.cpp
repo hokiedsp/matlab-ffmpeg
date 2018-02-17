@@ -2,6 +2,8 @@
 
 #include "../ffmpegException.h"
 
+#include "../ffmpegLogUtils.h"
+
 extern "C" {
 #include <libavfilter/buffersrc.h>
 #include <libswscale/swscale.h>
@@ -15,7 +17,7 @@ using namespace ffmpeg;
 using namespace ffmpeg::filter;
 
 ///////////////////////////////////////////////////////////
-SourceBase::SourceBase(Graph &fg, IAVFrameSource &buf) : EndpointBase(fg, buf), src(buf) {}
+SourceBase::SourceBase(Graph &fg, IAVFrameSource &srcbuf) : EndpointBase(fg, srcbuf), buf(srcbuf) {}
 SourceBase::~SourceBase() { av_log(NULL,AV_LOG_INFO,"destroying SourceBase\n"); av_log(NULL,AV_LOG_INFO,"destroyed SourceBase\n"); }
 
 void SourceBase::link(AVFilterContext *other, const unsigned otherpad, const unsigned pad, const bool issrc)
@@ -28,7 +30,7 @@ void SourceBase::link(AVFilterContext *other, const unsigned otherpad, const uns
 
 int SourceBase::processFrame()
 {
-  int ret = src.tryToPop(frame); // if frame==NULL, eos
+  int ret = buf.tryToPop(frame); // if frame==NULL, eos
   if (ret == 0)
     ret = av_buffersrc_add_frame_flags(context, frame, AV_BUFFERSRC_FLAG_KEEP_REF);
   av_frame_unref(frame);
@@ -37,8 +39,8 @@ int SourceBase::processFrame()
 
 /////////////////////////////
 
-VideoSource::VideoSource(Graph &fg, IAVFrameSource &buf)
-    : SourceBase(fg, buf), VideoHandler(dynamic_cast<IVideoHandler &>(buf)), sws_flags(0) {}
+VideoSource::VideoSource(Graph &fg, IAVFrameSource &srcbuf)
+    : SourceBase(fg, srcbuf), VideoHandler(dynamic_cast<IVideoHandler &>(srcbuf)), sws_flags(0) {}
 
 AVFilterContext *VideoSource::configure(const std::string &name)
 {
@@ -118,47 +120,42 @@ std::string VideoSource::generate_args()
    */
 bool VideoSource::updateMediaParameters()
 {
-  time_base = src.getTimeBase();
-  setVideoParams(dynamic_cast<IVideoHandler &>(src).getVideoParams());
+  IVideoHandler &vbuf = dynamic_cast<IVideoHandler &>(buf);
+  logVideoParams(vbuf.getVideoParams(),"presync buffer");
+  time_base = buf.getTimeBase();
+  setVideoParams(vbuf.getVideoParams());
+  logVideoParams(vbuf.getVideoParams(),"postsync buffer");
+  logVideoParams(getVideoParams(),"filter");
 
   // check for validity
-  // if (format == AV_PIX_FMT_NONE || time_base.num == 0 || time_base.den == 0 ||
-  //     width == 0 || height == 0 || sample_aspect_ratio.num == 0 || sample_aspect_ratio.den == 0)
-  //   return false;
+  if (format == AV_PIX_FMT_NONE || time_base.num <= 0 || time_base.den <= 0 ||
+      width <= 0 || height <= 0 || sample_aspect_ratio.num <= 0 || sample_aspect_ratio.den <= 0)
+    return false;
 
   // if filter context has already been set, propagate the parameters to it as well
   if (context)
   {
-    AVBufferSrcParameters *par = av_buffersrc_parameters_alloc();
+    std::unique_ptr<AVBufferSrcParameters, decltype(av_free) *> par(av_buffersrc_parameters_alloc(), av_free);
     if (!par)
       throw ffmpegException("[ffmpeg::filter::VideoSource::updateMediaParameters] Could not allocate AVBufferSrcParameters.");
-    try
-    {
-      par->format = format;
-      par->time_base = time_base;
-      par->width = width;
-      par->height = height;
-      par->sample_aspect_ratio = sample_aspect_ratio;
-      par->frame_rate = {0, 0};  //AVRational
-      par->hw_frames_ctx = NULL; // AVBufferRef *
+    par->format = format;
+    par->time_base = time_base;
+    par->width = width;
+    par->height = height;
+    par->sample_aspect_ratio = sample_aspect_ratio;
+    // par->frame_rate = {0, 0};  //AVRational
+    par->hw_frames_ctx = NULL; // AVBufferRef *
 
-      if (av_buffersrc_parameters_set(context, par) < 0)
-        throw ffmpegException("[ffmpeg::filter::VideoSource::updateMediaParameters] AVFilterContext could not accept parameters.");
-    }
-    catch (...)
-    {
-      av_free(par);
-      throw;
-    }
-    av_free(par);
+    if (av_buffersrc_parameters_set(context, par.get() )< 0)
+      throw ffmpegException("[ffmpeg::filter::VideoSource::updateMediaParameters] AVFilterContext could not accept parameters.");
   }
   return true;
 };
 
 /////////////////////////////
-AudioSource::AudioSource(Graph &fg, IAVFrameSource &buf)
-    : SourceBase(fg, buf),
-      AudioHandler(dynamic_cast<IAudioHandler &>(buf)) {}
+AudioSource::AudioSource(Graph &fg, IAVFrameSource &srcbuf)
+    : SourceBase(fg, srcbuf),
+      AudioHandler(dynamic_cast<IAudioHandler &>(srcbuf)) {}
 
 AVFilterContext *AudioSource::configure(const std::string &name)
 {
@@ -181,34 +178,27 @@ std::string AudioSource::generate_args()
    */
 bool AudioSource::updateMediaParameters()
 {
-  setTimeBase(src.getTimeBase());
-  setAudioParams(dynamic_cast<IAudioHandler &>(src).getAudioParams());
+  setTimeBase(buf.getTimeBase());
+  setAudioParams(dynamic_cast<IAudioHandler &>(buf).getAudioParams());
 
   // validate the parameters
-  // if (format == AV_SAMPLE_FMT_NONE || time_base.num == 0 || time_base.den == 0 ||
-  //     sample_rate == 0 ||channel_layout == 0)
-  //   return false;
+  if (format <= AV_SAMPLE_FMT_NONE || time_base.num <= 0 || time_base.den <= 0 ||
+      sample_rate <= 0 ||channel_layout <= 0)
+    return false;
 
   // if filter context has already been set, propagate the parameters to it as well
   if (context)
   {
-    AVBufferSrcParameters *par = av_buffersrc_parameters_alloc();
+    std::unique_ptr<AVBufferSrcParameters, decltype(av_free) *> par(av_buffersrc_parameters_alloc(), av_free);
     if (!par)
-      throw ffmpegException("[ffmpeg::filter::VideoSource::updateMediaParameters] Could not allocate AVBufferSrcParameters.");
-    try
-    {
-      par->format = format;
-      par->time_base = time_base;
-      par->sample_rate = sample_rate;
-      par->channel_layout = channel_layout;
-      if (av_buffersrc_parameters_set(context, par) < 0)
-        throw ffmpegException("[ffmpeg::filter::VideoSource::updateMediaParameters] AVFilterContext could not accept parameters.");
-    }
-    catch (...)
-    {
-      av_free(par);
-      throw;
-    }
+      throw ffmpegException("[ffmpeg::filter::AudioSource::updateMediaParameters] Could not allocate AVBufferSrcParameters.");
+
+    par->format = format;
+    par->time_base = time_base;
+    par->sample_rate = sample_rate;
+    par->channel_layout = channel_layout;
+    if (av_buffersrc_parameters_set(context, par.get()) < 0)
+      throw ffmpegException("[ffmpeg::filter::VideoSource::updateMediaParameters] AVFilterContext could not accept parameters.");
   }
   return true;
 };

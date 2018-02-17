@@ -25,7 +25,7 @@ namespace filter
 class SourceBase : public EndpointBase
 {
 public:
-  SourceBase(Graph &fg, IAVFrameSource &buf);
+  SourceBase(Graph &fg, IAVFrameSource &srcbuf);
   virtual ~SourceBase();
 
   // virtual AVFilterContext *configure(const std::string &name = "") = 0;
@@ -35,8 +35,8 @@ public:
   // virtual void parameters_from_stream()=0;
   // virtual void parameters_from_frame(const AVFrame *frame) = 0;
 
-  virtual void blockTillFrameReady() { src.blockTillReadyToPop(); }
-  virtual bool blockTillFrameReady(const std::chrono::milliseconds &rel_time) { return src.blockTillReadyToPop(rel_time); }
+  virtual void blockTillFrameReady() { buf.blockTillReadyToPop(); }
+  virtual bool blockTillFrameReady(const std::chrono::milliseconds &rel_time) { return buf.blockTillReadyToPop(rel_time); }
   virtual int processFrame();
 
   /**
@@ -45,7 +45,7 @@ public:
   virtual bool updateMediaParameters() = 0;
 
 protected:
-  IAVFrameSource &src;
+  IAVFrameSource &buf;
   // AVBufferRef *hw_frames_ctx;
 };
 
@@ -54,7 +54,7 @@ typedef std::vector<SourceBase *> Sources;
 class VideoSource : public SourceBase, virtual public VideoHandler
 {
 public:
-  VideoSource(Graph &fg, IAVFrameSource &buf);
+  VideoSource(Graph &fg, IAVFrameSource &srcbuf);
   virtual ~VideoSource() {}
 
   AVFilterContext *configure(const std::string &name = "");
@@ -71,7 +71,7 @@ private:
 class AudioSource : public SourceBase, virtual public AudioHandler
 {
 public:
-  AudioSource(Graph &fg, IAVFrameSource &buf);
+  AudioSource(Graph &fg, IAVFrameSource &srcbuf);
   virtual ~AudioSource() {}
   
   AVFilterContext *configure(const std::string &name = "");

@@ -34,7 +34,6 @@ void Graph::destroy(const bool complete)
 {
   for (auto p = inputs.begin(); p != inputs.end(); ++p)
   {
-    p->second.other = NULL;
     if (p->second.filter)
     {
       if (complete)
@@ -44,12 +43,12 @@ void Graph::destroy(const bool complete)
         p->second.buf = NULL;
       }
       else
-        p->second.filter->destroy();
+        p->second.filter->purge();
     }
+    p->second.conns.clear();
   }
   for (auto p = outputs.begin(); p != outputs.end(); ++p)
   {
-    p->second.other = NULL;
     if (p->second.filter)
     {
       if (complete)
@@ -59,8 +58,9 @@ void Graph::destroy(const bool complete)
         p->second.buf = NULL;
       }
       else
-        p->second.filter->destroy();
+        p->second.filter->purge();
     }
+    p->second.conns.clear();
   }
 
   if (graph)
@@ -134,45 +134,93 @@ void Graph::parse_sources(AVFilterInOut *ins)
 {
   if (ins->next) // complex graph
   {
-    NullVideoSource nullsrc(*this);
+    std::unique_ptr<NullVideoSource> nullsrc;
     for (AVFilterInOut *cur = ins; cur; cur = cur->next)
     {
       if (cur->name) // if named, add to the inputs map
-        inputs[cur->name] =
-            {avfilter_pad_get_type(cur->filter_ctx->input_pads, cur->pad_idx), NULL, NULL, cur->filter_ctx, cur->pad_idx};
-      else // use nullsrc
       {
-        nullsrc.configure();
-        nullsrc.link(cur->filter_ctx, cur->pad_idx, 0, true);
-        nullsrc.destroy(); // not really... just detaches AVFilterContext from nullsrc object
+        auto search = inputs.find(cur->name);
+        if (search != inputs.end())
+          search->second.conns.push_back(ConnectedTo({cur->filter_ctx, cur->pad_idx}));
+        else
+          search->second =
+              {avfilter_pad_get_type(cur->filter_ctx->input_pads, cur->pad_idx),
+               NULL,
+               NULL,
+               ConnectionList(1,ConnectedTo({cur->filter_ctx, cur->pad_idx}))};
       }
+      else // use nullsrc
+        connect_nullsource(cur);
     }
   }
   else // simple graph without input name
-    inputs[(ins->name) ? ins->name : "in"] =
-        {avfilter_pad_get_type(ins->filter_ctx->input_pads, ins->pad_idx), NULL, NULL, ins->filter_ctx, ins->pad_idx};
+    inputs[(ins->name) ? ins->name : "in"] = {
+        avfilter_pad_get_type(ins->filter_ctx->input_pads, ins->pad_idx),
+        NULL,
+        NULL,
+        ConnectionList(1,ConnectedTo({ins->filter_ctx, ins->pad_idx}))};
 }
+  void Graph::connect_nullsource(AVFilterInOut *in)
+  {
+    const AVFilter *filter;
+    AVFilterContext *context;
+
+    if (avfilter_pad_get_type(in->filter_ctx->input_pads, in->pad_idx) == AVMEDIA_TYPE_VIDEO)
+      filter = avfilter_get_by_name("nullsrc");
+    else
+      filter = avfilter_get_by_name("anullsrc");
+
+    if (avfilter_graph_create_filter(&context, filter, "", "", NULL, graph) < 0)
+      throw ffmpegException("[ffmpeg::filter::Graph::connect_nullsink] Failed to create a null source.");
+    if (avfilter_link(context, 0, in->filter_ctx, in->pad_idx) < 0)
+      throw ffmpegException("[ffmpeg::filter::Graph::connect_nullsink] Failed to link null source to the filter graph.");
+  }
 
 void Graph::parse_sinks(AVFilterInOut *outs)
 {
   if (outs->next) // complex graph
   {
-    NullVideoSink nullsink(*this);
+    std::unique_ptr<NullVideoSink> nullsink;
     for (AVFilterInOut *cur = outs; cur; cur = cur->next)
     {
       if (cur->name) // if named, add to the inputs map
-        outputs[cur->name] = {avfilter_pad_get_type(cur->filter_ctx->output_pads, cur->pad_idx), NULL, NULL, cur->filter_ctx, cur->pad_idx};
-      else // use nullsrc
       {
-        nullsink.configure();
-        nullsink.link(cur->filter_ctx, cur->pad_idx, 0, false);
-        nullsink.destroy(); // not really... just detaches AVFilterContext from nullsink object
+        auto search = outputs.find(cur->name);
+        if (search != outputs.end())
+          search->second.conns.push_back(ConnectedTo({cur->filter_ctx, cur->pad_idx}));
+        else
+          search->second =
+              {avfilter_pad_get_type(cur->filter_ctx->output_pads, cur->pad_idx),
+               NULL,
+               NULL,
+               ConnectionList(1,ConnectedTo({cur->filter_ctx, cur->pad_idx}))};
       }
+      else // use nullsink
+        connect_nullsink(cur);
     }
   }
   else // simple graph
-    outputs[(outs->name) ? outs->name : "out"] =
-        {avfilter_pad_get_type(outs->filter_ctx->output_pads, outs->pad_idx), NULL, NULL, outs->filter_ctx, outs->pad_idx};
+    outputs[(outs->name) ? outs->name : "out"] = {
+        avfilter_pad_get_type(outs->filter_ctx->output_pads, outs->pad_idx),
+        NULL,
+        NULL,
+        ConnectionList(1,ConnectedTo({outs->filter_ctx, outs->pad_idx}))};
+}
+
+void Graph::connect_nullsink(AVFilterInOut *out)
+{
+  const AVFilter *filter;
+  AVFilterContext *context;
+
+  if (avfilter_pad_get_type(out->filter_ctx->output_pads, out->pad_idx) == AVMEDIA_TYPE_VIDEO)
+    filter = avfilter_get_by_name("nullsink");
+  else
+    filter = avfilter_get_by_name("anullsink");
+
+  if (avfilter_graph_create_filter(&context, filter, "", "", NULL, graph) < 0)
+    throw ffmpegException("[ffmpeg::filter::Graph::connect_nullsource] Failed to create a null sink.");
+  if (avfilter_link(out->filter_ctx, out->pad_idx, context, 0) < 0)
+    throw ffmpegException("[ffmpeg::filter::Graph::connect_nullsource] Failed to link null sink to the filter graph.");
 }
 
 SourceBase &Graph::assignSource(IAVFrameSource &buf, const std::string &name)
@@ -202,15 +250,15 @@ bool Graph::ready()
 
   // every input & output buffers must have IAVFrameSource/IAVFrameSink associated with it
   for (auto it = inputs.begin(); it != inputs.end(); ++it)
-    if (!(it->second.buf && it->second.buf->ready()))
+    if (!it->second.buf)
     {
-      av_log(NULL, AV_LOG_ERROR, "[ffmpage::filter::Graph::ready] Input '%s' is not ready\n", it->first.c_str());
+      av_log(NULL, AV_LOG_ERROR, "[ffmpage::filter::Graph::ready] No buffer assigned to Input '%s'\n", it->first.c_str());
       return false;
     }
   for (auto it = outputs.begin(); it != outputs.end(); ++it)
-    if (!(it->second.buf && it->second.buf->ready()))
+    if (!it->second.buf)
     {
-      av_log(NULL, AV_LOG_ERROR, "[ffmpage::filter::Graph::ready] Output '%s' is not ready\n", it->first.c_str());
+      av_log(NULL, AV_LOG_ERROR, "[ffmpage::filter::Graph::ready] No buffer assigned to Output '%s'\n", it->first.c_str());
       return false;
     }
 
@@ -222,7 +270,10 @@ void Graph::flush()
   if (!graph)
     throw ffmpegException("[ffmpeg::filter::Graph::flush] No filter graph to flush.");
 
-  // create the new graph (automatically destroys the previous one)
+  // destroy the existing filter graph
+  destroy();
+
+  // create the new graph
   // allocate new filter graph
   AVFilterGraph *temp_graph;
   if (!(temp_graph = avfilter_graph_alloc()))
@@ -238,47 +289,32 @@ void Graph::flush()
   std::unique_ptr<AVFilterInOut, decltype(avFilterInOutFree)> pin(ins, avFilterInOutFree), pout(outs, avFilterInOutFree);
 
   // assign sources
-  AVFilterInOut *cur = ins;
   if (inputs.size() == 1) // single-input
   {
-    SourceInfo &node = inputs.at(cur->name ? cur->name : "in"); // nameless=>auto-name as "in"
-    if (!node.buf)
-      throw ffmpegException("[ffmpeg::filter::Graph::flush] Filter graph does not have a source buffer.");
-    Graph::assign_endpoint<SourceBase, VideoSource, AudioSource>(node.filter, node.type, *node.buf);
-    node.other = cur->filter_ctx;
-    av_log(NULL,AV_LOG_INFO,"cur->filter_ctx:0x%x node.other:0x%x :: :: node.otherpad:%d",cur->filter_ctx,node.other,node.otherpad);
+    SourceInfo &node = inputs.at(ins->name ? ins->name : "in"); // nameless=>auto-name as "in"
+    node.conns.push_back(ConnectedTo({ins->filter_ctx, ins->pad_idx}));
   }
   else // multiple input
   {
-    NullVideoSource nullsrc(*this);
-    for (; cur; cur = cur->next)
+    for (AVFilterInOut *cur = ins; cur; cur = cur->next)
     {
       if (cur->name) // if named, add to the inputs map
       {
         SourceInfo &node = inputs.at(cur->name); // throws exception if doesn't exist
-        if (!node.buf)
-          throw ffmpegException("[ffmpeg::filter::Graph::flush] Filter graph does not have a source buffer.");
-        Graph::assign_endpoint<SourceBase, VideoSource, AudioSource>(node.filter, node.type, *node.buf);
-        node.other = cur->filter_ctx;
+        node.conns.push_back(ConnectedTo({cur->filter_ctx, cur->pad_idx}));
       }
       else // use nullsrc
-      {
-        nullsrc.configure();
-        nullsrc.link(cur->filter_ctx, cur->pad_idx, 0, true);
-        nullsrc.destroy(); // not really... just detaches AVFilterContext from nullsrc object
-      }
+        connect_nullsource(cur);
     }
   }
 
   // assign sinks
-  cur = outs;
   if (outputs.size() == 1) // single-output
   {
-    SinkInfo &node = outputs.at(cur->name ? cur->name : "out"); // if not named, auto-name as "out"
+    SinkInfo &node = outputs.at(outs->name ? outs->name : "out"); // if not named, auto-name as "out"
     if (!node.buf)
       throw ffmpegException("[ffmpeg::filter::Graph::flush] Filter graph does not have a sink buffer.");
-    Graph::assign_endpoint<SinkBase, VideoSink, AudioSink>(node.filter, node.type, *node.buf);
-    node.other = cur->filter_ctx;
+    node.conns.push_back(ConnectedTo({outs->filter_ctx, outs->pad_idx}));
   }
   else // multiple-output
   {
@@ -290,17 +326,13 @@ void Graph::flush()
         SinkInfo &node = outputs.at(cur->name); // throws exception if doesn't exist
         if (!node.buf)
           throw ffmpegException("[ffmpeg::filter::Graph::flush] Filter graph does not have a sink buffer.");
-        Graph::assign_endpoint<SinkBase, VideoSink, AudioSink>(node.filter, node.type, *node.buf);
-        node.other = cur->filter_ctx;
+        node.conns.push_back(ConnectedTo({cur->filter_ctx, cur->pad_idx}));
       }
-      else // use nullsrc
-      {
-        nullsink.configure();
-        nullsink.link(cur->filter_ctx, cur->pad_idx, 0, false);
-        nullsink.destroy(); // not really... just detaches AVFilterContext from nullsink object
-      }
+      else // use nullsink
+        connect_nullsink(cur);
     }
   }
+
   // finalize the graph
   configure();
 }
@@ -322,8 +354,9 @@ void Graph::configure()
     src->configure(in->first);
 
     // link filter
-    av_log(NULL,AV_LOG_INFO,"in->second.other:0x%x :: :: in->second.otherpad:%d",in->second.other,in->second.otherpad);
-    src->link(in->second.other, in->second.otherpad);
+    for (auto conn = in->second.conns.begin(); conn < in->second.conns.end(); ++conn)
+      src->link(conn->other, conn->otherpad);
+    in->second.conns.clear();
   }
 
   // configure sink filters
@@ -337,7 +370,9 @@ void Graph::configure()
     sink->configure(out->first);
 
     // link the sink to the last filter
-    sink->link(out->second.other, out->second.otherpad);
+    for (auto conn = out->second.conns.begin(); conn < out->second.conns.end(); ++conn)
+      sink->link(conn->other, conn->otherpad);
+    out->second.conns.clear();
   }
 
   // finalize the graph
