@@ -92,7 +92,7 @@ classdef ImageFilter < matlab.mixin.SetGet & matlab.mixin.CustomDisplay
          end
       end
       
-      B = run(obj,varargin)
+      varargout = run(obj,varargin)
       
       function reset(obj)
          % FFMPEG.IMAGEFILTER.RESET   Reset FFmpeg states

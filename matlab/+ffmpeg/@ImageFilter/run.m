@@ -1,4 +1,4 @@
-function B = run(obj,varargin)
+function varargout = run(obj,varargin)
 %FFMPEG.IMAGEFILTER.RUN   Run the filter
 %   B = RUN(OBJ,A) runs the filter graph defined in OBJ given the input
 %   images in A and returns the ouptut images in B. Omit A if the filter
@@ -24,6 +24,8 @@ function B = run(obj,varargin)
 %   If this format is given and the filter graph only produces 1 output
 %   image, the data array is given in B.
 
+nargoutchk(0,2);
+
 if nargin>2 % input name-data pairs
    try
       A = struct(varargin{:});
@@ -45,7 +47,7 @@ elseif isstruct(A)
    if ~(isscalar(A) && isempty(setxor(inputs,fieldnames(A))))
       error('A must be a scalar struct and defines all the filter ipnut names as its fields (case sensitive)');
    end
-   structfun(@(f)validateattributes(f,{'uint8','single','double'},{'3d','nonsparse'}),A);
+   structfun(@(f)validateattributes(f,{'logical','uint8','single','double'},{'3d','nonsparse'}),A);
    if any(structfun(@isempty,A))
       error('At least one new image data must be given.');
    end
@@ -56,7 +58,7 @@ elseif isstruct(A)
       type = char(type);
    end
 else
-   validateattributes(A,{'uint8','single','double'},{'3d','nonempty','nonsparse'});
+   validateattributes(A,{'logical','uint8','single','double'},{'3d','nonempty','nonsparse'});
    type = class(A);
 end
 
@@ -64,19 +66,26 @@ end
 if obj.isSimple()
    inputs = char(inputs);
    if isstruct(A), A = A.(inputs); end
-   if isfloat(A), A = uint8(A*255); end
-   B = ffmpeg.ImageFilter.mexfcn(obj,'runSimple',A);
-   if isfloat(A), B = cast(B,type)/255; end
+   if isfloat(A), A = uint8(A*255); 
+   elseif islogical(A), A = logical2uint8(A); end
+   [varargout{1:nargout}] = ffmpeg.ImageFilter.mexfcn(obj,'runSimple',A);
+   if isfloat(A)||islogical(A), B = cast(B,type)/255; end
    if isstruct(A), B.(inputs) = B; end
 else
    Nin = numel(obj.InputNames);
    for n = 1:Nin
-      if isfloat(inputs{n}), A.(inputs{n}) = uint8(A.(inputs{n})*255); end
+      if isfloat(inputs{n}), A.(inputs{n}) = uint8(A.(inputs{n})*255); 
+      elseif islogical(inputs{n}), A.(inputs{n}) = logical2uint8(A.(inputs{n})); end
    end
-   B = ffmpeg.ImageFilter.mexfcn(obj,'runComplex',A);
+   [varargout{1:nargout}] = ffmpeg.ImageFilter.mexfcn(obj,'runComplex',A);
    outputs = obj.OutputNames;
    if ~strcmp(type,'uint8')
-      for n = 1:numel(outputs), B.(outputs{n}) = cast(B.(outputs{n}),type)/255; end
+      for n = 1:numel(outputs), varargout{1}.(outputs{n}) = cast(varargout{1}.(outputs{n}),type)/255; end
    end
 end
+end
+
+function B = logical2uint8(A)
+B = zeros(size(A),'uint8');
+B(A) = 255;
 end

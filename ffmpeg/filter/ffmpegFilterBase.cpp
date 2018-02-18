@@ -6,14 +6,7 @@
 using namespace ffmpeg::filter;
 
 Base::Base(Graph &parent) : graph(parent), context(NULL) {}
-Base::~Base() {}
-void Base::destroy(const bool deep)
-{
-  if (context && deep)
-    avfilter_free(context);
-  context = NULL;
-  args.clear();
-}
+Base::~Base() { if (context) avfilter_free(context); }
 
 void Base::purge()
 {
@@ -35,7 +28,14 @@ void Base::link(AVFilterContext *other, const unsigned otherpad, const unsigned 
   else
     ret = avfilter_link(other, otherpad, context, pad);
   if (ret < 0)
-    throw ffmpegException("Failed to link filters.");
+  {
+    if (ret == AVERROR(EINVAL))
+      throw ffmpegException("Failed to link filters (invalid parameter).");
+    else if (ret == AVERROR(ENOMEM))
+      throw ffmpegException("Failed to link filters (could not allocate memory).");
+    else
+      throw ffmpegException("Failed to link filters.");
+  }
 }
 void Base::link(Base &other, const unsigned otherpad, const unsigned pad, const bool issrc)
 {
@@ -57,9 +57,6 @@ AVFilterContext *Base::create_context(const std::string &fname, const std::strin
                                    avfilter_get_by_name(fname.c_str()),
                                    name.c_str(), new_args.c_str(), NULL, graph.getAVFilterGraph()) < 0)
     throw ffmpegException("[ffmpeg::filter::Base::create_context] Failed to create a %s context with argument:\n\t%s.", fname.c_str(), new_args.c_str());
-
-  // store the argument
-  args = new_args;
 
   return context;
 }

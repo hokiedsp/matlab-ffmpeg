@@ -31,8 +31,8 @@ protected:
 
   void reset();                                                                // reset(obj);
 
-  void runSimple(const mxArray *mxObj, mxArray *&out, const mxArray *in);  //    out = runSimple(obj, in);
-  void runComplex(const mxArray *mxObj, mxArray *&out, const mxArray *in); //    varargout = readFrame(obj, varargin);
+  void runSimple(const mxArray *mxObj, int nout, mxArray **out, const mxArray *in);  //    out = runSimple(obj, in);
+  void runComplex(const mxArray *mxObj, int nout, mxArray **out, const mxArray *in); //    varargout = readFrame(obj, varargin);
   
   mxArray *isValidInputName(const mxArray *prhs); // tf = isInputName(obj,name)
 

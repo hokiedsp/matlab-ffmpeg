@@ -90,7 +90,6 @@ public:
         params.height = frame->height;
       if (av_cmp_q(params.sample_aspect_ratio, {0, 0}))
         params.sample_aspect_ratio = frame->sample_aspect_ratio;
-logVideoParams(params);
 
       int total_size = imageGetComponentBufferSize(params.format, params.width, params.height);
       if (!total_size)

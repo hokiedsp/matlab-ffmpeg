@@ -18,7 +18,7 @@ using namespace ffmpeg::filter;
 
 ///////////////////////////////////////////////////////////
 SourceBase::SourceBase(Graph &fg, IAVFrameSource &srcbuf) : EndpointBase(fg, srcbuf), buf(srcbuf) {}
-SourceBase::~SourceBase() { av_log(NULL,AV_LOG_INFO,"destroying SourceBase\n"); av_log(NULL,AV_LOG_INFO,"destroyed SourceBase\n"); }
+SourceBase::~SourceBase() { av_log(NULL,AV_LOG_INFO,"destroyed SourceBase\n"); }
 
 void SourceBase::link(AVFilterContext *other, const unsigned otherpad, const unsigned pad, const bool issrc)
 {
@@ -121,11 +121,8 @@ std::string VideoSource::generate_args()
 bool VideoSource::updateMediaParameters()
 {
   IVideoHandler &vbuf = dynamic_cast<IVideoHandler &>(buf);
-  logVideoParams(vbuf.getVideoParams(),"presync buffer");
   time_base = buf.getTimeBase();
   setVideoParams(vbuf.getVideoParams());
-  logVideoParams(vbuf.getVideoParams(),"postsync buffer");
-  logVideoParams(getVideoParams(),"filter");
 
   // check for validity
   if (format == AV_PIX_FMT_NONE || time_base.num <= 0 || time_base.den <= 0 ||

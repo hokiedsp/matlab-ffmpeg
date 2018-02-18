@@ -65,20 +65,6 @@ public:
   virtual AVFilterContext *configure(const std::string &name = "") = 0;
 
   /**
-   * \brief Destroys the context context
-   * 
-   * Destroys its AVFilterContext \ref context. It clears both \ref context and \ref args member
-   * variables. Optionally, AVFilterContext pointed by \ref context may be freed by setting \ref deep
-   * argument.
-   * 
-   * \param deep[in]  [optional, default:false] True to explicitly free allocated \ref context. 
-   * 
-   * \throws ffmpegException if \ref context member variable is already non-null or fails to 
-   *         create the new AVFilterContext.
-   */
-  virtual void destroy(const bool deep = false);
-  
-  /**
    * \brief Purge AVFilterContext
    * 
    * When the associated AVFilterGraph is destroyed, \ref context becomes invalid. ffmpeg::filter::Graph
@@ -168,7 +154,6 @@ protected:
 
   Graph &graph; // associated filtergraph object (does not change during the life of the object)
   AVFilterContext *context; // context object
-  std::string args; // last argument to create the context
 };
 }
 }

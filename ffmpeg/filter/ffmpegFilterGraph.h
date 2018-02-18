@@ -41,9 +41,25 @@ public:
   ~Graph();
 
   /**
- * \brief Destroys the current AVFilterGraph
+ * \brief Destroys the current AVFilterGraph and release all the resources
+ * 
+ * destroy() frees \ref graph 
  */
-  void destroy(const bool complete = false);
+  void clear();
+
+  /**
+   * \briefs Destroy the current AVFilterGraph
+   * 
+   * purge() frees \ref graph using avfilter_graph_free() and purges all invalidated AVFilter 
+   * pointers from \ref inputs and \ref outputs maps. It keeps 'filter' and 'buf' fields of 
+   * \ref inputs and \ref outputs maps.
+   * 
+   * Use \ref clear() to release all the resources associated with the current filter graph
+   * 
+   * When the associated AVFilterGraph is destroyed, \ref context becomes invalid. ffmpeg::filter::Graph
+   * calls this function to make its filters deassociate invalidated AVFilterContexts.
+   */
+  virtual void purge();
 
   /**
    * \brief Parse new filter graph
@@ -305,8 +321,8 @@ private:
   {
     AVFilterContext *other;
     int otherpad;
-  } ConnectedTo;
-  typedef std::vector<ConnectedTo> ConnectionList;
+  } ConnectTo;
+  typedef std::vector<ConnectTo> ConnectionList;
 
   typedef struct
   {
@@ -320,7 +336,7 @@ private:
     AVMediaType type;
     IAVFrameSink *buf;
     SinkBase *filter;
-    ConnectionList conns;
+    ConnectTo conn;
   } SinkInfo;
   std::map<std::string, SourceInfo> inputs;
   std::map<std::string, SinkInfo> outputs;
@@ -345,6 +361,8 @@ private:
 
   void connect_nullsource(AVFilterInOut *in);
   void connect_nullsink(AVFilterInOut *out);
+  
+  void use_src_splitter(SourceBase *src, const ConnectionList &conns);
 };
 }
 }
