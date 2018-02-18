@@ -4,6 +4,7 @@
 
 extern "C" {
 #include <libavutil/log.h>
+#include <libavutil/pixdesc.h>
 }
 
 #include <string>
@@ -21,5 +22,16 @@ inline void logVideoParams(const VideoParams &params, const std::string &fcn_nam
   av_log(NULL, AV_LOG_INFO, "[%s] Video Parameters::format:%s::width:%d::height:%d::sar:%s\n",
          fcn_name.c_str(), (params.format != AV_PIX_FMT_NONE) ? av_get_pix_fmt_name(params.format) : "none",
          params.width, params.height, getRationalString(params.sample_aspect_ratio).c_str());
+}
+
+inline void logPixelFormat(const AVPixFmtDescriptor *desc, const std::string &prefix = "")
+{
+  if (prefix.size())
+    av_log(NULL, AV_LOG_INFO, "[%s] ", prefix.c_str());
+  av_log(NULL, AV_LOG_INFO, "name:%s,|nb_components:%d\n",
+         desc->name, desc->nb_components);
+  for (int i = 0; ok && i < desc->nb_components; ++i)
+    av_log(NULL, AV_LOG_INFO, "\t[%d]plane:%d|step:%d|offset:%d|shift:%d|depth:%d\n",
+           i, desc[i].plane, desc[i].step, desc[i].offset, desc[i].shift, desc[i].depth);
 }
 }
