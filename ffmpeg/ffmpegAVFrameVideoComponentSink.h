@@ -229,6 +229,8 @@ protected:
       av_log(NULL, AV_LOG_INFO, "pts=%d\n", *wr_time);
       ++wr_time;
 
+      logPixelFormat(av_pix_fmt_desc_get((AVPixelFormat)frame->format), "push_threadunsafe");
+
       // copy data
       wr_data += imageCopyToComponentBuffer(wr_data, (int)frame_data_sz, frame->data, frame->linesize,
                                             (AVPixelFormat)frame->format, frame->width, frame->height);

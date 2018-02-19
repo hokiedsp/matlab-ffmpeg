@@ -28,10 +28,11 @@ inline void logPixelFormat(const AVPixFmtDescriptor *desc, const std::string &pr
 {
   if (prefix.size())
     av_log(NULL, AV_LOG_INFO, "[%s] ", prefix.c_str());
-  av_log(NULL, AV_LOG_INFO, "name:%s,|nb_components:%d\n",
-         desc->name, desc->nb_components);
-  for (int i = 0; ok && i < desc->nb_components; ++i)
+  av_log(NULL, AV_LOG_INFO, "name:%s,|nb_components:%d|log2_chroma_w:%d|log2_chroma_h:%d\n",
+         desc->name, desc->nb_components,desc->log2_chroma_w,desc->log2_chroma_h);
+  for (int i = 0; i < desc->nb_components; ++i)
     av_log(NULL, AV_LOG_INFO, "\t[%d]plane:%d|step:%d|offset:%d|shift:%d|depth:%d\n",
-           i, desc[i].plane, desc[i].step, desc[i].offset, desc[i].shift, desc[i].depth);
+           i, desc->comp[i].plane, desc->comp[i].step, desc->comp[i].offset, 
+           desc->comp[i].shift, desc->comp[i].depth);
 }
 }

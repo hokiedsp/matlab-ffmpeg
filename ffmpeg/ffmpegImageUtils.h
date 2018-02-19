@@ -38,7 +38,8 @@ inline bool imageCheckComponentSize(const AVPixFmtDescriptor *pix_desc, const in
   if (!pix_desc)
     throw ffmpegException("Invalid pixel format given.");
 
-  if (pix_desc->flags & AV_PIX_FMT_FLAG_BITSTREAM) // invalid format
+  if (pix_desc->flags & AV_PIX_FMT_FLAG_BITSTREAM ||
+      pix_desc->log2_chroma_w != 0 || pix_desc->log2_chroma_h != 0) // invalid format
     return false;
 
   // depths of all components must be single-byte

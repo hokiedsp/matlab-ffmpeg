@@ -147,6 +147,9 @@ void mexImageFilter::runSimple(const mxArray *mxObj, int nout, mxArray **mxOut, 
 
   // check the depth against the format
   const AVPixFmtDescriptor *desc = av_pix_fmt_desc_get(src.getFormat());
+
+  ffmpeg::logPixelFormat(desc, "runSimple");
+
   if (desc->nb_components != depth)
     throw std::runtime_error("The depth of the image data does not match the image format's.");
 
@@ -154,7 +157,7 @@ void mexImageFilter::runSimple(const mxArray *mxObj, int nout, mxArray **mxOut, 
   src.setWidth(width);
   src.setHeight(height);
 
-  logVideoParams(src.getVideoParams(), "[runOnce] src");
+  ffmpeg::logVideoParams(src.getVideoParams(), "runSimple::src");
 
   // configure the filter graph
   av_log(NULL, AV_LOG_INFO, "ran:%d|changedFormat:%d|changedSAR:%d|changedDims:%d\n",
