@@ -52,8 +52,10 @@ private:
   const uint8_t *getMxImageData(const mxArray *mxData, int &width, int &height, int &depth);
 
   bool ran;           // true if filter graph has run with the current configuration
-  bool changedFormat; // true if there is a pending change on InputFormat
-  bool changedSAR;    // true if there is a pending change on InputSAR
+  bool changedInputFormat; // true if there is a pending change on InputFormat
+  bool changedInputSAR;    // true if there is a pending change on InputSAR
+  bool changedOutputFormat; // true if there is a pending change on OutputFormat 
+  bool changedAutoTranspose; // true if there is a pending change on AutoTranspose
 
   ffmpeg::filter::Graph filtergraph;
   typedef ffmpeg::AVFrameImageComponentSource mexComponentSource;

@@ -16,15 +16,17 @@ classdef ImageFilter < matlab.mixin.SetGet & matlab.mixin.CustomDisplay
    %
    %   Methods:
    %     run           - Run the filter
-   %     reset         - Resets the FFmpeg object (in case the filter
-   %                     graph contains any persisting affects
    %     isSimple      - Returns true if loaded filter graph is simple
    %
    %   Properties:
    %     FilterGraph   - Implemented filtergraph string
    %     InputNames    - Names of the input nodes
    %     OutputNames   - Names of the output nodes
-   %
+   %     InputFormat   - PixelFormat of the input image
+   %     InputSAR      - SAR of the input image
+   %     AutoTranspose - Transpose image during filtering to properly set width and height
+   %     OutputFormat  - PixelFormat of the output image
+   %   
    %     Tag           - Generic string for the user to set.
    %     UserData      - Generic field for any user-defined data.
    %
@@ -38,14 +40,18 @@ classdef ImageFilter < matlab.mixin.SetGet & matlab.mixin.CustomDisplay
    %
    
    properties(GetAccess='public', SetAccess='private', Dependent)
-      FilterGraph   % - Implemented filtergraph string
       InputNames    % - Names of the input nodes
       OutputNames   % - Names of the output nodes
    end
    
    properties(GetAccess='public', SetAccess='public', SetObservable)
+      FilterGraph   % - Implemented filtergraph string
       InputFormat = 'rgb24'   % - PixelFormat of the input image (if multiple-input with multiple formats, use struct to specify each input's)
       InputSAR = 1            % - SAR of the input image (if multiple-input with multiple formats, use struct to specify each input's)
+
+      AutoTranspose = 'off'    % 'on' to match 'width' & 'height' in FFmpeg to match those in MATLAB. If 'off', they are swapped.
+      OutputFormat = 'default' % 'default' to use the output format of the filter graph as is, or specify a valid pixel format name
+
    end
    
    properties(GetAccess='public', SetAccess='public')
@@ -76,8 +82,10 @@ classdef ImageFilter < matlab.mixin.SetGet & matlab.mixin.CustomDisplay
          ffmpeg.ImageFilter.mexfcn(obj);
          
          % set listener for the InputFormat
-         addlistener(obj,'InputFormat','PostSet',@(~,~)ffmpeg.ImageFilter.mexfcn(obj,'syncInputFormat'));
-         addlistener(obj,'InputSAR','PostSet',@(~,~)ffmpeg.ImageFilter.mexfcn(obj,'syncInputSAR'));
+         addlistener(obj,'InputFormat','PostSet',@(~,~)ffmpeg.ImageFilter.mexfcn(obj,'notifyInputFormatChange'));
+         addlistener(obj,'InputSAR','PostSet',@(~,~)ffmpeg.ImageFilter.mexfcn(obj,'notifyInputSARChange'));
+         addlistener(obj,'OutputFormat','PostSet',@(~,~)ffmpeg.ImageFilter.mexfcn(obj,'notifyOutputFormatChange'));
+         addlistener(obj,'AutoTranspose','PostSet',@(~,~)ffmpeg.ImageFilter.mexfcn(obj,'notifyAutoTransposeChange'));
          
          % set all options
          if nargin>0
@@ -93,13 +101,6 @@ classdef ImageFilter < matlab.mixin.SetGet & matlab.mixin.CustomDisplay
       end
       
       varargout = run(obj,varargin)
-      
-      function reset(obj)
-         % FFMPEG.IMAGEFILTER.RESET   Reset FFmpeg states
-         %   RESET(OBJ) resets internal FFmpeg states by reconstruct the
-         %   filtergraph object
-         ffmpeg.ImageFilter.mexfcn(obj, 'reset');
-      end
       
       function tf = isSimple(obj)
          % FFMPEG.IMAGEFILTER.ISSIMPLE   True if simple filter graph
@@ -193,20 +194,7 @@ classdef ImageFilter < matlab.mixin.SetGet & matlab.mixin.CustomDisplay
       function set.FilterGraph(obj,val)
          validateattributes(val,{'char'},{'row'},class(obj),'FilterGraph');
          ffmpeg.ImageFilter.mexfcn(obj,'set','FilterGraph',val);
-         % if success, update InputFormat & InputSAR properties
-
-         % synch format & SAR; if input names are not the same, use default
-         inputs = obj.InputNames;
-         if isstruct(obj.InputFormat) && ~isempty(setxor(inputs,fieldnames(obj.InputFormat)))
-            obj.InputFormat = 'rgb24';
-         else
-            ffmpeg.ImageFilter.mexfcn(obj,'syncInputFormat');
-         end
-         if isstruct(obj.InputSAR) && ~isempty(setxor(inputs,fieldnames(obj.InputSAR)))
-            obj.InputSAR = 1;
-         else
-            ffmpeg.ImageFilter.mexfcn(obj,'syncInputSAR');
-         end
+         % this action may change InputFormat & InputSAR values
       end
       
       function val = get.InputNames(obj)
@@ -231,7 +219,9 @@ classdef ImageFilter < matlab.mixin.SetGet & matlab.mixin.CustomDisplay
          else
             error('InputFormat must be a string or a struct with input names as field names and their formats as the values.');
          end
-         obj.InputFormat = val;
+         if ~isequal(obj.InputFormat,val)
+           obj.InputFormat = val;
+          end
       end
       
       function set.InputSAR(obj,val)
@@ -245,7 +235,37 @@ classdef ImageFilter < matlab.mixin.SetGet & matlab.mixin.CustomDisplay
          else
             ffmpeg.ImageFilter.isValidSAR(val);
          end
-         obj.InputSAR = val;
+         if ~isequal(obj.InputSAR,val)
+           obj.InputSAR = val;
+          end
+      end
+      function set.AutoTranspose(obj,val)
+        val = validatestring(val,{'on','off'});
+        if ~isequal(obj.AutoTranspose, val)
+          obj.AutoTranspose = val;
+        end
+      end
+      function set.OutputFormat(obj,val)
+        try
+          val = validatestring(val,{'default'});
+        catch
+         if ischar(val)
+            if ~(isrow(val) && ffmpeg.ImageFilter.mexfcn('isSupportedFormat',val))
+               error('Unsupported output format specified.');
+            end
+         elseif isstruct(val)
+            if ~(isscalar(val) && isempty(setxor(obj.OutputNames,fieldnames(val))) ...
+              && all(structfun(@(f)ischar(f) && isrow(f) ...
+                  && ffmpeg.ImageFilter.mexfcn('isSupportedFormat',f),val))) %#ok
+               error('Unsupported output format specified.')
+            end
+         else
+            error('OutputFormat must be ''default'' or a string or a struct with input names as field names and their formats as the values.');
+         end
+        end
+        if ~isequal(obj.OutputFormat,val)
+          obj.OutputFormat = val;
+        end
       end
    end
    

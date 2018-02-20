@@ -43,7 +43,7 @@ void mexFunction(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[])
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
-mexImageFilter::mexImageFilter(int nrhs, const mxArray *prhs[]) : ran(false), changedFormat(true), changedSAR(true) {}
+mexImageFilter::mexImageFilter(int nrhs, const mxArray *prhs[]) : ran(false), changedInputFormat(true), changedInputSAR(true) {}
 mexImageFilter::~mexImageFilter() {}
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
@@ -106,10 +106,14 @@ bool mexImageFilter::action_handler(const mxArray *mxObj, const std::string &com
     plhs[0] = mxCreateLogicalScalar(filtergraph.isSimple());
   else if (command == "isValidInputName")
     plhs[0] = isValidInputName(prhs[0]);
-  else if (command == "syncInputFormat")
-    syncInputFormat(mxObj);
-  else if (command == "syncInputSAR")
-    syncInputSAR(mxObj);
+  else if (command == "notifyInputFormatChange")
+    changedInputFormat = true;
+  else if (command == "notifyInputSARChange")
+    changedInputSAR = true;
+  else if (command == "notifyOutputFormatChange")
+    changedOutputFormat = true;
+  else if (command == "notifyAutoTransposeChange")
+    changedAutoTranspose = true;
 
   return true;
 }
@@ -131,18 +135,18 @@ void mexImageFilter::runSimple(const mxArray *mxObj, int nout, mxArray **mxOut, 
 
   // check to see if width or height changed
   bool changedDims = (ran && (width != src.getWidth() || height != src.getHeight()));
-  av_log(NULL, AV_LOG_INFO, "ran:%d|changedFormat:%d|changedSAR:%d|changedDims:%d\n",
-         ran, changedFormat, changedSAR, changedDims);
+  av_log(NULL, AV_LOG_INFO, "ran:%d|changedInputFormat:%d|changedInputSAR:%d|changedDims:%d\n",
+         ran, changedInputFormat, changedInputSAR, changedDims);
 
   bool config = !ran;
-  bool reconfig = ran && (changedFormat || changedSAR || changedDims);
+  bool reconfig = ran && (changedInputFormat || changedInputSAR || changedDims);
   if (reconfig && ran) // clear ran flag to sync with Matlab OBJ
     ran = false;
 
   // sync format & sar if changed in MATLAB
-  if (changedFormat)
+  if (changedInputFormat)
     syncInputFormat(mxObj);
-  if (changedSAR)
+  if (changedInputSAR)
     syncInputSAR(mxObj);
 
   // check the depth against the format
@@ -160,8 +164,8 @@ void mexImageFilter::runSimple(const mxArray *mxObj, int nout, mxArray **mxOut, 
   ffmpeg::logVideoParams(src.getVideoParams(), "runSimple::src");
 
   // configure the filter graph
-  av_log(NULL, AV_LOG_INFO, "ran:%d|changedFormat:%d|changedSAR:%d|changedDims:%d\n",
-         ran, changedFormat, changedSAR, changedDims);
+  av_log(NULL, AV_LOG_INFO, "ran:%d|changedInputFormat:%d|changedInputSAR:%d|changedDims:%d\n",
+         ran, changedInputFormat, changedInputSAR, changedDims);
   if (config)
   {
     av_log(NULL, AV_LOG_INFO, "[runOnce] Configuring the filter graph\n");
@@ -170,7 +174,7 @@ void mexImageFilter::runSimple(const mxArray *mxObj, int nout, mxArray **mxOut, 
   }
   else
   {
-    bool reconfig = changedFormat || changedSAR || changedDims;
+    bool reconfig = changedInputFormat || changedInputSAR || changedDims;
     if (reconfig)
     {
       av_log(NULL, AV_LOG_INFO, "[runOnce] Re-configuring the filter graph\n");
@@ -231,10 +235,10 @@ void mexImageFilter::runComplex(const mxArray *mxObj, int nout, mxArray **mxOut,
     ran = false;
 
   // sync format & sar if changed in MATLAB
-  if (changedFormat)
+  if (changedInputFormat)
     syncInputFormat(mxObj);
   av_log(NULL, AV_LOG_INFO, "[runComplex] Input format synced...\n");
-  if (changedSAR)
+  if (changedInputSAR)
     syncInputSAR(mxObj);
   av_log(NULL, AV_LOG_INFO, "[runComplex] Input SAR synced...\n");
 
@@ -278,7 +282,7 @@ void mexImageFilter::runComplex(const mxArray *mxObj, int nout, mxArray **mxOut,
   }
   else
   {
-    bool reconfig = ran && (changedFormat || changedSAR || changedDims);
+    bool reconfig = ran && (changedInputFormat || changedInputSAR || changedDims);
     if (reconfig)
     {
       av_log(NULL, AV_LOG_INFO, "[runComplex] Re-configuring the filter graph\n");
@@ -361,8 +365,8 @@ void mexImageFilter::syncInputFormat(const mxArray *mxObj)
       mexComponentSource *src = dynamic_cast<mexComponentSource *>(buf);
       if (!ran)
         src->setFormat(fmt);
-      else if (!changedFormat && fmt != src->getFormat())
-        changedFormat = true;
+      else if (!changedInputFormat && fmt != src->getFormat())
+        changedInputFormat = true;
     });
   }
   else
@@ -373,12 +377,12 @@ void mexImageFilter::syncInputFormat(const mxArray *mxObj)
       mexComponentSource *src = dynamic_cast<mexComponentSource *>(buf);
       if (!ran)
         src->setFormat(fmt);
-      else if (!changedFormat && fmt != src->getFormat())
-        changedFormat = true;
+      else if (!changedInputFormat && fmt != src->getFormat())
+        changedInputFormat = true;
     });
   }
-  if (!ran && changedFormat) // sync'd
-    changedFormat = false;
+  if (!ran && changedInputFormat) // sync'd
+    changedInputFormat = false;
 
   av_log(NULL, AV_LOG_INFO, "InputFormat synchronized.\n");
 }
@@ -394,8 +398,8 @@ void mexImageFilter::syncInputSAR(const mxArray *mxObj)
       mexComponentSource *src = dynamic_cast<mexComponentSource *>(buf);
       if (!ran)
         src->setSAR(sar);
-      else if (!changedSAR && av_cmp_q(sar, src->getSAR()))
-        changedSAR = true;
+      else if (!changedInputSAR && av_cmp_q(sar, src->getSAR()))
+        changedInputSAR = true;
     });
   }
   else
@@ -405,12 +409,12 @@ void mexImageFilter::syncInputSAR(const mxArray *mxObj)
       mexComponentSource *src = dynamic_cast<mexComponentSource *>(buf);
       if (!ran)
         src->setSAR(sar);
-      else if (!changedSAR && av_cmp_q(sar, src->getSAR()))
-        changedSAR = true;
+      else if (!changedInputSAR && av_cmp_q(sar, src->getSAR()))
+        changedInputSAR = true;
     });
   }
-  if (!ran && changedSAR)
-    changedSAR = false; // sync'ed
+  if (!ran && changedInputSAR)
+    changedInputSAR = false; // sync'ed
 
   av_log(NULL, AV_LOG_INFO, "InputSAR synchronized.\n");
 }
@@ -470,8 +474,8 @@ void mexImageFilter::init(const mxArray *mxObj, const std::string &new_graph)
 
   // clear the flags
   ran = false;
-  changedFormat = true;
-  changedSAR = true;
+  changedInputFormat = true;
+  changedInputSAR = true;
 }
 
 mxArray *mexImageFilter::isValidInputName(const mxArray *prhs) // tf = isInputName(obj,name)
@@ -525,16 +529,11 @@ mxArray *mexImageFilter::getFilters()
 mxArray *mexImageFilter::getFormats()
 {
   return getVideoFormats([](const AVPixelFormat pix_fmt) -> bool {
-    // must <= 8-bit/component
-    const AVPixFmtDescriptor *desc = av_pix_fmt_desc_get(pix_fmt);
-    if (!desc || desc->flags & AV_PIX_FMT_FLAG_BITSTREAM) // invalid format
+
+    // supported by the IO buffers (8-bit, no subsampled components)
+    if (!ffmpeg::imageCheckComponentSize(pix_fmt))
       return false;
-
-    // depths of all components must be single-byte
-    for (int i = 0; i < desc->nb_components; ++i)
-      if (desc->comp[i].depth > 8)
-        return false;
-
+    
     // supported by SWS library
     return sws_isSupportedInput(pix_fmt) && sws_isSupportedOutput(pix_fmt);
   });
@@ -545,14 +544,8 @@ mxArray *mexImageFilter::isSupportedFormat(const mxArray *prhs)
 {
   return ::isSupportedVideoFormat(prhs, [](const AVPixelFormat pix_fmt) -> bool {
     // must <= 8-bit/component
-    const AVPixFmtDescriptor *desc = av_pix_fmt_desc_get(pix_fmt);
-    if (!desc || desc->flags & AV_PIX_FMT_FLAG_BITSTREAM) // invalid format
+    if (!ffmpeg::imageCheckComponentSize(pix_fmt))
       return false;
-
-    // depths of all components must be single-byte
-    for (int i = 0; i < desc->nb_components; ++i)
-      if (desc->comp[i].depth > 8)
-        return false;
 
     // supported by SWS library
     return sws_isSupportedInput(pix_fmt) && sws_isSupportedOutput(pix_fmt);
