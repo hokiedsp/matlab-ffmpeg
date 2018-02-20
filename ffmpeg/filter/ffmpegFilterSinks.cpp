@@ -33,7 +33,7 @@ void SinkBase::link(AVFilterContext *other, const unsigned otherpad, const unsig
   if (issrc || pad > 0)
     throw ffmpegException("Sink filter does not have a input pad and has only one output pad.");
 
-  Base::link(other, otherpad, pad, issrc);
+  Base::link(other, otherpad, prefilter_pad, issrc);
 }
 
 int SinkBase::processFrame()

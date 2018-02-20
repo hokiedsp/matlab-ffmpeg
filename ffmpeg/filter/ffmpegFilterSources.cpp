@@ -25,7 +25,7 @@ void SourceBase::link(AVFilterContext *other, const unsigned otherpad, const uns
   if (!issrc || pad > 0)
     throw ffmpegException("[SourceBase::link] Source filter does not have an input pad and has only 1 output pad.");
 
-  Base::link(other, otherpad, pad, issrc);
+  Base::link(other, otherpad, prefilter_pad, issrc);
 }
 
 int SourceBase::processFrame()
