@@ -27,6 +27,14 @@ public:
   virtual int processFrame() = 0;
 
   /**
+   * /brief   Retrieve the prefilter chain description
+   * 
+   * \returns Prefilter chain description string
+   * \thrpws ffmpegException if fails to parse
+   */
+  const std::string &setPrefilter();
+
+  /**
    * /brief   Register the prefilter chain description
    * 
    * This function takes a prefilter chain description, creates a dummy filter
