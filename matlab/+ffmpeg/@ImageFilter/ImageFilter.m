@@ -49,7 +49,7 @@ classdef ImageFilter < matlab.mixin.SetGet & matlab.mixin.CustomDisplay
       InputFormat = 'rgb24'   % - PixelFormat of the input image (if multiple-input with multiple formats, use struct to specify each input's)
       InputSAR = 1            % - SAR of the input image (if multiple-input with multiple formats, use struct to specify each input's)
 
-      AutoTranspose = 'off'    % 'on' to match 'width' & 'height' in FFmpeg to match those in MATLAB. If 'off', they are swapped.
+      AutoTranspose = true    % true to match 'width' & 'height' in FFmpeg to match those in MATLAB. If false, they are swapped but faster.
       OutputFormat = 'default' % 'default' to use the output format of the filter graph as is, or specify a valid pixel format name
 
    end
@@ -240,7 +240,7 @@ classdef ImageFilter < matlab.mixin.SetGet & matlab.mixin.CustomDisplay
           end
       end
       function set.AutoTranspose(obj,val)
-        val = validatestring(val,{'on','off'});
+        validateattributes(val,{logical},{'scalar'});
         if ~isequal(obj.AutoTranspose, val)
           obj.AutoTranspose = val;
         end
