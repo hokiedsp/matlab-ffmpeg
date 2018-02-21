@@ -25,7 +25,7 @@ SinkBase::~SinkBase()
 AVFilterContext *SinkBase::configure(const std::string &name)
 { // configure the AVFilterContext
   ena = true;
-  return context;
+  return configure_prefilter(context, false);
 }
 
 void SinkBase::link(AVFilterContext *other, const unsigned otherpad, const unsigned pad, const bool issrc)
@@ -70,8 +70,7 @@ VideoSink::VideoSink(Graph &fg, IAVFrameSink &buf)
 AVFilterContext *VideoSink::configure(const std::string &name)
 { // configure the AVFilterContext
   create_context("buffersink", name);
-  SinkBase::configure();
-  return context;
+  return SinkBase::configure();
 }
 
 void VideoSink::sync()
@@ -91,13 +90,12 @@ AudioSink::AudioSink(Graph &fg, IAVFrameSink &buf)
     : SinkBase(fg, buf), AudioHandler(dynamic_cast<IAudioHandler &>(buf)) {}
 AVFilterContext *AudioSink::configure(const std::string &name)
 {
-  // clears ena flag
-  SinkBase::configure();
-
   // configure the filter
   create_context("abuffersink", name);
   av_opt_set_int(context, "all_channel_counts", 1, AV_OPT_SEARCH_CHILDREN);
-  return context;
+
+  // clears ena flag
+  return SinkBase::configure();
 }
 
 void AudioSink::sync()

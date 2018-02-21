@@ -63,7 +63,7 @@ AVFilterContext *VideoSource::configure(const std::string &name)
 
   // av_log(NULL, AV_LOG_ERROR, "video source parameters created...");
 
-  return context;
+  return configure_prefilter(context, true);
 }
 
 // void VideoSource::parameters_from_stream()
@@ -158,7 +158,7 @@ AVFilterContext *AudioSource::configure(const std::string &name)
 {
   // configure the AVFilterContext
   create_context("abuffer", name);
-  return context;
+  return configure_prefilter(context, true);
 }
 
 std::string AudioSource::generate_args()
