@@ -387,6 +387,43 @@ void mexImageFilter::syncInputFormat(const mxArray *mxObj)
   av_log(NULL, AV_LOG_INFO, "InputFormat synchronized.\n");
 }
 
+void mexImageFilter::configPrefilters(const mxArray *mxObj)
+{
+  mxArray *mx = mxGetProperty(mxObj, 0, "AutoTranspose");
+  std::string desc;
+  if (*mxGetLogicals(mx)) desc = "transpose=dir=0";
+
+  filtergraph.forEachInputFilter([&](const std::string &name, ffmpeg::filter::SourceBase *filter) {
+    filter->setPrefilter(desc.c_str());
+  });
+
+  mx = mxGetProperty(mxObj, 0, "OutputFormat");
+  if (!mxIsEmpty(mx))
+  {
+    // if already transposed, add separator
+    if (desc.size())
+      desc += ',';
+
+    // filter description except for the format name
+    desc += "format=pix_fmts=";
+
+    if (mxIsStruct(mx))
+    {
+      filtergraph.forEachOutputFilter([&](const std::string &name, ffmpeg::filter::SinkBase *filter) {
+        std::string fmt_str = mexGetString(mx);
+        filter->setPrefilter((desc+fmt_str).c_str());
+      });
+    }
+    else
+    {
+      desc += mexGetString(mx);
+      filtergraph.forEachOutputFilter([&](const std::string &name, ffmpeg::filter::SinkBase *filter) {
+        filter->setPrefilter(desc.c_str());
+      });
+    }
+  }
+}
+
 void mexImageFilter::syncInputSAR(const mxArray *mxObj)
 {
   mxArray *mxSAR = mxGetProperty(mxObj, 0, "InputSAR");

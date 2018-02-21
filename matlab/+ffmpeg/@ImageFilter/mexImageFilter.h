@@ -39,10 +39,11 @@ protected:
   void syncInputFormat(const mxArray *mxObj);
   void syncInputSAR(const mxArray *mxObj);
 
-/////////////////
+  void configPrefilters(const mxArray *mxObj); // AutoTranspose, OutputFormat
+  /////////////////
 
-  static mxArray *getFilters(); // formats = getFilters();
-  static mxArray *getFormats(); // formats = getVideoFormats();
+  static mxArray *getFilters();                           // formats = getFilters();
+  static mxArray *getFormats();                           // formats = getVideoFormats();
   static mxArray *isSupportedFormat(const mxArray *prhs); // tf = isSupportedFormat(format_name);
   static void validateSARString(const mxArray *prhs); // tf = isValidSAR(SARexpr);
   static AVRational getSAR(const mxArray *mxObj);
