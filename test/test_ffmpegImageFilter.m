@@ -3,7 +3,7 @@ clear; close all;
 formats = ffmpeg.ImageFilter.getFormats();
 filters = ffmpeg.ImageFilter.getFilters();
 
-imgfilter = ffmpeg.ImageFilter('scale=640:360,format=yuv420p');
+imgfilter = ffmpeg.ImageFilter('scale=640:360','AutoTranspose',true);
 imdata = imread('ngc6543a.jpg');
 
 [X,map] = imread('corn.tif');

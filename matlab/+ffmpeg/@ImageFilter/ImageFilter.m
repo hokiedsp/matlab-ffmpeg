@@ -50,7 +50,7 @@ classdef ImageFilter < matlab.mixin.SetGet & matlab.mixin.CustomDisplay
       InputSAR = 1            % - SAR of the input image (if multiple-input with multiple formats, use struct to specify each input's)
 
       AutoTranspose = true    % true to match 'width' & 'height' in FFmpeg to match those in MATLAB. If false, they are swapped but faster.
-      OutputFormat = 'default' % 'default' to use the output format of the filter graph as is, or specify a valid pixel format name
+      OutputFormat = 'auto' % 'default' to use the output format of the filter graph as is, or specify a valid pixel format name
 
    end
    
@@ -240,14 +240,14 @@ classdef ImageFilter < matlab.mixin.SetGet & matlab.mixin.CustomDisplay
           end
       end
       function set.AutoTranspose(obj,val)
-        validateattributes(val,{logical},{'scalar'});
+        validateattributes(val,{'logical'},{'scalar'});
         if ~isequal(obj.AutoTranspose, val)
           obj.AutoTranspose = val;
         end
       end
       function set.OutputFormat(obj,val)
         try
-          val = validatestring(val,{'default'});
+          val = validatestring(val,{'auto'});
         catch
          if ischar(val)
             if ~(isrow(val) && ffmpeg.ImageFilter.mexfcn('isSupportedFormat',val))
@@ -260,7 +260,7 @@ classdef ImageFilter < matlab.mixin.SetGet & matlab.mixin.CustomDisplay
                error('Unsupported output format specified.')
             end
          else
-            error('OutputFormat must be ''default'' or a string or a struct with input names as field names and their formats as the values.');
+            error('OutputFormat must be ''auto'' or a string or a struct with input names as field names and their formats as the values.');
          end
         end
         if ~isequal(obj.OutputFormat,val)
@@ -294,7 +294,7 @@ classdef ImageFilter < matlab.mixin.SetGet & matlab.mixin.CustomDisplay
             error('Non-scalar object not supported.');
          end
          
-         propGroups(1) = PropertyGroup( {'FilterGraph', 'InputFormat', 'InputSAR'});
+         propGroups(1) = PropertyGroup( {'FilterGraph', 'InputFormat', 'InputSAR','OutputFormat','AutoTranspose'});
          propGroups(2) = PropertyGroup( {'InputNames', 'OutputNames'});
          propGroups(3) = PropertyGroup( {'Tag', 'UserData'});
       end

@@ -25,7 +25,7 @@ void SourceBase::link(AVFilterContext *other, const unsigned otherpad, const uns
   if (!issrc || pad > 0)
     throw ffmpegException("[SourceBase::link] Source filter does not have an input pad and has only 1 output pad.");
 
-  Base::link(other, otherpad, prefilter_pad, issrc);
+  EndpointBase::link(other, otherpad, prefilter_pad, issrc);
 }
 
 int SourceBase::processFrame()
@@ -63,7 +63,7 @@ AVFilterContext *VideoSource::configure(const std::string &name)
 
   // av_log(NULL, AV_LOG_ERROR, "video source parameters created...");
 
-  return configure_prefilter(context, true);
+  return configure_prefilter(true);
 }
 
 // void VideoSource::parameters_from_stream()
@@ -158,7 +158,7 @@ AVFilterContext *AudioSource::configure(const std::string &name)
 {
   // configure the AVFilterContext
   create_context("abuffer", name);
-  return configure_prefilter(context, true);
+  return configure_prefilter(true);
 }
 
 std::string AudioSource::generate_args()

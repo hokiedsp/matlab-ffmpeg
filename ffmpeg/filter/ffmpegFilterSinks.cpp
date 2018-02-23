@@ -25,7 +25,7 @@ SinkBase::~SinkBase()
 AVFilterContext *SinkBase::configure(const std::string &name)
 { // configure the AVFilterContext
   ena = true;
-  return configure_prefilter(context, false);
+  return configure_prefilter(false);
 }
 
 void SinkBase::link(AVFilterContext *other, const unsigned otherpad, const unsigned pad, const bool issrc)
@@ -33,7 +33,7 @@ void SinkBase::link(AVFilterContext *other, const unsigned otherpad, const unsig
   if (issrc || pad > 0)
     throw ffmpegException("Sink filter does not have a input pad and has only one output pad.");
 
-  Base::link(other, otherpad, prefilter_pad, issrc);
+  EndpointBase::link(other, otherpad, prefilter_pad, issrc);
 }
 
 int SinkBase::processFrame()

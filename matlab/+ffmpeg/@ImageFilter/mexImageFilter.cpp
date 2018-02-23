@@ -43,7 +43,9 @@ void mexFunction(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[])
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
-mexImageFilter::mexImageFilter(int nrhs, const mxArray *prhs[]) : ran(false), changedInputFormat(true), changedInputSAR(true) {}
+mexImageFilter::mexImageFilter(int nrhs, const mxArray *prhs[])
+    : ran(false), changedInputFormat(true), changedInputSAR(true),
+      changedOutputFormat(true), changedAutoTranspose(true) {}
 mexImageFilter::~mexImageFilter() {}
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
@@ -140,6 +142,7 @@ void mexImageFilter::runSimple(const mxArray *mxObj, int nout, mxArray **mxOut, 
 
   bool config = !ran;
   bool reconfig = ran && (changedInputFormat || changedInputSAR || changedDims);
+  bool reconfig_prefilter = changedAutoTranspose || changedOutputFormat;
   if (reconfig && ran) // clear ran flag to sync with Matlab OBJ
     ran = false;
 
@@ -148,7 +151,11 @@ void mexImageFilter::runSimple(const mxArray *mxObj, int nout, mxArray **mxOut, 
     syncInputFormat(mxObj);
   if (changedInputSAR)
     syncInputSAR(mxObj);
-
+  if (reconfig_prefilter)
+  {
+    configPrefilters(mxObj); // sets prefilter description
+    changedAutoTranspose = changedOutputFormat = false;
+  }
   // check the depth against the format
   const AVPixFmtDescriptor *desc = av_pix_fmt_desc_get(src.getFormat());
 
@@ -175,7 +182,7 @@ void mexImageFilter::runSimple(const mxArray *mxObj, int nout, mxArray **mxOut, 
   else
   {
     bool reconfig = changedInputFormat || changedInputSAR || changedDims;
-    if (reconfig)
+    if (reconfig || reconfig_prefilter)
     {
       av_log(NULL, AV_LOG_INFO, "[runOnce] Re-configuring the filter graph\n");
       filtergraph.flush(); // recreate AVFilterGraph with the same AVFrame buffers
@@ -240,6 +247,14 @@ void mexImageFilter::runComplex(const mxArray *mxObj, int nout, mxArray **mxOut,
   av_log(NULL, AV_LOG_INFO, "[runComplex] Input format synced...\n");
   if (changedInputSAR)
     syncInputSAR(mxObj);
+  
+  bool reconfig_prefilter = changedAutoTranspose || changedOutputFormat;
+  if (reconfig_prefilter)
+  {
+    configPrefilters(mxObj);
+    changedAutoTranspose = changedOutputFormat = false;
+  }
+
   av_log(NULL, AV_LOG_INFO, "[runComplex] Input SAR synced...\n");
 
   // get the input & output buffer
@@ -283,7 +298,7 @@ void mexImageFilter::runComplex(const mxArray *mxObj, int nout, mxArray **mxOut,
   else
   {
     bool reconfig = ran && (changedInputFormat || changedInputSAR || changedDims);
-    if (reconfig)
+    if (reconfig || reconfig_prefilter)
     {
       av_log(NULL, AV_LOG_INFO, "[runComplex] Re-configuring the filter graph\n");
       filtergraph.flush(); // recreate AVFilterGraph with the same AVFrame buffers
@@ -390,37 +405,56 @@ void mexImageFilter::syncInputFormat(const mxArray *mxObj)
 void mexImageFilter::configPrefilters(const mxArray *mxObj)
 {
   mxArray *mx = mxGetProperty(mxObj, 0, "AutoTranspose");
+  
   std::string desc;
-  if (*mxGetLogicals(mx)) desc = "transpose=dir=0";
+  desc.reserve(16); // reserve enough bytes for transpose filter
 
+  bool transpose = *mxGetLogicals(mx);
+  if (transpose) desc = "transpose=dir=0";
+
+  av_log(NULL, AV_LOG_INFO, "desc=%s [%d]\n", desc.c_str(), *mxGetLogicals(mx));
+
+  // only AutoTranspose property affects the input prefilter
   filtergraph.forEachInputFilter([&](const std::string &name, ffmpeg::filter::SourceBase *filter) {
     filter->setPrefilter(desc.c_str());
   });
 
   mx = mxGetProperty(mxObj, 0, "OutputFormat");
-  if (!mxIsEmpty(mx))
+
+  // for OutputFormat filter description except for the format name
+  std::string full_desc;
+  full_desc.reserve(64); // reserve enough bytes to account for all format types
+
+  // if already transposed, add separator
+  if (transpose)
+    full_desc = desc + ',';
+  full_desc += "format=pix_fmts=";
+  
+  if (mxIsStruct(mx))
   {
-    // if already transposed, add separator
-    if (desc.size())
-      desc += ',';
-
-    // filter description except for the format name
-    desc += "format=pix_fmts=";
-
-    if (mxIsStruct(mx))
+    filtergraph.forEachOutputFilter([&](const std::string &name, ffmpeg::filter::SinkBase *filter) {
+      std::string fmt_str = mexGetString(mx);
+      if (fmt_str != "auto")
+        filter->setPrefilter((full_desc + fmt_str).c_str());
+      else
+        filter->setPrefilter(desc.c_str());
+    });
+  }
+  else
+  {
+    const char *filt_str;
+    std::string fmt_str = mexGetString(mx);
+    if (fmt_str != "auto")
     {
-      filtergraph.forEachOutputFilter([&](const std::string &name, ffmpeg::filter::SinkBase *filter) {
-        std::string fmt_str = mexGetString(mx);
-        filter->setPrefilter((desc+fmt_str).c_str());
-      });
+      full_desc += fmt_str;
+      filt_str = full_desc.c_str();
     }
     else
-    {
-      desc += mexGetString(mx);
-      filtergraph.forEachOutputFilter([&](const std::string &name, ffmpeg::filter::SinkBase *filter) {
-        filter->setPrefilter(desc.c_str());
-      });
-    }
+      filt_str = desc.c_str();
+
+    filtergraph.forEachOutputFilter([&](const std::string &name, ffmpeg::filter::SinkBase *filter) {
+      filter->setPrefilter(filt_str);
+    });
   }
 }
 

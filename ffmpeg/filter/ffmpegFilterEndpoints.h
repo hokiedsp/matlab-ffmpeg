@@ -44,6 +44,22 @@ public:
    * \thrpws ffmpegException if fails to parse
    */
   virtual void setPrefilter(const std::string &desc);
+  
+  /**
+   * \brief Links the filter to another filter
+   * 
+   * A pure virtual function to link this filter with another
+   * 
+   * \param other[inout]  Context of the other filter
+   * \param otherpad[in]  The connector pad of the other filter
+   * \param pad[in]  [optional, default:0] The connector pad of this filter
+   * \param issrc[in]  [optional, default:true] True if this filter is the source
+   * 
+   * \throws ffmpegException if either filter context is not ready.
+   * \throws ffmpegException if filter contexts are not for the same filtergraph.
+   * \throws ffmpegException if failed to link.
+   */
+  virtual void link(AVFilterContext *other, const unsigned otherpad, const unsigned pad=0, const bool issrc=true);
 
 protected:
 
@@ -59,9 +75,10 @@ protected:
    * \param[in] issrc True if \ref ep is a source filter
    * \returns \ref ep if no prefilter or the unlinked filter of the prefilter chain
    */
-  AVFilterContext* configure_prefilter(AVFilterContext *ep, bool issrc);
+  AVFilterContext* configure_prefilter(bool issrc);
 
   std::string prefilter_desc; // description of a simple filter graph to run immediate to the endpoint filter
+  AVFilterContext *prefilter_context; // context object
   int prefilter_pad;
 };
 }
