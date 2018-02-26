@@ -188,21 +188,21 @@ classdef ImageFilter < matlab.mixin.SetGet & matlab.mixin.CustomDisplay
       
       % Properties that are dependent on underlying object.
       function val = get.FilterGraph(obj)
-         val = ffmpeg.ImageFilter.mexfcn(obj,'get','FilterGraph');
+         val = ffmpeg.ImageFilter.mexfcn(obj,'getFilterGraph');
       end
       
       function set.FilterGraph(obj,val)
          validateattributes(val,{'char'},{'row'},class(obj),'FilterGraph');
-         ffmpeg.ImageFilter.mexfcn(obj,'set','FilterGraph',val);
+         ffmpeg.ImageFilter.mexfcn(obj,'setFilterGraph',val);
          % this action may change InputFormat & InputSAR values
       end
       
       function val = get.InputNames(obj)
-         val = ffmpeg.ImageFilter.mexfcn(obj,'get','InputNames');
+         val = ffmpeg.ImageFilter.mexfcn(obj,'getInputNames');
       end
       
       function val = get.OutputNames(obj)
-         val = ffmpeg.ImageFilter.mexfcn(obj,'get','OutputNames');
+         val = ffmpeg.ImageFilter.mexfcn(obj,'getOutputNames');
       end
       
       function set.InputFormat(obj,val)

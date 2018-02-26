@@ -245,7 +245,7 @@ classdef VideoReader < matlab.mixin.SetGet & matlab.mixin.CustomDisplay
       
       % Properties that are dependent on underlying object.
       function value = get.Duration(obj)
-         value = ffmpeg.VideoReader.mex_backend(obj.backend,'get','Duration');
+         value = ffmpeg.VideoReader.mex_backend(obj.backend,'getDuration');
          
          % Duration property is set to empty if it cannot be determined
          % from the video. Generate a warning to indicate this.
@@ -257,10 +257,10 @@ classdef VideoReader < matlab.mixin.SetGet & matlab.mixin.CustomDisplay
       end
       
       function value = get.BitsPerPixel(obj)
-         value = ffmpeg.VideoReader.mex_backend(obj.backend,'get','BitsPerPixel');
+         value = ffmpeg.VideoReader.mex_backend(obj.backend,'getBitsPerPixel');
       end
       function value = get.NumberOfFrames(obj)
-         value = ffmpeg.VideoReader.mex_backend(obj.backend,'get','NumberOfFrames');
+         value = ffmpeg.VideoReader.mex_backend(obj.backend,'getNumberOfFrames');
          
          % NumberOfFrames property is set to empty if it cannot be
          % determined by from the video. Generate a warning in this
@@ -325,26 +325,26 @@ classdef VideoReader < matlab.mixin.SetGet & matlab.mixin.CustomDisplay
       %%%%%%%%%%%%%%%%%%%%%%%%%%
       
       function value = get.AudioCompression(obj)
-         value = ffmpeg.VideoReader.mex_backend(obj.backend,'get','AudioCompression');
+         value = ffmpeg.VideoReader.mex_backend(obj.backend,'getAudioCompression');
       end
       
       function value = get.NumberOfAudioChannels(obj)
-         value = ffmpeg.VideoReader.mex_backend(obj.backend,'get','NumberOfAudioChannels');
+         value = ffmpeg.VideoReader.mex_backend(obj.backend,'getNumberOfAudioChannels');
       end
       
       function value = get.VideoCompression(obj)
-         value = ffmpeg.VideoReader.mex_backend(obj.backend,'get','VideoCompression');
+         value = ffmpeg.VideoReader.mex_backend(obj.backend,'getVideoCompression');
       end
       
       function value = get.CurrentTime(obj)
-         value = ffmpeg.VideoReader.mex_backend(obj.backend,'get','CurrentTime');
+         value = ffmpeg.VideoReader.mex_backend(obj.backend,'getCurrentTime');
       end
       
       function set.CurrentTime(obj, value)
          if isempty(obj.backend) % if set during initialization
             obj.backend.CurrentTime = value;
          else
-            ffmpeg.VideoReader.mex_backend(obj.backend,'set','CurrentTime',value);
+            ffmpeg.VideoReader.mex_backend(obj.backend,'setCurrentTime',value);
          end
       end
    end

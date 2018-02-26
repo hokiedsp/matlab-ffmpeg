@@ -13,21 +13,17 @@
 
 typedef std::vector<uint8_t> uint8_vector;
 
-class mexVideoReader : public mexFunctionClass
+class mexVideoReader
 {
 public:
   mexVideoReader(int nrhs, const mxArray *prhs[]);
   ~mexVideoReader();
-  static std::string get_componentid() { return "mexVideoReader"; }
   static std::string get_classname() { return "ffmpeg.VideoReader"; } // associated matlab class
 
   bool action_handler(const mxArray *mxObj, const std::string &command, int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[]);
   static bool static_handler(const std::string &command, int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[]);
 
 protected:
-  void set_prop(const mxArray *mxObj, const std::string name, const mxArray *value);
-  mxArray *get_prop(const mxArray *mxObj, const std::string name);
-
   bool hasFrame();
   void readFrame(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[]);             //    varargout = readFrame(obj, varargin);
   void read(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[]);                  //varargout = read(obj, varargin);

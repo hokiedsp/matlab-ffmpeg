@@ -66,7 +66,7 @@ std::string mexVideoReader::mex_get_filterdesc(const mxArray *obj)
       sc_filter_descr = "scale=in_w*sar*" + std::to_string(int(sar[1])) + "/" + std::to_string(int(sar[0])) + ":in_h,";
   }
   else if (h > 0 && w > 0) // new H and W
-      sc_filter_descr = "scale=" + std::to_string(w) + ":" + std::to_string(h) + ",";
+    sc_filter_descr = "scale=" + std::to_string(w) + ":" + std::to_string(h) + ",";
   else if (w > 0)
   {
     if (h < 0) // new W and adjust H to maintain SAR
@@ -167,11 +167,61 @@ mexVideoReader::~mexVideoReader()
 
 bool mexVideoReader::action_handler(const mxArray *mxObj, const std::string &command, int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[])
 {
-  // try the base class action (set & get) first, returns true if action has been performed
-  if (mexFunctionClass::action_handler(mxObj, command, nlhs, plhs, nrhs, prhs))
-    return true;
+  if (command == "setCurrentTime")
+  {
+    if (!(mxIsNumeric(prhs[0]) && mxIsScalar(prhs[0])) || mxIsComplex(prhs[0]))
+      throw 0;
 
-  if (command == "readFrame")
+    // get new time
+    double t = mxGetScalar(prhs[0]);
+
+    setCurrentTime(t);
+  }
+  else if (command == "getDuration") // integer between -10 and 10
+  {
+    plhs[0] = mxCreateDoubleScalar(reader.getDuration());
+  }
+  else if (command == "getBitsPerPixel") // integer between -10 and 10
+  {
+    plhs[0] = mxCreateDoubleScalar(reader.getBitsPerPixel());
+  }
+  else if (command == "getVideoCompression")
+  {
+    std::string name = reader.getCodecName();
+    std::string desc = reader.getCodecDescription();
+    if (desc.size())
+      name += " (" + desc + ')';
+    plhs[0] = mxCreateString(name.c_str());
+  }
+  else if (command == "getCurrentTime")
+  {
+    double t(NAN);
+
+    std::unique_lock<std::mutex> buffer_guard(buffer_lock);
+    if (rd_buf->eof())
+      t = reader.getDuration();
+    else
+    {
+      if (!rd_buf->available())
+        buffer_ready.wait(buffer_guard);
+      rd_buf->read_frame(NULL, &t, false);
+      buffer_ready.notify_one();
+    }
+    plhs[0] = mxCreateDoubleScalar(t);
+  }
+  else if (command == "getAudioCompression") // integer between -10 and 10
+  {
+    plhs[0] = mxCreateString("");
+  }
+  else if (command == "getNumberOfAudioChannels")
+  {
+    plhs[0] = mxCreateDoubleMatrix(0, 0, mxREAL);
+  }
+  else if (command == "getNumberOfFrames")
+  {
+    plhs[0] = mxCreateDoubleScalar((double)reader.getNumberOfFrames());
+  }
+  else if (command == "readFrame")
     readFrame(nlhs, plhs, nrhs, prhs);
   else if (command == "readBuffer")
     readBuffer(nlhs, plhs, nrhs, prhs);
@@ -269,78 +319,6 @@ void mexVideoReader::setCurrentTime(double t, const bool reset_buffer)
   }
 }
 
-void mexVideoReader::set_prop(const mxArray *mxObj, const std::string name, const mxArray *value)
-{
-  if (name == "CurrentTime")
-  {
-    if (!(mxIsNumeric(value) && mxIsScalar(value)) || mxIsComplex(value))
-      throw 0;
-
-    // get new time
-    double t = mxGetScalar(value);
-
-    setCurrentTime(t);
-  }
-  else
-  {
-    throw std::runtime_error(std::string("Unknown property name:") + name);
-  }
-}
-
-mxArray *mexVideoReader::get_prop(const mxArray *mxObj, const std::string name)
-{
-  mxArray *rval;
-  if (name == "Duration") // integer between -10 and 10
-  {
-    rval = mxCreateDoubleScalar(reader.getDuration());
-  }
-  else if (name == "BitsPerPixel") // integer between -10 and 10
-  {
-    rval = mxCreateDoubleScalar(reader.getBitsPerPixel());
-  }
-  else if (name == "VideoCompression")
-  {
-    std::string name = reader.getCodecName();
-    std::string desc = reader.getCodecDescription();
-    if (desc.size())
-      name += " (" + desc + ')';
-    rval = mxCreateString(name.c_str());
-  }
-  else if (name == "CurrentTime")
-  {
-    double t(NAN);
-
-    std::unique_lock<std::mutex> buffer_guard(buffer_lock);
-    if (rd_buf->eof())
-      t = reader.getDuration();
-    else
-    {
-      if (!rd_buf->available())
-        buffer_ready.wait(buffer_guard);
-      rd_buf->read_frame(NULL, &t, false);
-      buffer_ready.notify_one();
-    }
-    rval = mxCreateDoubleScalar(t);
-  }
-  else if (name == "AudioCompression") // integer between -10 and 10
-  {
-    rval = mxCreateString("");
-  }
-  else if (name == "NumberOfAudioChannels")
-  {
-    rval = mxCreateDoubleMatrix(0, 0, mxREAL);
-  }
-  else if (name == "NumberOfFrames")
-  {
-    rval = mxCreateDoubleScalar((double)reader.getNumberOfFrames());
-  }
-  else
-  {
-    throw std::runtime_error(std::string("Unknown property name:") + name);
-  }
-  return rval;
-}
-
 void mexVideoReader::shuffle_buffers()
 {
   std::unique_lock<std::mutex> buffer_guard(buffer_lock);
@@ -396,7 +374,7 @@ void mexVideoReader::shuffle_buffers()
       }
       else if (rd_buf->last())
       { // if eof, stop till setCurrentTime() call
-      // av_log(NULL,AV_LOG_INFO,"mexVideoReader::shuffle_buffers()::reached EOF\n");
+        // av_log(NULL,AV_LOG_INFO,"mexVideoReader::shuffle_buffers()::reached EOF\n");
         state = OFF;
       }
 
@@ -483,7 +461,7 @@ void mexVideoReader::readBuffer(int nlhs, mxArray *plhs[], int nrhs, const mxArr
   if (has_frame)
   {
     //if (state==OFF) // last buffer
-    if (rd_rev && ts[0]==0.0) // last buffer
+    if (rd_rev && ts[0] == 0.0) // last buffer
     {
       // av_log(NULL, AV_LOG_INFO, "rd_rev_t_last = %f\n",rd_rev_t_last);
       auto tend = std::find_if(ts, ts + nb_frames, [&](const double &t) -> bool { return t >= rd_rev_t_last; });
@@ -545,14 +523,13 @@ void mexVideoReader::getVideoFormats(int nlhs, mxArray *plhs[]) // formats = get
   }
 
   std::sort(pix_descs.begin(), pix_descs.end(),
-            [](const AVPixFmtDescriptor *a, const AVPixFmtDescriptor *b) -> bool { return strcmp(a->name, b->name)<0; });
+            [](const AVPixFmtDescriptor *a, const AVPixFmtDescriptor *b) -> bool { return strcmp(a->name, b->name) < 0; });
 
   const int nfields = 11;
   const char *fieldnames[11] = {
       "Name", "Alias", "NumberOfComponents", "BitsPerPixel",
       "RGB", "Alpha", "Paletted", "HWAccel", "Bayer",
-      "Log2ChromaW", "Log2ChromaH"
-      };
+      "Log2ChromaW", "Log2ChromaH"};
 
   plhs[0] = mxCreateStructMatrix(pix_descs.size(), 1, nfields, fieldnames);
 
@@ -591,7 +568,7 @@ void mexVideoReader::getVideoCompressions(int nlhs, mxArray *plhs[]) // formats 
   }
 
   std::sort(codecs.begin(), codecs.end(),
-            [](const AVCodecDescriptor *a, const AVCodecDescriptor *b) -> bool { return strcmp(a->name, b->name)<0; });
+            [](const AVCodecDescriptor *a, const AVCodecDescriptor *b) -> bool { return strcmp(a->name, b->name) < 0; });
 
   const int nfields = 5;
   const char *fieldnames[5] = {

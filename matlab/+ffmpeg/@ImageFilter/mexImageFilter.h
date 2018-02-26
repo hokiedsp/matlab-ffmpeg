@@ -1,34 +1,31 @@
 #pragma once
 
-#include "mexParsers.h"
-#include "mexClassHandler.h"
-#include "mexAllocator.h"
+#include <mexParsers.h>
 #include "ffmpegAVFrameImageComponentSource.h"
 #include "ffmpegAVFrameVideoComponentSink.h"
 #include "filter/ffmpegFilterGraph.h"
 #include "mexGetFilters.h"
 #include "mexGetVideoFormats.h"
 
+#include <mexClassHandler.h>
+#include <mexAllocator.h>
+
 #include <vector>
 
 typedef std::vector<uint8_t> uint8_vector;
 
-class mexImageFilter : public mexFunctionClass
+class mexImageFilter
 {
 public:
   mexImageFilter(int nrhs, const mxArray *prhs[]);
   virtual ~mexImageFilter();
 
   static std::string get_classname() { return "ffmpeg.ImageFilter"; };
-  static std::string get_componentid() { return "ImageFilter.mexfcn"; }
 
   bool action_handler(const mxArray *mxObj, const std::string &command, int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[]);
   static bool static_handler(const std::string &command, int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[]);
 
 protected:
-  void set_prop(const mxArray *, const std::string name, const mxArray *value);
-  mxArray *get_prop(const mxArray *, const std::string name);
-
   void reset();                                                                // reset(obj);
 
   void runSimple(const mxArray *mxObj, int nout, mxArray **out, const mxArray *in);  //    out = runSimple(obj, in);
