@@ -296,10 +296,12 @@ void Graph::flush()
   if (!graph)
     throw ffmpegException("[ffmpeg::filter::Graph::flush] No filter graph to flush.");
 
-  av_log(NULL, AV_LOG_INFO, "[ffmpeg::filter::Graph::flush] Destroying previously built AVFilterGraph");
+  av_log(NULL, AV_LOG_INFO, "[ffmpeg::filter::Graph::flush] Destroying previously built AVFilterGraph\n");
 
   // destroy the existing AVFilterGraph w/out losing the graph structure
   purge();
+
+  av_log(NULL, AV_LOG_INFO, "[ffmpeg::filter::Graph::flush] Destroyed previously built AVFilterGraph\n");
 
   // allocate new filter graph
   if (!(graph = avfilter_graph_alloc()))
@@ -314,46 +316,53 @@ void Graph::flush()
   std::unique_ptr<AVFilterInOut, decltype(avFilterInOutFree)> pin(ins, avFilterInOutFree), pout(outs, avFilterInOutFree);
 
   // assign sources
-  if (inputs.size() == 1) // single-input
+  av_log(NULL,AV_LOG_INFO,"flush::inputs.size()=%d\n",inputs.size());
+  if (ins)
   {
-    SourceInfo &node = inputs.at(ins->name ? ins->name : "in"); // nameless=>auto-name as "in"
-    node.conns.push_back(ConnectTo({ins->filter_ctx, ins->pad_idx}));
-  }
-  else // multiple input
-  {
-    for (AVFilterInOut *cur = ins; cur; cur = cur->next)
+    if (ins->next) // multiple-inputs
     {
-      if (cur->name) // if named, add to the inputs map
+      for (AVFilterInOut *cur = ins; cur; cur = cur->next)
       {
-        SourceInfo &node = inputs.at(cur->name); // throws exception if doesn't exist
-        node.conns.push_back(ConnectTo({cur->filter_ctx, cur->pad_idx}));
+        if (cur->name) // if named, add to the inputs map
+        {
+          av_log(NULL, AV_LOG_INFO, "flush::input name:%s\n", cur->name);
+          SourceInfo &node = inputs.at(cur->name); // throws exception if doesn't exist
+          node.conns.push_back(ConnectTo({cur->filter_ctx, cur->pad_idx}));
+        }
+        else // use nullsrc
+          connect_nullsource(cur);
       }
-      else // use nullsrc
-        connect_nullsource(cur);
+    }
+    else // multiple input
+    {
+      SourceInfo &node = inputs.at(ins->name ? ins->name : "in"); // nameless=>auto-name as "in"
+      node.conns.push_back(ConnectTo({ins->filter_ctx, ins->pad_idx}));
     }
   }
-
   // assign sinks
-  if (outputs.size() == 1) // single-output
+  if (outs)
   {
-    SinkInfo &node = outputs.at(outs->name ? outs->name : "out"); // if not named, auto-name as "out"
-    if (!node.buf)
-      throw ffmpegException("[ffmpeg::filter::Graph::flush] Filter graph does not have a sink buffer.");
-    node.conn = {outs->filter_ctx, outs->pad_idx};
-  }
-  else // multiple-output
-  {
-    for (AVFilterInOut *cur = outs; cur; cur = cur->next)
+    if (outs->next) // multiple-output
     {
-      if (cur->name) // if named, add to the inputs map
+      for (AVFilterInOut *cur = outs; cur; cur = cur->next)
       {
-        SinkInfo &node = outputs.at(cur->name); // throws exception if doesn't exist
-        if (!node.buf)
-          throw ffmpegException("[ffmpeg::filter::Graph::flush] Filter graph does not have a sink buffer.");
-        node.conn = {cur->filter_ctx, cur->pad_idx};
+        if (cur->name) // if named, add to the inputs map
+        {
+          SinkInfo &node = outputs.at(cur->name); // throws exception if doesn't exist
+          if (!node.buf)
+            throw ffmpegException("[ffmpeg::filter::Graph::flush] Filter graph does not have a sink buffer.");
+          node.conn = {cur->filter_ctx, cur->pad_idx};
+        }
+        else // use nullsink
+          connect_nullsink(cur);
       }
-      else // use nullsink
-        connect_nullsink(cur);
+    }
+    else // single-output
+    {
+      SinkInfo &node = outputs.at(outs->name ? outs->name : "out"); // if not named, auto-name as "out"
+      if (!node.buf)
+        throw ffmpegException("[ffmpeg::filter::Graph::flush] Filter graph does not have a sink buffer.");
+      node.conn = {outs->filter_ctx, outs->pad_idx};
     }
   }
 
@@ -364,6 +373,8 @@ void Graph::flush()
 void Graph::use_src_splitter(SourceBase *src, const ConnectionList &conns)
 {
   // if connects to multiple filters, we need to insert "split" filter block
+
+  av_log(NULL,AV_LOG_INFO,"Splitting input %d ways\n", conns.size());
 
   // determine the type of splitter
   const AVFilter *filter;
@@ -403,11 +414,11 @@ void Graph::configure()
     src->configure(in->first);
 
     // link filter
-    if (in->second.conns.size()==1)
+    if (in->second.conns.size() == 1)
       src->link(in->second.conns[0].other, in->second.conns[0].otherpad);
     else
       use_src_splitter(src, in->second.conns);
-        
+
     in->second.conns.clear(); // no longer needed
   }
 
