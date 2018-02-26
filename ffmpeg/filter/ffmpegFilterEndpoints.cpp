@@ -15,6 +15,12 @@ EndpointBase::EndpointBase(Graph &parent, const IMediaHandler &mdev)
     : Base(parent), MediaHandler(mdev), prefilter_pad(0) {}
 EndpointBase::~EndpointBase() {}
 
+void EndpointBase::purge()
+{
+  context = NULL;
+  prefilter_context = NULL;
+}
+
 const std::string &EndpointBase::setPrefilter() { return prefilter_desc; }
 
 /**

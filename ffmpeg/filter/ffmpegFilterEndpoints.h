@@ -23,6 +23,14 @@ public:
   EndpointBase(Graph &parent, const AVMediaType type, const AVRational &tb = {0, 0});
   EndpointBase(Graph &parent, const IMediaHandler &mdev);
   virtual ~EndpointBase();
+  
+  /**
+   * \brief Purge AVFilterContext
+   * 
+   * When the associated AVFilterGraph is destroyed, \ref context becomes invalid. ffmpeg::filter::Graph
+   * calls this function to make its filters deassociate invalidated AVFilterContexts.
+   */
+  virtual void purge();
 
   virtual int processFrame() = 0;
 
