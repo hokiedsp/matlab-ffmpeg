@@ -50,55 +50,31 @@ mexImageFilter::~mexImageFilter() {}
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
-void mexImageFilter::set_prop(const mxArray *mxObj, const std::string name, const mxArray *value)
-{
-  if (name == "FilterGraph") // integer between -10 and 10
-  {
-    init(mxObj, mexGetString(value));
-  }
-  else
-  {
-    throw std::runtime_error(std::string("Unknown property name:") + name);
-  }
-}
-
-mxArray *mexImageFilter::get_prop(const mxArray *, const std::string name)
-{
-  mxArray *rval;
-  if (name == "FilterGraph") // integer between -10 and 10
-  {
-    rval = mxCreateString(filtergraph.getFilterGraphDesc().c_str());
-  }
-  else if (name == "InputNames")
-  {
-    string_vector inputs = filtergraph.getInputNames();
-    rval = mxCreateCellMatrix(1, inputs.size());
-    for (int i = 0; i < inputs.size(); ++i)
-      mxSetCell(rval, i, mxCreateString(inputs[i].c_str()));
-  }
-  else if (name == "OutputNames")
-  {
-    string_vector outputs = filtergraph.getOutputNames();
-    rval = mxCreateCellMatrix(1, outputs.size());
-    for (int i = 0; i < outputs.size(); ++i)
-      mxSetCell(rval, i, mxCreateString(outputs[i].c_str()));
-  }
-  else
-  {
-    throw std::runtime_error(std::string("Unknown property name:") + name);
-  }
-  return rval;
-}
-
-///////////////////////////////////////////////////////////////////////////////////////////////////
-
 bool mexImageFilter::action_handler(const mxArray *mxObj, const std::string &command, int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[])
 {
-  // try the base class action (set & get) first, returns true if action has been performed
-  if (mexFunctionClass::action_handler(mxObj, command, nlhs, plhs, nrhs, prhs))
-    return true;
-
-  if (command == "runSimple")
+  if (command == "setFilterGraph") // integer between -10 and 10
+  {
+    init(mxObj, mexGetString(prhs[0]));
+  }
+  else if (command == "getFilterGraph") // integer between -10 and 10
+  {
+    plhs[0] = mxCreateString(filtergraph.getFilterGraphDesc().c_str());
+  }
+  else if (command == "getInputNames")
+  {
+    string_vector inputs = filtergraph.getInputNames();
+    plhs[0] = mxCreateCellMatrix(1, inputs.size());
+    for (int i = 0; i < inputs.size(); ++i)
+      mxSetCell(plhs[0], i, mxCreateString(inputs[i].c_str()));
+  }
+  else if (command == "getOutputNames")
+  {
+    string_vector outputs = filtergraph.getOutputNames();
+    plhs[0] = mxCreateCellMatrix(1, outputs.size());
+    for (int i = 0; i < outputs.size(); ++i)
+      mxSetCell(plhs[0], i, mxCreateString(outputs[i].c_str()));
+  }
+  else if (command == "runSimple")
     runSimple(mxObj, nlhs, plhs, prhs[0]);
   else if (command == "runComplex")
     runComplex(mxObj, nlhs, plhs, prhs[0]);
@@ -547,6 +523,8 @@ void mexImageFilter::init(const mxArray *mxObj, const std::string &new_graph)
   ran = false;
   changedInputFormat = true;
   changedInputSAR = true;
+  changedAutoTranspose = true;
+  changedOutputFormat = true;
 }
 
 mxArray *mexImageFilter::isValidInputName(const mxArray *prhs) // tf = isInputName(obj,name)
