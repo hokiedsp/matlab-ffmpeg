@@ -38,7 +38,7 @@ void mexFunction(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[])
 
   av_log_set_callback(&mexFFmpegCallback);
 
-  mexClassHandler<mexImageFilter>(nlhs, plhs, nrhs, prhs);
+  mexObjectHandler<mexImageFilter>(nlhs, plhs, nrhs, prhs);
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////

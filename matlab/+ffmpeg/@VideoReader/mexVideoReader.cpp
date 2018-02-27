@@ -35,7 +35,7 @@ void mexFunction(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[])
 
   av_log_set_callback(&mexFFmpegCallback);
 
-  mexClassHandler<mexVideoReader>(nlhs, plhs, nrhs, prhs);
+  mexObjectHandler<mexVideoReader>(nlhs, plhs, nrhs, prhs);
 }
 
 // static

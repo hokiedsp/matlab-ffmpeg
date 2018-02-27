@@ -1,10 +1,11 @@
 #pragma once
 
-#include "mexClassHandler.h"
-#include "mexAllocator.h"
 #include "ffmpegFrameBuffers.h"
 
 #include "ffmpegVideoReader.h"
+
+#include <mexObjectHandler.h>
+#include <mexAllocator.h>
 
 #include <vector>
 #include <thread>

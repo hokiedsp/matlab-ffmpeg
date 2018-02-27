@@ -7,7 +7,7 @@
 #include "mexGetFilters.h"
 #include "mexGetVideoFormats.h"
 
-#include <mexClassHandler.h>
+#include <mexObjectHandler.h>
 #include <mexAllocator.h>
 
 #include <vector>
