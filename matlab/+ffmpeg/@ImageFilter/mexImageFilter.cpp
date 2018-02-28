@@ -36,7 +36,7 @@ void mexFFmpegCallback(void *avcl, int level, const char *fmt, va_list argptr)
 void mexFunction(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[])
 {
 
-  av_log_set_callback(&mexFFmpegCallback);
+  // av_log_set_callback(&mexFFmpegCallback);
 
   mexObjectHandler<mexImageFilter>(nlhs, plhs, nrhs, prhs);
 }
