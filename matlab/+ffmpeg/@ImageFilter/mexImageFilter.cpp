@@ -43,7 +43,7 @@ void mexFunction(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[])
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
-mexImageFilter::mexImageFilter(int nrhs, const mxArray *prhs[])
+mexImageFilter::mexImageFilter(const mxArray *mxObj, int nrhs, const mxArray *prhs[])
     : ran(false), changedInputFormat(true), changedInputSAR(true),
       changedOutputFormat(true), changedAutoTranspose(true) {}
 mexImageFilter::~mexImageFilter() {}

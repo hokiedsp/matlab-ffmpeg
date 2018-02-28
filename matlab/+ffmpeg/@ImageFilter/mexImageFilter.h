@@ -17,7 +17,7 @@ typedef std::vector<uint8_t> uint8_vector;
 class mexImageFilter
 {
 public:
-  mexImageFilter(int nrhs, const mxArray *prhs[]);
+  mexImageFilter(const mxArray *mxObj, int nrhs, const mxArray *prhs[]);
   virtual ~mexImageFilter();
 
   static std::string get_classname() { return "ffmpeg.ImageFilter"; };
@@ -25,7 +25,7 @@ public:
   bool action_handler(const mxArray *mxObj, const std::string &command, int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[]);
   static bool static_handler(const std::string &command, int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[]);
 
-protected:
+private:
   void reset();                                                                // reset(obj);
 
   void runSimple(const mxArray *mxObj, int nout, mxArray **out, const mxArray *in);  //    out = runSimple(obj, in);
@@ -45,7 +45,6 @@ protected:
   static void validateSARString(const mxArray *prhs); // tf = isValidSAR(SARexpr);
   static AVRational getSAR(const mxArray *mxObj);
 
-private:
   void init(const mxArray *mxObj, const std::string &new_graph);
   const uint8_t *getMxImageData(const mxArray *mxData, int &width, int &height, int &depth);
 
