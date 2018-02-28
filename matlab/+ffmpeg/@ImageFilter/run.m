@@ -69,13 +69,13 @@ if obj.isSimple()
    if isfloat(A), A = uint8(A*255); 
    elseif islogical(A), A = logical2uint8(A); end
    [varargout{1:nargout}] = ffmpeg.ImageFilter.mexfcn(obj,'runSimple',A);
-   if isfloat(A)||islogical(A), B = cast(B,type)/255; end
-   if isstruct(A), B.(inputs) = B; end
+   if isfloat(A)||islogical(A), varargout{1} = cast(varargout{1},type)/255; end
+   if isstruct(A), varargout{1}.(inputs) = varargout{1}; end
 else
    Nin = numel(obj.InputNames);
    for n = 1:Nin
-      if isfloat(inputs{n}), A.(inputs{n}) = uint8(A.(inputs{n})*255); 
-      elseif islogical(inputs{n}), A.(inputs{n}) = logical2uint8(A.(inputs{n})); end
+      if isfloat(A.(inputs{n})), A.(inputs{n}) = uint8(A.(inputs{n})*255); 
+      elseif islogical(A.(inputs{n})), A.(inputs{n}) = logical2uint8(A.(inputs{n})); end
    end
    [varargout{1:nargout}] = ffmpeg.ImageFilter.mexfcn(obj,'runComplex',A);
    outputs = obj.OutputNames;
