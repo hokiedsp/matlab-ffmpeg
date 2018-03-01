@@ -4,17 +4,19 @@
 #include "ffmpegMediaStructs.h"
 
 #include <mutex>
+#include <shared_mutex>
 #include <condition_variable>
 
 namespace ffmpeg
 {
 // Base Thread-Safe Buffer Class
+template <class MUTEX_t = std::mutex>
 class AVFrameBufferBase : public MediaHandler
 {
 public:
-  virtual ~AVFrameBufferBase() {
-    av_log(NULL,AV_LOG_INFO,"destroying AVFrameBufferBase\n");
-    
+  virtual ~AVFrameBufferBase()
+  {
+    av_log(NULL, AV_LOG_INFO, "destroying AVFrameBufferBase\n");
   }
 
 protected:
@@ -37,18 +39,19 @@ protected:
   AVFrameBufferBase(AVFrameBufferBase &&other) noexcept : MediaHandler(other) {}
 
 protected:
-  std::mutex m; // mutex to access the buffer
+  MUTEX_t m; // mutex to access the buffer
 };
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
 // Base Thread-Safe Sink Class
-class AVFrameSinkBase : public IAVFrameSink, public AVFrameBufferBase
+template <class MUTEX_t = std::shared_mutex>
+class AVFrameSinkBase : public IAVFrameSink, public AVFrameBufferBase<MUTEX_t>
 {
 protected:
-  AVFrameSinkBase() {}; // must be default-constructable
+  AVFrameSinkBase(){}; // must be default-constructable
 
-  AVFrameSinkBase(const AVMediaType mediatype, const AVRational &tb) 
+  AVFrameSinkBase(const AVMediaType mediatype, const AVRational &tb)
   {
     // since it could be inherited virtually, default-construct base classes then
     // set the parameters after its base classes are constructed
@@ -70,28 +73,34 @@ public:
     return true;
   }
 
+  virtual bool eof()
+  {
+    std::shared_lock<MUTEX_t> l_rx(m);
+    return eof_threadunsafe();
+  }
+
   virtual void clear(const bool deep = false)
   {
-    std::unique_lock<std::mutex> l_rx(m);
+    std::unique_lock<MUTEX_t> l_rx(m);
     if (clear_threadunsafe(deep))
       cv_rx.notify_one();
   }
 
   bool readyToPush()
   {
-    std::unique_lock<std::mutex> l_rx(m);
+    std::unique_lock<MUTEX_t> l_rx(m);
     return readyToPush_threadunsafe();
   }
 
   void blockTillReadyToPush()
   {
-    std::unique_lock<std::mutex> l_rx(m);
+    std::unique_lock<MUTEX_t> l_rx(m);
     while (!readyToPush_threadunsafe())
       cv_rx.wait(l_rx);
   }
   bool blockTillReadyToPush(const std::chrono::milliseconds &rel_time)
   {
-    std::unique_lock<std::mutex> l_rx(m);
+    std::unique_lock<MUTEX_t> l_rx(m);
     std::cv_status status = std::cv_status::no_timeout;
     while (status == std::cv_status::no_timeout && !readyToPush_threadunsafe())
       status = cv_rx.wait_for(l_rx, rel_time);
@@ -100,7 +109,7 @@ public:
 
   int tryToPush(AVFrame *frame)
   {
-    std::unique_lock<std::mutex> l_rx(m);
+    std::unique_lock<MUTEX_t> l_rx(m);
     if (!readyToPush_threadunsafe())
       return AVERROR(EAGAIN);
 
@@ -110,7 +119,7 @@ public:
 
   void push(AVFrame *frame)
   {
-    std::unique_lock<std::mutex> l_rx(m);
+    std::unique_lock<MUTEX_t> l_rx(m);
     while (!readyToPush_threadunsafe())
       cv_rx.wait(l_rx);
     push_threadunsafe(frame);
@@ -119,7 +128,7 @@ public:
   template <class Predicate>
   int push(AVFrame *frame, Predicate pred)
   {
-    std::unique_lock<std::mutex> l_rx(m);
+    std::unique_lock<MUTEX_t> l_rx(m);
     bool ready = true;
     while (ready && !readyToPush_threadunsafe())
       ready = cv_rx.wait(l_rx, pred);
@@ -132,7 +141,7 @@ public:
 
   int push(AVFrame *frame, const std::chrono::milliseconds &rel_time)
   {
-    std::unique_lock<std::mutex> l_rx(m);
+    std::unique_lock<MUTEX_t> l_rx(m);
     std::cv_status status = std::cv_status::no_timeout;
     while (status == std::cv_status::no_timeout && !readyToPush_threadunsafe())
       status = cv_rx.wait_for(l_rx, rel_time);
@@ -146,7 +155,7 @@ public:
   template <class Predicate>
   int push(AVFrame *frame, const std::chrono::milliseconds &rel_time, Predicate pred)
   {
-    std::unique_lock<std::mutex> l_rx(m);
+    std::unique_lock<MUTEX_t> l_rx(m);
     bool ready = true;
     while (ready && !readyToPush_threadunsafe())
       ready = cv_rx.wait_for(m, rel_time, pred);
@@ -168,7 +177,8 @@ protected:
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
 // Base Source Class
-class AVFrameSourceBase : public AVFrameBufferBase, public IAVFrameSource
+template <class MUTEX_t = std::mutex>
+class AVFrameSourceBase : public AVFrameBufferBase<MUTEX_t>, public IAVFrameSource
 {
 public:
   virtual ~AVFrameSourceBase(){};
@@ -186,18 +196,17 @@ protected:
   AVFrameSourceBase(AVFrameSourceBase &&other) noexcept : AVFrameBufferBase(other) {}
 
 public:
-
   using AVFrameBufferBase::ready;
 
   virtual void clear()
   {
-    std::unique_lock<std::mutex> l_tx(m);
+    std::unique_lock<MUTEX_t> l_tx(m);
     clear_threadunsafe();
   }
 
   int tryToPop(AVFrame *frame)
   {
-    std::unique_lock<std::mutex> l_tx(m);
+    std::unique_lock<MUTEX_t> l_tx(m);
     if (readyToPop_threadunsafe())
     {
       pop_threadunsafe(frame);
@@ -212,7 +221,7 @@ public:
 
   void pop(AVFrame *frame)
   {
-    std::unique_lock<std::mutex> l_tx(m);
+    std::unique_lock<MUTEX_t> l_tx(m);
     while (!readyToPop_threadunsafe())
       cv_tx.wait(l_tx);
     pop_threadunsafe(frame);
@@ -221,7 +230,7 @@ public:
   template <class Predicate>
   int pop(AVFrame *frame, Predicate pred)
   {
-    std::unique_lock<std::mutex> l_tx(m);
+    std::unique_lock<MUTEX_t> l_tx(m);
     bool ready = true;
     while (ready && !readyToPop_threadunsafe())
       ready = cv_rx.wait(l_tx, pred);
@@ -240,7 +249,7 @@ public:
 
   int pop(AVFrame *frame, const std::chrono::milliseconds &rel_time)
   {
-    std::unique_lock<std::mutex> l_tx(m);
+    std::unique_lock<MUTEX_t> l_tx(m);
     std::cv_status status = std::cv_status::no_timeout;
     while (status == std::cv_status::no_timeout && !readyToPop_threadunsafe())
       status = cv_tx.wait_for(l_tx, rel_time);
@@ -259,7 +268,7 @@ public:
   template <class Predicate>
   int pop(AVFrame *frame, const std::chrono::milliseconds &rel_time, Predicate pred)
   {
-    std::unique_lock<std::mutex> l_tx(m);
+    std::unique_lock<MUTEX_t> l_tx(m);
     bool ready = true;
     while (ready && !readyToPop_threadunsafe())
       ready = cv_tx.wait_for(m, rel_time, pred);
@@ -277,13 +286,13 @@ public:
 
   bool readyToPop()
   {
-    std::unique_lock<std::mutex> l_rx(m);
+    std::unique_lock<MUTEX_t> l_rx(m);
     return readyToPop_threadunsafe();
   }
 
   void blockTillReadyToPop()
   {
-    std::unique_lock<std::mutex> l_tx(m);
+    std::unique_lock<MUTEX_t> l_tx(m);
     while (!readyToPop_threadunsafe())
       cv_tx.wait(l_tx);
   }
@@ -291,7 +300,7 @@ public:
   template <typename Pred>
   bool blockTillReadyToPop(Pred pred)
   {
-    std::unique_lock<std::mutex> l_tx(m);
+    std::unique_lock<MUTEX_t> l_tx(m);
     bool ready = true;
     while (ready && !readyToPop_threadunsafe())
       ready = cv_rx.wait(l_tx, pred);
@@ -300,7 +309,7 @@ public:
 
   bool blockTillReadyToPop(const std::chrono::milliseconds &rel_time)
   {
-    std::unique_lock<std::mutex> l_tx(m);
+    std::unique_lock<MUTEX_t> l_tx(m);
     std::cv_status status = std::cv_status::no_timeout;
     while (status == std::cv_status::no_timeout && !readyToPop_threadunsafe())
       status = cv_tx.wait_for(l_tx, rel_time);
@@ -310,7 +319,7 @@ public:
   template <typename Pred>
   void blockTillReadyToPop(const std::chrono::milliseconds &rel_time, Pred pred)
   {
-    std::unique_lock<std::mutex> l_tx(m);
+    std::unique_lock<MUTEX_t> l_tx(m);
     bool ready = true;
     while (ready && !readyToPop_threadunsafe())
       ready = cv_rx.wait_for(l_tx, rel_time, pred);
@@ -326,6 +335,7 @@ protected:
   virtual bool readyToPop_threadunsafe() const = 0;
   virtual void pop_threadunsafe(AVFrame *frame) = 0;
   virtual void clear_threadunsafe() = 0;
+  virtual bool eof_threadunsafe() const = 0;
 
   std::condition_variable cv_tx;
 };

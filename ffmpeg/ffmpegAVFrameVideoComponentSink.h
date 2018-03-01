@@ -21,8 +21,8 @@ namespace ffmpeg
  * \brief An AVFrame sink for a video stream to store frames' component data
  *  An AVFrame sink, which converts a received video AVFrame to component data (e.g., RGB)
  */
-template <class Allocator = ffmpegAllocator<uint8_t>()>
-class AVFrameVideoComponentSink : public AVFrameSinkBase, public VideoHandler
+template <class Allocator = ffmpegAllocator<uint8_t>(), class Mutex_t = std::shared_mutex>
+class AVFrameVideoComponentSink : public AVFrameSinkBase<Mutex_t>, public VideoHandler
 {
 public:
   AVFrameVideoComponentSink(const AVRational &tb = {0, 0})
@@ -56,7 +56,7 @@ public:
   virtual ~AVFrameVideoComponentSink()
   {
     av_log(NULL, AV_LOG_INFO, "destroying AVFrameVideoComponentSink\n");
-    std::unique_lock<std::mutex> l_rx(m);
+    std::unique_lock<Mutex_t> l_rx(m);
     if (time_buf)
     {
       allocator.deallocate((uint8_t *)time_buf, nb_frames * sizeof(double));
@@ -76,7 +76,7 @@ public:
  */
   void reset(const size_t nframes = 0) // must re-implement to allocate data_buf
   {
-    std::unique_lock<std::mutex> l_rx(m);
+    std::unique_lock<Mutex_t> l_rx(m);
     reset_threadunsafe(nframes);
     if (nframes) //notify the reader for the buffer availability
       cv_rx.notify_one();
@@ -87,7 +87,7 @@ public:
  */
   size_t release(uint8_t **data, int64_t **time = NULL, bool reallocate = true)
   {
-    std::unique_lock<std::mutex> l_rx(m);
+    std::unique_lock<Mutex_t> l_rx(m);
     size_t rval = wr_time - time_buf; // save the # of frames in releasing buffer
 
     if (data)
@@ -115,10 +115,9 @@ public:
    * Returns true if the data stream has reached end-of-file.
    * @return True if the last pushed AVFrame was an EOF marker.
    */
-  bool eof()
+  bool eof_threadunsafe() const
   {
     // no room or eof
-    std::unique_lock<std::mutex> l_rx(m);
     return has_eof; // true if last
   }
 
@@ -133,7 +132,7 @@ public:
   */
   int read(const uint8_t *&pdata, const int64_t *&ptime, const size_t frame_offset = 0)
   {
-    std::unique_lock<std::mutex> l_rx(m);
+    std::shared_lock<Mutex_t> l_rx(m);
 
     size_t data_sz = wr_time - time_buf;
     if (frame_offset < data_sz && data_sz > 0)
@@ -160,7 +159,7 @@ public:
   */
   int read(const uint8_t *&pdata, const size_t frame_offset = 0)
   {
-    std::unique_lock<std::mutex> l_rx(m);
+    std::shared_lock<Mutex_t> l_rx(m);
     size_t data_sz = wr_time - time_buf;
     if (frame_offset < data_sz && data_sz > 0)
     {
@@ -184,7 +183,7 @@ public:
   */
   int read_time(const int64_t *&ptime, const size_t frame_offset = 0)
   {
-    std::unique_lock<std::mutex> l_rx(m);
+    std::shared_lock<Mutex_t> l_rx(m);
     size_t data_sz = wr_time - time_buf;
     if (frame_offset < data_sz && data_sz > 0)
     {
