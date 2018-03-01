@@ -76,3 +76,27 @@ inline mxArray *isSupportedVideoFormat(const mxArray *prhs)
 {
   return isSupportedVideoFormat(prhs, [](const AVPixelFormat) { return true; });
 }
+
+template <class UnaryPredicate>
+AVPixelFormat mexVideoReader::mexArrayToFormat(const mxArray *obj, UnaryPredicate pred)
+{
+  std::string pix_fmt_str = mexGetString(mxGetProperty(obj, 0, "VideoFormat"));
+
+  // check for special cases
+  if (pix_fmt_str == "grayscale")
+    return AV_PIX_FMT_GRAY8; //        Y        ,  8bpp
+
+  AVPixelFormat pix_fmt = av_get_pix_fmt(pix_fmt_str.c_str());
+  if (pix_fmt == AV_PIX_FMT_NONE) // just in case
+    mexErrMsgIdAndTxt("ffmpegVideoReader:InvalidInput", "Pixel format is unknown.");
+
+  if (!pred(pix_fmt))
+    mexErrMsgIdAndTxt("ffmpegVideoReader:InvalidInput", "Pixel format is not supported.");
+
+  return pix_fmt;
+}
+
+inline AVPixelFormat mexArrayToFormat(const mxArray *prhs)
+{
+  return mexArrayToFormat(prhs, [](const AVPixelFormat) { return true; });
+}
