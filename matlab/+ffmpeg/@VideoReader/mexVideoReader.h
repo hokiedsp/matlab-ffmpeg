@@ -1,8 +1,10 @@
 #pragma once
 
-#include "ffmpegFrameBuffers.h"
+#include "ffmpegMediaReader.h"
+#include "filter/ffmpegFilterGraph.h"
 
-#include "ffmpegVideoReader.h"
+#include "ffmpegAVFrameQueue.h" // to pass frames from decoder to filtergraph
+#include "ffmpegAVFrameVideoComponentSink.h" // frame buffer
 
 #include <mexObjectHandler.h>
 #include <mexAllocator.h>
@@ -17,27 +19,36 @@ typedef std::vector<uint8_t> uint8_vector;
 class mexVideoReader
 {
 public:
-  mexVideoReader(int nrhs, const mxArray *prhs[]);
+  mexVideoReader(const mxArray *mxObj, int nrhs, const mxArray *prhs[]);
   ~mexVideoReader();
   static std::string get_classname() { return "ffmpeg.VideoReader"; } // associated matlab class
-
   bool action_handler(const mxArray *mxObj, const std::string &command, int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[]);
   static bool static_handler(const std::string &command, int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[]);
 
-protected:
+private:
   bool hasFrame();
   void readFrame(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[]);             //    varargout = readFrame(obj, varargin);
   void read(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[]);                  //varargout = read(obj, varargin);
   void readBuffer(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[]);             //    [frames,timestamps] = readFrame(obj);
 
-  static void getFileFormats(int nlhs, mxArray *plhs[]); // formats = getFileFormats();
-  static void getVideoFormats(int nlhs, mxArray *plhs[]); // formats = getVideoFormats();
-  static void getVideoCompressions(int nlhs, mxArray *plhs[]); // formats = getVideoCompressions();
+  static mxArray *getFileFormats(); // formats = getFileFormats();
+  static mxArray *getVideoFormats(); // formats = getVideoFormats();
+  static mxArray *getVideoCompressions(); // formats = getVideoCompressions();
+  static mxArray *getVideoCompressions();
+  static AVPixelFormat mexVideoReader::mexArrayToFormat(const mxArray *obj);
+  static void validateSARString(const mxArray *prhs); // tf = isValidSAR(SARexpr);
+  static AVRational mexArrayToSAR(const mxArray *mxObj);
 
   void setCurrentTime(double time, const bool reset_buffer = true);
 
-private:
+  void open_file(const mxArray*mxObj, const std::string &mxFilename);
+
+  void shuffle_buffers(); // read forwards
+  static std::string mex_get_filterdesc(const mxArray *obj);
+  
   ffmpeg::VideoReader reader;
+  ffmpeg::filter::Graph filtergraph;
+
   bool rd_rev;  // false to read forward, true to read reverse
   
   enum
@@ -62,9 +73,4 @@ private:
   std::mutex buffer_lock;
   std::condition_variable buffer_ready;
 
-  void shuffle_buffers(); // read forwards
-  
-  static std::string mex_get_filterdesc(const mxArray *obj);
-  static AVPixelFormat mex_get_pixfmt(const mxArray *obj);
-  static size_t mex_get_numplanes();
 };

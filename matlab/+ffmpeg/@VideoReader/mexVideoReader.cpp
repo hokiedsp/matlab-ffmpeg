@@ -1,5 +1,10 @@
 #include "mexVideoReader.h"
 
+#include "getMediaCompressions.h"
+#include "getVideoFormats.h"
+
+#include "ffmpegImgUtils.h"
+
 #include <algorithm>
 
 extern "C" {
@@ -22,7 +27,7 @@ namespace fs = std::experimental::filesystem;
 // std::ofstream output("mextest.csv");
 void mexFFmpegCallback(void *avcl, int level, const char *fmt, va_list argptr)
 {
-  if (level <= AV_LOG_ERROR) //AV_LOG_FATAL || level == AV_LOG_ERROR)
+  if (level <= AV_LOG_INFO) //AV_LOG_FATAL || level == AV_LOG_ERROR)
   {
     char dest[1024 * 16];
     vsprintf(dest, fmt, argptr);
@@ -38,100 +43,16 @@ void mexFunction(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[])
   mexObjectHandler<mexVideoReader>(nlhs, plhs, nrhs, prhs);
 }
 
-// static
-std::string mexVideoReader::mex_get_filterdesc(const mxArray *obj)
-{
-  // always appends transpose filter so that the video is presented to MATLAB columns first
-  std::string tr_filter_descr("transpose=dir=0");
-
-  // custom filtergraph (inserted before the transpose (&scale) filter
-  std::string filter_descr = mexGetString(mxGetProperty(obj, 0, "VideoFilter"));
-  if (filter_descr.size())
-    filter_descr += ",";
-
-  // if custom width/height/par specified, also insert scale filter
-  std::string sc_filter_descr("");
-  int w = (int)mxGetScalar(mxGetProperty(obj, 0, "Width"));
-  int h = (int)mxGetScalar(mxGetProperty(obj, 0, "Height"));
-  const double *sar = mxGetPr(mxGetProperty(obj, 0, "PixelAspectRatio"));
-  if (sar)
-  {
-    if (h > 0) // new H and adjust W to meet new SAR
-      sc_filter_descr = "scale=in_w*sar/in_h*" + std::to_string(int(h * sar[1])) + "/" + std::to_string(int(sar[0])) + ":" + std::to_string(h) + ",";
-    else if (w > 0) // new W and adjust H to meet new SAR
-      sc_filter_descr = "scale=" + std::to_string(w) + ":in_h/in_w/sar*" + std::to_string(int(w * sar[0])) + "/" + std::to_string(int(sar[1])) + ",";
-    else if (w < 0) // keep W and adjust H to meet new SAR
-      sc_filter_descr = "scale=in_w:in_h/sar*" + std::to_string(int(sar[0])) + "/" + std::to_string(int(sar[1])) + ",";
-    else // keep H and adjust W to meet new SAR
-      sc_filter_descr = "scale=in_w*sar*" + std::to_string(int(sar[1])) + "/" + std::to_string(int(sar[0])) + ":in_h,";
-  }
-  else if (h > 0 && w > 0) // new H and W
-    sc_filter_descr = "scale=" + std::to_string(w) + ":" + std::to_string(h) + ",";
-  else if (w > 0)
-  {
-    if (h < 0) // new W and adjust H to maintain SAR
-      sc_filter_descr = "scale=" + std::to_string(w) + ":" + std::to_string(w) + "/a,";
-    else // new W and keep same H
-      sc_filter_descr = "scale=w=" + std::to_string(w) + ",";
-  }
-  else if (h > 0)
-  {
-    if (w < 0) // new H and adjust W to maintain SAR
-      sc_filter_descr = "scale=" + std::to_string(h) + "*a:" + std::to_string(h) + ",";
-    else
-      sc_filter_descr = "scale=h=" + std::to_string(h) + ",";
-  }
-  return filter_descr + sc_filter_descr + tr_filter_descr;
-}
-
-AVPixelFormat mexVideoReader::mex_get_pixfmt(const mxArray *obj)
-{
-  std::string pix_fmt_str = mexGetString(mxGetProperty(obj, 0, "VideoFormat"));
-
-  // check for special cases
-  if (pix_fmt_str == "grayscale")
-    return AV_PIX_FMT_GRAY8; //        Y        ,  8bpp
-
-  AVPixelFormat pix_fmt = av_get_pix_fmt(pix_fmt_str.c_str());
-  if (pix_fmt == AV_PIX_FMT_NONE) // just in case
-    mexErrMsgIdAndTxt("ffmpegVideoReader:InvalidInput", "Pixel format is unknown.");
-
-  if (!(sws_isSupportedOutput(pix_fmt) && mexComponentBuffer::supportedPixelFormat(pix_fmt)))
-    mexErrMsgIdAndTxt("ffmpegVideoReader:InvalidInput", "Pixel format is not supported.");
-
-  return pix_fmt;
-}
+//////////////////////////////////////////////////////////////////////////////////
 
 // mexVideoReader(mobj, filename) (all arguments  pre-validated)
-mexVideoReader::mexVideoReader(int nrhs, const mxArray *prhs[])
+mexVideoReader::mexVideoReader(const mxArray *mxObj, int nrhs, const mxArray *prhs[])
     : rd_rev(false), state(OFF), killnow(false)
 {
-  // get absolute path to the file
-  fs::path p = fs::canonical(mexGetString(prhs[1]));
+  // open the file
+  open_file(mxObj, mexGetString(prhs[1]));
 
-  // open the video file
-  reader.openFile(p.string(), mex_get_filterdesc(prhs[0]), mex_get_pixfmt(prhs[0]));
-
-  // if read backwards, start from the end
-  buffer_capacity = (int)mxGetScalar(mxGetProperty(prhs[0], 0, "BufferSize"));
-  rd_rev = mexGetString(mxGetProperty(prhs[0], 0, "Direction")) == "backward";
-  if (rd_rev)
-    setCurrentTime(reader.getDuration(), false);
-  else
-    state = ON;
-
-  // set unspecified properties
-  mxSetProperty((mxArray *)prhs[0], 0, "Name", mxCreateString(p.filename().string().c_str()));
-  mxSetProperty((mxArray *)prhs[0], 0, "Path", mxCreateString(p.parent_path().string().c_str()));
-  mxSetProperty((mxArray *)prhs[0], 0, "FrameRate", mxCreateDoubleScalar((double)reader.getFrameRate()));
-  mxSetProperty((mxArray *)prhs[0], 0, "Width", mxCreateDoubleScalar((double)reader.getHeight()));
-  mxSetProperty((mxArray *)prhs[0], 0, "Height", mxCreateDoubleScalar((double)reader.getWidth()));
-  mxArray *sar = mxCreateDoubleMatrix(1, 2, mxREAL);
-  *mxGetPr(sar) = (double)reader.getSAR().den;
-  *(mxGetPr(sar) + 1) = (double)reader.getSAR().num;
-  mxSetProperty((mxArray *)prhs[0], 0, "PixelAspectRatio", sar);
-
-  // set buffers
+  // configure the buffers
   buffers.reserve(2);
   buffers.emplace_back(buffer_capacity, reader.getWidth(), reader.getHeight(), reader.getPixelFormat(), !rd_rev);
   buffers.emplace_back(buffer_capacity, reader.getWidth(), reader.getHeight(), reader.getPixelFormat(), !rd_rev);
@@ -251,6 +172,7 @@ bool mexVideoReader::static_handler(const std::string &command, int nlhs, mxArra
     if (nrhs > 0)
       throw std::runtime_error("getVideoCompressions() takes no input argument.");
     mexVideoReader::getVideoCompressions(nlhs, plhs);
+    avcodec_find_decoder(desc->id) && desc->type == AVMEDIA_TYPE_VIDEO && !strstr(desc->name, "_deprecated")
   }
   else if (command == "validate_pixfmt")
   {
@@ -265,6 +187,9 @@ bool mexVideoReader::static_handler(const std::string &command, int nlhs, mxArra
     return false;
   return true;
 }
+
+////////////////////////////////////////////////////////////////////////////////////////
+
 
 void mexVideoReader::setCurrentTime(double t, const bool reset_buffer)
 {
@@ -317,77 +242,6 @@ void mexVideoReader::setCurrentTime(double t, const bool reset_buffer)
     // tell  shuffle_buffers thread to resume
     buffer_ready.notify_one();
   }
-}
-
-void mexVideoReader::shuffle_buffers()
-{
-  std::unique_lock<std::mutex> buffer_guard(buffer_lock);
-  while (!killnow)
-  {
-    if (state == OFF || rd_buf->readyToRead()) // read buffer still has unread frames, wait until all read
-    {
-      // if (state==OFF)
-      //   av_log(NULL,AV_LOG_INFO,"mexVideoReader::shuffle_buffers()::waiting till CurrentTime changed\n");
-      // else
-      //   av_log(NULL,AV_LOG_INFO,"mexVideoReader::shuffle_buffers()::waiting till rd_buf completely read\n");
-      buffer_ready.wait(buffer_guard); // to be woken up by read functions
-      // av_log(NULL,AV_LOG_INFO,"mexVideoReader::shuffle_buffers()::rd_buf read\n");
-    }
-    else // all read, wait till the other buffer is written then swap
-    {
-      // reader.atEndOfFile()
-      // wait until write buffer is full
-      // av_log(NULL,AV_LOG_INFO,"mexVideoReader::shuffle_buffers()::waiting till wr_buf filled\n");
-      reader.blockTillBufferFull();
-      // av_log(NULL,AV_LOG_INFO,"mexVideoReader::shuffle_buffers()::wr_buf filled (%d|%d)\n",wr_buf->size(),wr_buf->last());
-      if (killnow)
-        break;
-
-      // done with the read buffer
-      rd_buf->reset();
-
-      // swap the buffers
-      std::swap(wr_buf, rd_buf);
-
-      if (rd_rev) // if reading in reverse direction
-      {
-        if (state == LAST)
-        {
-          state = OFF;
-        }
-        else
-        { // set new timestamp
-          double t;
-          if (AVERROR_EOF == rd_buf->read_first_frame(NULL, &t))
-            t = reader.getDuration();
-
-          // av_log(NULL, AV_LOG_INFO, "mexVideoReader::shuffle_buffers()::setting time to %f\n", t);
-
-          setCurrentTime(t, false);
-
-          // override setCurrentTime's state
-          if (state == OFF)
-            state = LAST;
-          else
-            rd_rev_t_last = t;
-        }
-      }
-      else if (rd_buf->last())
-      { // if eof, stop till setCurrentTime() call
-        // av_log(NULL,AV_LOG_INFO,"mexVideoReader::shuffle_buffers()::reached EOF\n");
-        state = OFF;
-      }
-
-      // av_log(NULL, AV_LOG_INFO, "mexVideoReader::shuffle_buffers()::swapped, available frames in rd_buf:%d\n", rd_buf->full());
-      // notify the waiting thread that rd_buf now contains a filled buffer
-      buffer_ready.notify_one();
-
-      // if more to read, give reader the new buffer
-      if (state == ON)
-        reader.resetBuffer(&*wr_buf);
-    }
-  }
-  // av_log(NULL, AV_LOG_INFO, "mexVideoReader::shuffle_buffers()::exiting\n");
 }
 
 bool mexVideoReader::hasFrame()
@@ -489,27 +343,121 @@ void mexVideoReader::readBuffer(int nlhs, mxArray *plhs[], int nrhs, const mxArr
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////
+// Private member functions
 
-void mexVideoReader::getFileFormats(int nlhs, mxArray *plhs[]) // formats = getFileFormats();
+void mexVideoReader::open_file(const mxArray *mxObj, const std::string &filename)
 {
-  ffmpeg::AVInputFormatPtrs ifmtptrs = ffmpeg::Base::get_input_formats_devices(AVMEDIA_TYPE_VIDEO, AVFMT_NOTIMESTAMPS);
+  // get absolute path to the file
+  fs::path p = fs::canonical(mexGetString(prhs[1]));
 
-#define NumFileFormatFields 4
-  const char *fieldnames[NumFileFormatFields] = {
-      "Names", "Description", "Extensions", "MIMETypes"};
-  plhs[0] = mxCreateStructMatrix(ifmtptrs.size(), 1, NumFileFormatFields, fieldnames);
+  // open the video file
+  reader.openFile(p.string(), mex_get_filterdesc(prhs[0]), mexArrayToFormat(prhs[0]));
 
-  for (int index = 0; index < ifmtptrs.size(); index++)
-  {
-    mxSetField(plhs[0], index, "Names", mxCreateString(ifmtptrs[index]->name));
-    mxSetField(plhs[0], index, "Description", mxCreateString(ifmtptrs[index]->long_name));
-    mxSetField(plhs[0], index, "Extensions", mxCreateString(ifmtptrs[index]->extensions));
-    mxSetField(plhs[0], index, "MIMETypes", mxCreateString(ifmtptrs[index]->mime_type));
-  }
+  // if read backwards, start from the end
+  buffer_capacity = (int)mxGetScalar(mxGetProperty(prhs[0], 0, "BufferSize"));
+  rd_rev = mexGetString(mxGetProperty(prhs[0], 0, "Direction")) == "backward";
+  if (rd_rev)
+    setCurrentTime(reader.getDuration(), false);
+  else
+    state = ON;
+
+  // set unspecified properties
+  mxSetProperty((mxArray *)prhs[0], 0, "Name", mxCreateString(p.filename().string().c_str()));
+  mxSetProperty((mxArray *)prhs[0], 0, "Path", mxCreateString(p.parent_path().string().c_str()));
+  mxSetProperty((mxArray *)prhs[0], 0, "FrameRate", mxCreateDoubleScalar((double)reader.getFrameRate()));
+  mxSetProperty((mxArray *)prhs[0], 0, "Width", mxCreateDoubleScalar((double)reader.getHeight()));
+  mxSetProperty((mxArray *)prhs[0], 0, "Height", mxCreateDoubleScalar((double)reader.getWidth()));
+  mxArray *sar = mxCreateDoubleMatrix(1, 2, mxREAL);
+  *mxGetPr(sar) = (double)reader.getSAR().den;
+  *(mxGetPr(sar) + 1) = (double)reader.getSAR().num;
+  mxSetProperty((mxArray *)prhs[0], 0, "PixelAspectRatio", sar);
 }
 
-void mexVideoReader::getVideoFormats(int nlhs, mxArray *plhs[]) // formats = getVideoFormats();
+void mexVideoReader::shuffle_buffers()
 {
+  std::unique_lock<std::mutex> buffer_guard(buffer_lock);
+  while (!killnow)
+  {
+    if (state == OFF || rd_buf->readyToRead()) // read buffer still has unread frames, wait until all read
+    {
+      // if (state==OFF)
+      //   av_log(NULL,AV_LOG_INFO,"mexVideoReader::shuffle_buffers()::waiting till CurrentTime changed\n");
+      // else
+      //   av_log(NULL,AV_LOG_INFO,"mexVideoReader::shuffle_buffers()::waiting till rd_buf completely read\n");
+      buffer_ready.wait(buffer_guard); // to be woken up by read functions
+      // av_log(NULL,AV_LOG_INFO,"mexVideoReader::shuffle_buffers()::rd_buf read\n");
+    }
+    else // all read, wait till the other buffer is written then swap
+    {
+      // reader.atEndOfFile()
+      // wait until write buffer is full
+      // av_log(NULL,AV_LOG_INFO,"mexVideoReader::shuffle_buffers()::waiting till wr_buf filled\n");
+      reader.blockTillBufferFull();
+      // av_log(NULL,AV_LOG_INFO,"mexVideoReader::shuffle_buffers()::wr_buf filled (%d|%d)\n",wr_buf->size(),wr_buf->last());
+      if (killnow)
+        break;
+
+      // done with the read buffer
+      rd_buf->reset();
+
+      // swap the buffers
+      std::swap(wr_buf, rd_buf);
+
+      if (rd_rev) // if reading in reverse direction
+      {
+        if (state == LAST)
+        {
+          state = OFF;
+        }
+        else
+        { // set new timestamp
+          double t;
+          if (AVERROR_EOF == rd_buf->read_first_frame(NULL, &t))
+            t = reader.getDuration();
+
+          // av_log(NULL, AV_LOG_INFO, "mexVideoReader::shuffle_buffers()::setting time to %f\n", t);
+
+          setCurrentTime(t, false);
+
+          // override setCurrentTime's state
+          if (state == OFF)
+            state = LAST;
+          else
+            rd_rev_t_last = t;
+        }
+      }
+      else if (rd_buf->last())
+      { // if eof, stop till setCurrentTime() call
+        // av_log(NULL,AV_LOG_INFO,"mexVideoReader::shuffle_buffers()::reached EOF\n");
+        state = OFF;
+      }
+
+      // av_log(NULL, AV_LOG_INFO, "mexVideoReader::shuffle_buffers()::swapped, available frames in rd_buf:%d\n", rd_buf->full());
+      // notify the waiting thread that rd_buf now contains a filled buffer
+      buffer_ready.notify_one();
+
+      // if more to read, give reader the new buffer
+      if (state == ON)
+        reader.resetBuffer(&*wr_buf);
+    }
+  }
+  // av_log(NULL, AV_LOG_INFO, "mexVideoReader::shuffle_buffers()::exiting\n");
+}
+
+/////////////////////////////////////////////////////////////////////////////////
+// Static private member functions
+
+mxArray *mexVideoReader::getFileFormats() // formats = getFileFormats();
+{
+  return getMediaOutputFormats([](AVOutputFormat* fmt)
+   {
+      return (fmt->video_codec != AV_CODEC_ID_NONE && (fmt->flags&AVFMT_NOTIMESTAMPS));
+       });
+}
+
+mxArray *mexVideoReader::getVideoFormats() // formats = getVideoFormats();
+{
+  return 
   // build a list of pixel format descriptors
   std::vector<const AVPixFmtDescriptor *> pix_descs;
   pix_descs.reserve(256);
@@ -551,38 +499,67 @@ void mexVideoReader::getVideoFormats(int nlhs, mxArray *plhs[]) // formats = get
   }
 }
 
-void mexVideoReader::getVideoCompressions(int nlhs, mxArray *plhs[]) // formats = getVideoCompressions();
+mxArray *mexVideoReader::getVideoCompressions() // formats = getVideoCompressions();
 {
-  // make sure all the codecs are loaded
-  avcodec_register_all();
-
-  // build a list of supported codec descriptors (all the video decoders)
-  std::vector<const AVCodecDescriptor *> codecs;
-  codecs.reserve(256);
-  for (const AVCodecDescriptor *desc = avcodec_descriptor_next(NULL);
-       desc;
-       desc = avcodec_descriptor_next(desc))
+  return ::getMediaCompressions([](const AVCodecDescriptor* desc)->bool)
   {
-    if (avcodec_find_decoder(desc->id) && desc->type == AVMEDIA_TYPE_VIDEO && !strstr(desc->name, "_deprecated"))
-      codecs.push_back(desc);
+    return avcodec_find_decoder(desc->id) && desc->type == AVMEDIA_TYPE_VIDEO && !strstr(desc->name, "_deprecated");
+  });
+}
+
+mxArray *mexVideoReader::getVideoFormats()
+{
+  return getVideoFormats([](const AVPixelFormat pix_fmt) -> bool {
+
+    // supported by the IO buffers (8-bit, no subsampled components)
+    if (!ffmpeg::imageCheckComponentSize(pix_fmt))
+      return false;
+    
+    // supported by SWS library
+    return sws_isSupportedInput(pix_fmt) && sws_isSupportedOutput(pix_fmt);
+  });
+}
+
+// tf = isSupportedFormat(format_name);
+mxArray *mexVideoReader::isSupportedFormat(const mxArray *prhs)
+{
+  return ::isSupportedVideoFormat(prhs, [](const AVPixelFormat pix_fmt) -> bool {
+    // must <= 8-bit/component
+    if (!ffmpeg::imageCheckComponentSize(pix_fmt))
+      return false;
+
+    // supported by SWS library
+    return sws_isSupportedInput(pix_fmt) && sws_isSupportedOutput(pix_fmt);
+  });
+}
+
+AVPixelFormat mexVideoReader::mexArrayToFormat(const mxArray *obj)
+{
+  return ::mexArrayToFormat(obj,[](const AVPixelFormat pix_fmt)->bool 
+  { return mexImageFilter::isSupportedFormat(pix_fmt); } );
+}
+
+// validateSARString(SAR_expression);
+void mexVideoReader::validateSARString(const mxArray *prhs)
+{
+  AVRational sar = mexParseRatio(prhs);
+  if (sar.num <= 0 || sar.den <= 0)
+    mexErrMsgTxt("SAR expression must result in a positive rational number.");
+}
+
+AVRational mexVideoReader::mexArrayToSAR(const mxArray *mxSAR)
+{
+  if (mxIsChar(mxSAR))
+  {
+    return mexParseRatio(mxSAR);
   }
-
-  std::sort(codecs.begin(), codecs.end(),
-            [](const AVCodecDescriptor *a, const AVCodecDescriptor *b) -> bool { return strcmp(a->name, b->name) < 0; });
-
-  const int nfields = 5;
-  const char *fieldnames[5] = {
-      "Name", "Lossless", "Lossy", "IntraframeOnly", "Description"};
-
-  plhs[0] = mxCreateStructMatrix(codecs.size(), 1, nfields, fieldnames);
-
-  for (int j = 0; j < codecs.size(); ++j)
+  else if (mxIsScalar(mxSAR))
   {
-    const AVCodecDescriptor *desc = codecs[j];
-    mxSetField(plhs[0], j, "Name", mxCreateString(desc->name));
-    mxSetField(plhs[0], j, "Lossless", mxCreateString((desc->props & AV_CODEC_PROP_LOSSLESS) ? "on" : "off"));
-    mxSetField(plhs[0], j, "Lossy", mxCreateString((desc->props & AV_CODEC_PROP_LOSSY) ? "on" : "off"));
-    mxSetField(plhs[0], j, "IntraframeOnly", mxCreateString((desc->props & AV_CODEC_PROP_INTRA_ONLY) ? "on" : "off"));
-    mxSetField(plhs[0], j, "Description", mxCreateString(desc->long_name ? desc->long_name : ""));
+    return av_d2q(mxGetScalar(mxSAR), INT_MAX);
+  }
+  else // 2-elem
+  {
+    double *data = mxGetPr(mxSAR);
+    return av_make_q((int)data[0], (int)data[1]);
   }
 }
