@@ -23,6 +23,7 @@ public:
   virtual void push(AVFrame *frame) = 0;
   virtual int push(AVFrame *frame, const std::chrono::milliseconds &rel_time) = 0;
   virtual int tryToPush(AVFrame *frame) = 0;
+  virtual bool eof() = 0;
 };
 
 class IAVFrameSource : virtual public IMediaHandler
