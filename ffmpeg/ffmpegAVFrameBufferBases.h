@@ -10,7 +10,7 @@
 namespace ffmpeg
 {
 // Base Thread-Safe Buffer Class
-template <class MUTEX_t = std::mutex>
+template <class Mutex_t = std::mutex>
 class AVFrameBufferBase : public MediaHandler
 {
 public:
@@ -39,14 +39,14 @@ protected:
   AVFrameBufferBase(AVFrameBufferBase &&other) noexcept : MediaHandler(other) {}
 
 protected:
-  MUTEX_t m; // mutex to access the buffer
+  Mutex_t m; // mutex to access the buffer
 };
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
 // Base Thread-Safe Sink Class
-template <class MUTEX_t = std::shared_mutex>
-class AVFrameSinkBase : public IAVFrameSink, public AVFrameBufferBase<MUTEX_t>
+template <class Mutex_t = std::shared_mutex>
+class AVFrameSinkBase : public IAVFrameSink, public AVFrameBufferBase<Mutex_t>
 {
 protected:
   AVFrameSinkBase(){}; // must be default-constructable
@@ -75,41 +75,41 @@ public:
 
   virtual bool eof()
   {
-    std::shared_lock<MUTEX_t> l_rx(m);
+    std::shared_lock<Mutex_t> l_rx(m);
     return eof_threadunsafe();
   }
 
   virtual void clear(const bool deep = false)
   {
-    std::unique_lock<MUTEX_t> l_rx(m);
+    std::unique_lock<Mutex_t> l_rx(m);
     if (clear_threadunsafe(deep))
       cv_rx.notify_one();
   }
 
-  bool readyToPush()
+  virtual bool readyToPush()
   {
-    std::unique_lock<MUTEX_t> l_rx(m);
+    std::shared_lock<Mutex_t> l_rx(m);
     return readyToPush_threadunsafe();
   }
 
-  void blockTillReadyToPush()
+  virtual void blockTillReadyToPush()
   {
-    std::unique_lock<MUTEX_t> l_rx(m);
+    std::shared_lock<Mutex_t> l_rx(m);
     while (!readyToPush_threadunsafe())
       cv_rx.wait(l_rx);
   }
-  bool blockTillReadyToPush(const std::chrono::milliseconds &rel_time)
+  virtual bool blockTillReadyToPush(const std::chrono::milliseconds &rel_time)
   {
-    std::unique_lock<MUTEX_t> l_rx(m);
+    std::shared_lock<Mutex_t> l_rx(m);
     std::cv_status status = std::cv_status::no_timeout;
     while (status == std::cv_status::no_timeout && !readyToPush_threadunsafe())
       status = cv_rx.wait_for(l_rx, rel_time);
     return status == std::cv_status::no_timeout;
   }
 
-  int tryToPush(AVFrame *frame)
+  virtual int tryToPush(AVFrame *frame)
   {
-    std::unique_lock<MUTEX_t> l_rx(m);
+    std::unique_lock<Mutex_t> l_rx(m);
     if (!readyToPush_threadunsafe())
       return AVERROR(EAGAIN);
 
@@ -117,18 +117,18 @@ public:
     return 0;
   }
 
-  void push(AVFrame *frame)
+  virtual void push(AVFrame *frame)
   {
-    std::unique_lock<MUTEX_t> l_rx(m);
+    std::unique_lock<Mutex_t> l_rx(m);
     while (!readyToPush_threadunsafe())
       cv_rx.wait(l_rx);
     push_threadunsafe(frame);
   }
 
   template <class Predicate>
-  int push(AVFrame *frame, Predicate pred)
+  virtual int push(AVFrame *frame, Predicate pred)
   {
-    std::unique_lock<MUTEX_t> l_rx(m);
+    std::unique_lock<Mutex_t> l_rx(m);
     bool ready = true;
     while (ready && !readyToPush_threadunsafe())
       ready = cv_rx.wait(l_rx, pred);
@@ -139,9 +139,9 @@ public:
     return 0;
   }
 
-  int push(AVFrame *frame, const std::chrono::milliseconds &rel_time)
+  virtual int push(AVFrame *frame, const std::chrono::milliseconds &rel_time)
   {
-    std::unique_lock<MUTEX_t> l_rx(m);
+    std::unique_lock<Mutex_t> l_rx(m);
     std::cv_status status = std::cv_status::no_timeout;
     while (status == std::cv_status::no_timeout && !readyToPush_threadunsafe())
       status = cv_rx.wait_for(l_rx, rel_time);
@@ -153,9 +153,9 @@ public:
   }
 
   template <class Predicate>
-  int push(AVFrame *frame, const std::chrono::milliseconds &rel_time, Predicate pred)
+  virtual int push(AVFrame *frame, const std::chrono::milliseconds &rel_time, Predicate pred)
   {
-    std::unique_lock<MUTEX_t> l_rx(m);
+    std::unique_lock<Mutex_t> l_rx(m);
     bool ready = true;
     while (ready && !readyToPush_threadunsafe())
       ready = cv_rx.wait_for(m, rel_time, pred);
@@ -171,14 +171,38 @@ protected:
   virtual int push_threadunsafe(AVFrame *frame) = 0;
   virtual bool clear_threadunsafe(bool deep = false) = 0;
 
-  std::condition_variable cv_rx;
+  /**
+   * \brief   Mutex lock transfer from shared to unique
+   * 
+   * \note Another thread may uniquely lock the mutex before the calling
+   *       thread re-obtains the lock
+   */
+  std::unique_lock<Mutex_t> upgrade_lock(std::shared_lock<Mutex_t> &s_lk)
+  {
+    s_lk.unlock();
+    return std::unique_lock<Mutex_t>(*s_lk.release());
+  }
+
+  /**
+   * \brief   Mutex lock transfer from unique to shared
+   * 
+   * \note Another thread may uniquely lock the mutex before the calling
+   *       thread re-obtains the lock
+   */
+  std::shared_lock<Mutex_t> downgrade_lock(std::unique_lock<Mutex_t> &u_lk)
+  {
+    u_lk.unlock();
+    return std::shared_lock<Mutex_t>(*u_lk.release());
+  }
+
+  std::condition_variable_any cv_rx;
 };
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
 // Base Source Class
-template <class MUTEX_t = std::mutex>
-class AVFrameSourceBase : public AVFrameBufferBase<MUTEX_t>, public IAVFrameSource
+template <class Mutex_t = std::mutex>
+class AVFrameSourceBase : public AVFrameBufferBase<Mutex_t>, public IAVFrameSource
 {
 public:
   virtual ~AVFrameSourceBase(){};
@@ -200,13 +224,13 @@ public:
 
   virtual void clear()
   {
-    std::unique_lock<MUTEX_t> l_tx(m);
+    std::unique_lock<Mutex_t> l_tx(m);
     clear_threadunsafe();
   }
 
   int tryToPop(AVFrame *frame)
   {
-    std::unique_lock<MUTEX_t> l_tx(m);
+    std::unique_lock<Mutex_t> l_tx(m);
     if (readyToPop_threadunsafe())
     {
       pop_threadunsafe(frame);
@@ -221,7 +245,7 @@ public:
 
   void pop(AVFrame *frame)
   {
-    std::unique_lock<MUTEX_t> l_tx(m);
+    std::unique_lock<Mutex_t> l_tx(m);
     while (!readyToPop_threadunsafe())
       cv_tx.wait(l_tx);
     pop_threadunsafe(frame);
@@ -230,7 +254,7 @@ public:
   template <class Predicate>
   int pop(AVFrame *frame, Predicate pred)
   {
-    std::unique_lock<MUTEX_t> l_tx(m);
+    std::unique_lock<Mutex_t> l_tx(m);
     bool ready = true;
     while (ready && !readyToPop_threadunsafe())
       ready = cv_rx.wait(l_tx, pred);
@@ -249,7 +273,7 @@ public:
 
   int pop(AVFrame *frame, const std::chrono::milliseconds &rel_time)
   {
-    std::unique_lock<MUTEX_t> l_tx(m);
+    std::unique_lock<Mutex_t> l_tx(m);
     std::cv_status status = std::cv_status::no_timeout;
     while (status == std::cv_status::no_timeout && !readyToPop_threadunsafe())
       status = cv_tx.wait_for(l_tx, rel_time);
@@ -268,7 +292,7 @@ public:
   template <class Predicate>
   int pop(AVFrame *frame, const std::chrono::milliseconds &rel_time, Predicate pred)
   {
-    std::unique_lock<MUTEX_t> l_tx(m);
+    std::unique_lock<Mutex_t> l_tx(m);
     bool ready = true;
     while (ready && !readyToPop_threadunsafe())
       ready = cv_tx.wait_for(m, rel_time, pred);
@@ -286,13 +310,13 @@ public:
 
   bool readyToPop()
   {
-    std::unique_lock<MUTEX_t> l_rx(m);
+    std::unique_lock<Mutex_t> l_rx(m);
     return readyToPop_threadunsafe();
   }
 
   void blockTillReadyToPop()
   {
-    std::unique_lock<MUTEX_t> l_tx(m);
+    std::unique_lock<Mutex_t> l_tx(m);
     while (!readyToPop_threadunsafe())
       cv_tx.wait(l_tx);
   }
@@ -300,7 +324,7 @@ public:
   template <typename Pred>
   bool blockTillReadyToPop(Pred pred)
   {
-    std::unique_lock<MUTEX_t> l_tx(m);
+    std::unique_lock<Mutex_t> l_tx(m);
     bool ready = true;
     while (ready && !readyToPop_threadunsafe())
       ready = cv_rx.wait(l_tx, pred);
@@ -309,7 +333,7 @@ public:
 
   bool blockTillReadyToPop(const std::chrono::milliseconds &rel_time)
   {
-    std::unique_lock<MUTEX_t> l_tx(m);
+    std::unique_lock<Mutex_t> l_tx(m);
     std::cv_status status = std::cv_status::no_timeout;
     while (status == std::cv_status::no_timeout && !readyToPop_threadunsafe())
       status = cv_tx.wait_for(l_tx, rel_time);
@@ -319,7 +343,7 @@ public:
   template <typename Pred>
   void blockTillReadyToPop(const std::chrono::milliseconds &rel_time, Pred pred)
   {
-    std::unique_lock<MUTEX_t> l_tx(m);
+    std::unique_lock<Mutex_t> l_tx(m);
     bool ready = true;
     while (ready && !readyToPop_threadunsafe())
       ready = cv_rx.wait_for(l_tx, rel_time, pred);
