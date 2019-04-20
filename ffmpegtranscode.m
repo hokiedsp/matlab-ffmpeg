@@ -72,7 +72,7 @@ function varargout = ffmpegtranscode(varargin)
 %      x264Crf          Integer scaler between 1 and 51 {18}
 %                       x264 video codec constant rate factor. Lower the
 %                       higher quality, and 18 is considered perceptually
-%                       indistinguishable to lossless. Change by ±6 roughly
+%                       indistinguishable to lossless. Change by ï¿½6 roughly
 %                       doubles/halves the file size.
 %      Mpeg4Quality     Integer scalar between 1 and 31 {1}
 %                       Mpeg4 video codec quality scale. Lower the higher
@@ -186,7 +186,10 @@ narginchk(2,inf);
 p = inputParser;
 p.addRequired('infile',@(v)validateattributes(v,{'char'},{'row'}));
 p.addRequired('outfile',@(v)validateattributes(v,{'char'},{'row'}));
-p.addOptional('parseonly',false,@islogical)
+parseonly = nargin>2 && islogical(varargin{3}) && varargin{3};
+if parseonly
+   p.addOptional('parseonly',false)
+end
 p.addParameter('ProgressFcn','default',@isprogressfcn);
 p.addParameter('VideoScale',[],@checkscale);
 p.addParameter('VideoCrop',[],@(v)validateattributes(v,{'numeric'},{'numel',4,'integer'}));
@@ -196,15 +199,10 @@ p.addParameter('DeleteSource','off',@(v)any(strcmpi(v,{'on','off'})));
 addInputParameters(p);
 addOutputParameters(p,{'AudioCodec','aac';'VideoCodec','x264'});
 
-parseonly = nargin>2 && islogical(varargin{3}) && varargin{3};
 if parseonly
    p.KeepUnmatched = true;
 end
 p.parse(varargin{:});
-
-if ~parseonly
-   error('ffmpegtranscode does not produce any output.');
-end
 
 infile = p.Results.infile;
 outfile = p.Results.outfile;
