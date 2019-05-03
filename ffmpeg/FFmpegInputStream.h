@@ -18,8 +18,24 @@ struct FFmpegInputStream
 
     static const char *field_names[37];
 
+    FFmpegInputStream() : st(nullptr), dec_ctx(nullptr), fmt_ctx(nullptr) {} // default xtor
+    FFmpegInputStream(const FFmpegInputStream &) = delete; // non construction-copyable
+    FFmpegInputStream(FFmpegInputStream &&src) : st(src.st), dec_ctx(src.dec_ctx), fmt_ctx(src.fmt_ctx) // move xtor
+    {
+        src.st = nullptr;
+        src.dec_ctx = nullptr;
+        src.fmt_ctx = nullptr;
+    }
+
+    FFmpegInputStream &operator=(const FFmpegInputStream &) = delete; // non copyable
+    FFmpegInputStream &operator=(FFmpegInputStream && src) = delete; // non movable
+
     FFmpegInputStream(AVFormatContext *s, int i, AVDictionary *format_opts = nullptr);
-    virtual ~FFmpegInputStream() { if (dec_ctx) avcodec_free_context(&dec_ctx); }
+    virtual ~FFmpegInputStream()
+    {
+        if (dec_ctx)
+            avcodec_free_context(&dec_ctx);
+    }
 
     std::string getMediaType() const
     {

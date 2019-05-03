@@ -18,7 +18,17 @@ struct FFmpegInputFile
 
   std::vector<FFmpegInputStream> streams;
 
-  FFmpegInputFile(const char *filename) : fmt_ctx(nullptr) { if (filename) open(filename); }
+  FFmpegInputFile(const char *filename=nullptr) : fmt_ctx(nullptr) { if (filename) open(filename); }
+  FFmpegInputFile(const FFmpegInputFile &) = delete; // non construction-copyable
+  FFmpegInputFile(FFmpegInputFile &&src) : fmt_ctx(src.fmt_ctx) // move xtor
+  {
+      src.fmt_ctx = nullptr;
+      streams = std::move(src.streams);
+  }
+
+  FFmpegInputFile &operator=(const FFmpegInputFile &) = delete; // non copyable
+  FFmpegInputFile &operator=(FFmpegInputFile && src) = delete; // non movable
+
   ~FFmpegInputFile() { close(); }
 
   void open(const char *filename, AVInputFormat *iformat = nullptr, AVDictionary *format_opts = nullptr);
