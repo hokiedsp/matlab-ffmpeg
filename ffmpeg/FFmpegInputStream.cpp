@@ -96,7 +96,11 @@ void FFmpegInputStream::dumpToMatlab(mxArray *mxInfo, mwIndex index) const
     if ((!is_duration && fval == AV_NOPTS_VALUE) || (is_duration && fval == 0)) \
         mxSetStringField(fname, "N/A");                                         \
     else                                                                        \
-        mxSetScalarField(fname, (double)fval)
+    {                                                                           \
+        mxTMP = mxCreateNumericMatrix(1, 1, mxINT64_CLASS, mxREAL);             \
+        *(int64_t *)mxGetData(mxTMP) = fval;                                    \
+        mxSetField(mxInfo, index, fname, mxTMP);                                \
+    }
 #define mxSetTimeField(fname, fval, is_duration)                                \
     if ((!is_duration && fval == AV_NOPTS_VALUE) || (is_duration && fval == 0)) \
         mxSetStringField(fname, "N/A");                                         \
