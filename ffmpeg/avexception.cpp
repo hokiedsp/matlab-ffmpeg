@@ -37,17 +37,9 @@ void AVException::log_error(const char *filename, int err, bool force)
         AVException::force_throw();
 }
 
-void AVException::log_error(int log_level, const char *filename, int err, bool force)
+void AVException::log(int log_level, const char *msg)
 {
-    char errbuf[128];
-    const char *errbuf_ptr = errbuf;
-
-    if (av_strerror(err, errbuf, sizeof(errbuf)) < 0)
-        errbuf_ptr = strerror(AVUNERROR(err));
-    av_log(NULL, log_level, "%s: %s\n", filename, errbuf_ptr);
-
-    if (force)
-        AVException::force_throw();
+    av_log(NULL, log_level, "%s\n", msg);
 }
 
 std::shared_mutex AVException::mutex_;
