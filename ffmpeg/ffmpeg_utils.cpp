@@ -24,6 +24,20 @@ mxArray *mxCreateTags(AVDictionary *tags)
     return mxTags;
 }
 
+std::string mxWhich(const std::string &filename)
+{
+    // create mxArray
+    mxArray *rhs = mxCreateString(filename.c_str());
+    mxArray *plhs[1];
+    mexCallMATLAB(1, plhs, 1, &rhs, "which");
+
+    char *filepath = mxArrayToUTF8String(plhs[0]);
+    mxAutoFree(filepath);
+
+    return std::string(filepath);
+}
+
+
 /////////////////////////////////////////////////////////////////
 // FROM ffmpeg cmdutils.c
 

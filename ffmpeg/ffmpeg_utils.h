@@ -1,7 +1,10 @@
 #pragma once
 
 #include <memory>
+#include <string>
+
 #include <mex.h>
+
 extern "C"
 {
 #include <libavformat/avformat.h>
@@ -10,13 +13,25 @@ extern "C"
 }
 #define number_of_elements_in_array(myarray) (sizeof(myarray) / sizeof(myarray[0]))
 
+#define mxAutoFree(p) std::unique_ptr<void, decltype(&mxFree)> cleanup_##p(p, &mxFree) // auto-deallocate the buffer
+
 inline void av_dict_delete(AVDictionary *dict)
 {
     av_dict_free(&dict);
 }
-#define AVDictionaryAutoCleanUp(dict) std::unique_ptr<AVDictionary, decltype(&av_dict_delete)> cleanup_##dict(dict, &av_dict_delete) // auto-deallocate the buffer
+#define AVDictionaryAutoDelete(dict) std::unique_ptr<AVDictionary, decltype(&av_dict_delete)> cleanup_##dict(dict, &av_dict_delete) // auto-deallocate the buffer
 
+/**
+ * Returns 2-column Matlab cell array with the AVDicationary key names on the
+ * first column and their values on the second column.
+ */
 mxArray *mxCreateTags(AVDictionary *tags);
+
+/**
+ * Call Matlab to look for the specified file in its search path. If found,
+ * the full path to the file is returned.
+ */
+std::string mxWhich(const std::string &filename);
 
 /**
  * Check if the stream st contained in s is matched by the stream specifier

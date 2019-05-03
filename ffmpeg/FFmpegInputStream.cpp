@@ -27,7 +27,7 @@ FFmpegInputStream::FFmpegInputStream(AVFormatContext *s, int i, AVDictionary *op
     }
 
     AVDictionary *codec_opts = filter_codec_opts(opts, st->codecpar->codec_id, fmt_ctx, st, codec);
-    AVDictionaryAutoCleanUp(codec_opts);
+    AVDictionaryAutoDelete(codec_opts);
 
     dec_ctx = avcodec_alloc_context3(codec);
     if (!dec_ctx)
