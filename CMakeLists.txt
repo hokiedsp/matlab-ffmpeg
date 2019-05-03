@@ -24,13 +24,16 @@ endif()
 #set(MATLAB_FFMPEG_EXAMPLE_DIR "ffmpeg" CACHE PATH "Installation subdirectory for Matlab-FFmpeg examples")
 
 # Find dependent packages
-find_package(FFMPEG REQUIRED COMPONENTS AVUTIL)
+find_package(FFMPEG REQUIRED COMPONENTS AVUTIL OPTIONAL_COMPONENTS AVDEVICE)
 find_package(MATLAB REQUIRED MX_LIBRARY)
 
 # Set C++ options
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
+if (FFMPEG_AVDEVICE_FOUND)
+  add_compile_definitions(CONFIG_AVDEVICE)
+endif()
 
 # turn off new Matlab class support
 set(Matlab_HAS_CPP_API 0)
