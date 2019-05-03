@@ -18,8 +18,11 @@ mxArray *mxCreateTags(AVDictionary *tags)
 
     int n = 0;
     AVDictionaryEntry *tag = NULL;
-    for (int n = 0; tag = av_dict_get(tags, "", tag, AV_DICT_IGNORE_SUFFIX); ++n)
+    for (int n = 0; n < ntags; ++n)
+    {
+        tag = av_dict_get(tags, "", tag, AV_DICT_IGNORE_SUFFIX);
         mxSetDict(n, tag);
+    }
 
     return mxTags;
 }
@@ -36,7 +39,6 @@ std::string mxWhich(const std::string &filename)
 
     return std::string(filepath);
 }
-
 
 /////////////////////////////////////////////////////////////////
 // FROM ffmpeg cmdutils.c
