@@ -94,7 +94,7 @@ void FFmpegInputFile::dumpToMatlab(mxArray *mxInfo, const int index) const
     {
         int64_t duration = fmt_ctx->duration + (fmt_ctx->duration <= INT64_MAX - 5000 ? 5000 : 0);
         mxSetScalarField("duration_ts", duration);
-        mxSetScalarField("duration", duration / AV_TIME_BASE);
+        mxSetScalarField("duration", duration / (double)AV_TIME_BASE);
     }
     else
     {
@@ -104,7 +104,7 @@ void FFmpegInputFile::dumpToMatlab(mxArray *mxInfo, const int index) const
     if (fmt_ctx->start_time != AV_NOPTS_VALUE)
     {
         mxSetScalarField("start_ts", fmt_ctx->start_time);
-        mxSetScalarField("start", llabs(fmt_ctx->start_time / AV_TIME_BASE));
+        mxSetScalarField("start", llabs(fmt_ctx->start_time / (double)AV_TIME_BASE));
     }
     else
     {
@@ -130,6 +130,7 @@ void FFmpegInputFile::dumpToMatlab(mxArray *mxInfo, const int index) const
     int total = 0; // total streams in programs
 
     mxArray *mxPrograms = createMxProgramStruct(fmt_ctx->nb_programs);
+    mxSetField(mxInfo, index, "programs", mxPrograms);
     if (fmt_ctx->nb_programs)
     {
         int j, k;
@@ -152,6 +153,7 @@ void FFmpegInputFile::dumpToMatlab(mxArray *mxInfo, const int index) const
     }
 
     mxArray *mxStreams = FFmpegInputStream::createMxInfoStruct(fmt_ctx->nb_streams - total);
+    mxSetField(mxInfo, index, "streams", mxStreams);
     int j = 0;
     for (int i = 0; i < (int)fmt_ctx->nb_streams; i++)
         if (notshown[i])
