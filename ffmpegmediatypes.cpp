@@ -17,7 +17,7 @@ extern "C"
 // types = ffmpegmediatypes(filename)
 void mexFunction(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[])
 {
-    if (nlhs > 0 || nrhs != 1)
+    if (nlhs > 1 || nrhs != 1)
         mexErrMsgTxt("Takes exactly 1 input argument and produces 1 output.");
     if (!mxIsChar(prhs[0]))
         mexErrMsgTxt("Filename must be given as a character array.");
