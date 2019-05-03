@@ -1,6 +1,7 @@
 #include "avexception.h"
 
 #include <cstring>
+#include <cstdarg>
 
 extern "C"
 {
@@ -34,9 +35,12 @@ void AVException::log_error(const char *filename, int err, bool fatal)
     av_log(NULL, fatal ? AV_LOG_FATAL : AV_LOG_ERROR, "%s: %s\n", filename, errbuf_ptr);
 }
 
-void AVException::log(int log_level, const char *msg)
+void AVException::log(int log_level, const char *msg...)
 {
-    av_log(NULL, log_level, "%s\n", msg);
+    va_list args;
+    va_start(args, msg);
+    av_log(NULL, log_level, msg, args);
+    va_end(args);
 }
 
 std::shared_mutex AVException::mutex_;
