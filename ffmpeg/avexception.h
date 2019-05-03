@@ -20,7 +20,7 @@ public:
   // FFmpeg av_log
   static void initialize();                                                                // initialize the AVException static components
   static void force_throw();                                                               // throw exception with the previous log (only if it exists)
-  static void log_error(const char *filename, int err, bool force = false);                // log error while operating on filename
+  static void log_error(const char *filename, int err, bool fatal = false);                // log error while operating on filename
   static void log(int log_level, const char *msg=nullptr); // log error while operating on filename
 
   static int av_log_level;   // set the minimum FFmpeg log level to throw exception

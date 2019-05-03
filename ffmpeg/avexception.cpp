@@ -24,17 +24,14 @@ void AVException::force_throw() // throw exception with the previous log
         throw AVException(prev.c_str());
 }
 
-void AVException::log_error(const char *filename, int err, bool force)
+void AVException::log_error(const char *filename, int err, bool fatal)
 {
     char errbuf[128];
     const char *errbuf_ptr = errbuf;
 
     if (av_strerror(err, errbuf, sizeof(errbuf)) < 0)
         errbuf_ptr = strerror(AVUNERROR(err));
-    av_log(NULL, AV_LOG_ERROR, "%s: %s\n", filename, errbuf_ptr);
-
-    if (force)
-        AVException::force_throw();
+    av_log(NULL, fatal ? AV_LOG_FATAL : AV_LOG_ERROR, "%s: %s\n", filename, errbuf_ptr);
 }
 
 void AVException::log(int log_level, const char *msg)
