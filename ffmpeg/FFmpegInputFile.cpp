@@ -32,11 +32,8 @@ void FFmpegInputFile::open(const char *filename, AVInputFormat *iformat, AVDicti
     // fill stream information if not populated yet
     err = avformat_find_stream_info(fmt_ctx, &opts);
     if (err < 0)
-    {
-        AVException::log_error(filename, err);
-        AVException::force_throw();
-    }
-
+        AVException::log_error(filename, err, true);
+    
     // if (scan_all_pmts_set)
     //     av_dict_set(&format_opts, "scan_all_pmts", NULL, AV_DICT_MATCH_CASE);
     // if ((t = av_dict_get(format_opts, "", NULL, AV_DICT_IGNORE_SUFFIX)))
