@@ -15,7 +15,7 @@ if (FFMPEG_ROOT AND EXISTS ${FFMPEG_ROOT})
 endif()
 
 # only for Windows & OSX
-if (NOT WIN32 OR APPLE)
+if (NOT (WIN32 OR APPLE))
     return()
 endif()
 
