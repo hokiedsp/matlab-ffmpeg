@@ -10,10 +10,9 @@ extern "C"
 #endif
 }
 
-#include "ffmpeg/avexception.h"
 #include "ffmpeg/FFmpegInputFile.h"
-
-#define mxAutoCleanUp(p) std::unique_ptr<void, decltype(&mxFree)> cleanup_##p(p, &mxFree) // auto-deallocate the buffer
+#include "ffmpeg/avexception.h"
+#include "ffmpeg/ffmpeg_utils.h"
 
 // types = ffmpegmediatypes(filename)
 void mexFunction(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[])
@@ -32,8 +31,13 @@ void mexFunction(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[])
     // initialize AVException
     AVException::initialize();
 
+    // // testing logging capability
+    // AVException::av_log_level = AV_LOG_INFO;
+    // AVException::log_fcn = [](const std::string &msg) { mexPrintf("%s", msg.c_str()); };
+    // AVException::log(AV_LOG_INFO, "executing ffmpegmediatypes...");
+
     char *filename = mxArrayToUTF8String(prhs[0]);
-    mxAutoCleanUp(filename);
+    mxAutoFree(filename);
 
     FFmpegInputFile mediafile(filename);
     auto types = mediafile.getMediaTypes();
