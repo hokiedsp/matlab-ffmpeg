@@ -2,10 +2,13 @@
 
 #include <exception>
 #include <string>
+#include <shared_mutex>
+
 extern "C"
 {
 #include <libavutil/log.h>
 }
+
 class AVException : public std::exception
 {
 public:
@@ -44,6 +47,7 @@ protected:
   static void log_callback(void *ptr, int level, const char *fmt, va_list vl);
 
 private:
+  static std::shared_mutex mutex_;
   static bool initialized;
   static int print_prefix;
   static int count;

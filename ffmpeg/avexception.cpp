@@ -1,6 +1,7 @@
 #include "avexception.h"
 
 #include <cstring>
+
 extern "C"
 {
 #include <libavutil/error.h>
@@ -18,6 +19,7 @@ void AVException::initialize()
 
 void AVException::force_throw() // throw exception with the previous log
 {
+    std::shared_lock lock(mutex_);
     if (prev.size())
         throw AVException(prev.c_str());
 }
@@ -48,6 +50,7 @@ void AVException::log_error(int log_level, const char *filename, int err, bool f
         AVException::force_throw();
 }
 
+std::shared_mutex AVException::mutex_;
 int AVException::av_throw_level = AV_LOG_FATAL;
 int AVException::av_log_level = AV_LOG_INFO;
 void (*AVException::log_fcn)(const std::string &line) = nullptr;
@@ -70,6 +73,8 @@ void AVException::log_callback(void *ptr, int level, const char *fmt, va_list vl
 
     // format log line
     av_log_format_line2(ptr, level, fmt, vl, line, LINE_SZ, &print_prefix);
+
+    std::unique_lock lock(mutex_);
 
     // if skip_repeated && the line repeated, increment the counter
     if (print_prefix && skip_repeated && !strcmp(line, prev.c_str()) &&
