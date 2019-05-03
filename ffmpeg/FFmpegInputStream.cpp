@@ -8,6 +8,7 @@ extern "C"
 }
 
 #include "ffmpeg_utils.h"
+#include "avexception.h"
 
 FFmpegInputStream::FFmpegInputStream(AVFormatContext *s, int i, AVDictionary *opts) : st(s->streams[i]), dec_ctx(nullptr), fmt_ctx(s)
 {
@@ -15,14 +16,14 @@ FFmpegInputStream::FFmpegInputStream(AVFormatContext *s, int i, AVDictionary *op
 
     if (st->codecpar->codec_id == AV_CODEC_ID_PROBE)
     {
-        av_log(NULL, AV_LOG_WARNING, "Failed to probe codec for input stream %d\n", st->index);
+        AVException::log(AV_LOG_WARNING, "Failed to probe codec for input stream %d\n", st->index);
         return;
     }
 
     codec = avcodec_find_decoder(st->codecpar->codec_id);
     if (!codec)
     {
-        av_log(NULL, AV_LOG_WARNING, "Unsupported codec with id %d for input stream %d\n", st->codecpar->codec_id, st->index);
+        AVException::log(AV_LOG_WARNING, "Unsupported codec with id %d for input stream %d\n", st->codecpar->codec_id, st->index);
         return;
     }
 
@@ -31,25 +32,25 @@ FFmpegInputStream::FFmpegInputStream(AVFormatContext *s, int i, AVDictionary *op
 
     dec_ctx = avcodec_alloc_context3(codec);
     if (!dec_ctx)
-        throw;
+        AVException::log_error("Stream", AVERROR(ENOMEM), true);
 
     int err = avcodec_parameters_to_context(dec_ctx, st->codecpar);
     if (err < 0)
-        throw;
+        AVException::log_error("Stream", err, true);
 
     dec_ctx->pkt_timebase = st->time_base;
     dec_ctx->framerate = st->avg_frame_rate;
 
     if (avcodec_open2(dec_ctx, codec, &codec_opts) < 0)
     {
-        av_log(NULL, AV_LOG_WARNING, "Could not open codec for input stream %d\n", st->index);
+        AVException::log(AV_LOG_WARNING, "Could not open codec for input stream %d\n", st->index);
         return;
     }
 
     AVDictionaryEntry *t;
     while ((t = av_dict_get(codec_opts, "", NULL, AV_DICT_IGNORE_SUFFIX)))
     {
-        av_log(NULL, AV_LOG_ERROR, "Option %s for input stream %d not found\n", t->key, st->index);
+        AVException::log(AV_LOG_ERROR, "Option %s for input stream %d not found\n", t->key, st->index);
     }
 }
 
