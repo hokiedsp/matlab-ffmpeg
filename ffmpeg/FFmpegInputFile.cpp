@@ -76,9 +76,16 @@ void FFmpegInputFile::dumpToMatlab(mxArray *mxInfo, const int index) const
 {
     ///////////////////////////////////////////
     // MACROs to set mxArray struct fields
+    mxArray *mxTMP;
 
 #define mxSetEmptyField(fname) mxSetField(mxInfo, index, (fname), mxCreateDoubleMatrix(0, 0, mxREAL))
 #define mxSetScalarField(fname, fval) mxSetField(mxInfo, index, (fname), mxCreateDoubleScalar((double)(fval)))
+#define mxSetInt64ScalarField(fname, fval)                          \
+    {                                                               \
+        mxTMP = mxCreateNumericMatrix(1, 1, mxINT64_CLASS, mxREAL); \
+        *(int64_t *)mxGetData(mxTMP) = fval;                        \
+        mxSetField(mxInfo, index, (fname), mxTMP);                  \
+    }
 #define mxSetStringField(fname, fval) mxSetField(mxInfo, index, (fname), mxCreateString((fval)))
 #define mxSetRatioField(fname, fval)            \
     mxTMP = mxCreateDoubleMatrix(1, 2, mxREAL); \
@@ -93,7 +100,7 @@ void FFmpegInputFile::dumpToMatlab(mxArray *mxInfo, const int index) const
     if (fmt_ctx->duration != AV_NOPTS_VALUE)
     {
         int64_t duration = fmt_ctx->duration + (fmt_ctx->duration <= INT64_MAX - 5000 ? 5000 : 0);
-        mxSetScalarField("duration_ts", duration);
+        mxSetInt64ScalarField("duration_ts", duration);
         mxSetScalarField("duration", duration / (double)AV_TIME_BASE);
     }
     else
@@ -103,8 +110,8 @@ void FFmpegInputFile::dumpToMatlab(mxArray *mxInfo, const int index) const
     }
     if (fmt_ctx->start_time != AV_NOPTS_VALUE)
     {
-        mxSetScalarField("start_ts", fmt_ctx->start_time);
-        mxSetScalarField("start", llabs(fmt_ctx->start_time / (double)AV_TIME_BASE));
+        mxSetInt64ScalarField("start_ts", fmt_ctx->start_time);
+        mxSetScalarField("start", fmt_ctx->start_time / (double)AV_TIME_BASE);
     }
     else
     {
@@ -112,9 +119,13 @@ void FFmpegInputFile::dumpToMatlab(mxArray *mxInfo, const int index) const
         mxSetEmptyField("start");
     }
     if (fmt_ctx->bit_rate)
+    {
         mxSetScalarField("bitrate", fmt_ctx->bit_rate);
+    }
     else
+    {
         mxSetStringField("bitrate", "N/A");
+    }
 
     mxArray *mxChapters = createMxChapterStruct(fmt_ctx->nb_chapters);
     mxSetField(mxInfo, index, "chapters", mxChapters);
@@ -157,7 +168,9 @@ void FFmpegInputFile::dumpToMatlab(mxArray *mxInfo, const int index) const
     int j = 0;
     for (int i = 0; i < (int)fmt_ctx->nb_streams; i++)
         if (notshown[i])
+        {
             streams[i].dumpToMatlab(mxStreams, j++);
+        }
 }
 
 #define ARRAY_LENGTH(_array_) (sizeof(_array_) / sizeof(_array_[0]))

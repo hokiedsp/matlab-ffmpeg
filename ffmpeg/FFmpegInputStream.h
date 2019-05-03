@@ -16,7 +16,7 @@ struct FFmpegInputStream
     AVCodecContext *dec_ctx;
     AVFormatContext *fmt_ctx;
 
-    static const char *field_names[37];
+    static const char *field_names[38];
 
     FFmpegInputStream() : st(nullptr), dec_ctx(nullptr), fmt_ctx(nullptr) {} // default xtor
     FFmpegInputStream(const FFmpegInputStream &) = delete; // non construction-copyable

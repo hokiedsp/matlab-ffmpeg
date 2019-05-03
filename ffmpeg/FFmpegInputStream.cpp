@@ -1,5 +1,8 @@
 #include "FFmpegInputStream.h"
 
+#include <vector>
+#include <string>
+
 extern "C"
 {
 #include <libavutil/avutil.h>
@@ -112,16 +115,9 @@ void FFmpegInputStream::dumpToMatlab(mxArray *mxInfo, mwIndex index) const
     mxSetScalarField("index", st->index);
 
     AVCodecParameters *par = st->codecpar;
-    if (cd = avcodec_descriptor_get(par->codec_id))
-    {
-        mxSetStringField("codec_name", cd->name);
-        mxSetStringField("codec_long_name", cd->long_name ? cd->long_name : "unknown");
-    }
-    else
-    {
-        mxSetStringField("codec_name", "unknown");
-        mxSetStringField("codec_long_name", "unknown");
-    }
+    cd = avcodec_descriptor_get(par->codec_id);
+    mxSetStringField("codec_name", cd ? cd->name : "unknown");
+    mxSetStringField("codec_long_name", (cd && cd->long_name) ? cd->long_name : "unknown");
 
     if (profile = avcodec_profile_name(par->codec_id, par->profile))
     {
@@ -143,9 +139,13 @@ void FFmpegInputStream::dumpToMatlab(mxArray *mxInfo, mwIndex index) const
 
     s = av_get_media_type_string(par->codec_type);
     if (s)
+    {
         mxSetStringField("codec_type", s);
+    }
     else
+    {
         mxSetStringField("codec_type", "unknown");
+    }
 
     /* print AVI/FourCC tag */
     char fourcc[AV_FOURCC_MAX_STRING_SIZE];
@@ -185,21 +185,13 @@ void FFmpegInputStream::dumpToMatlab(mxArray *mxInfo, mwIndex index) const
         mxSetColorTransferField("color_transfer", par->color_trc);
         mxSetChromaLocationField("chroma_location", par->chroma_location);
 
-        if (par->field_order == AV_FIELD_PROGRESSIVE)
-            mxSetStringField("field_order", "progressive");
-        else if (par->field_order == AV_FIELD_TT)
-            mxSetStringField("field_order", "tt");
-        else if (par->field_order == AV_FIELD_BB)
-            mxSetStringField("field_order", "bb");
-        else if (par->field_order == AV_FIELD_TB)
-            mxSetStringField("field_order", "tb");
-        else if (par->field_order == AV_FIELD_BT)
-            mxSetStringField("field_order", "bt");
-        else
-            mxSetStringField("field_order", "unknown");
+        mxSetStringField("field_order",
+                         (par->field_order == AV_FIELD_PROGRESSIVE) ? "progressive" : (par->field_order == AV_FIELD_TT) ? "tt" : (par->field_order == AV_FIELD_BB) ? "bb" : (par->field_order == AV_FIELD_TB) ? "tb" : (par->field_order == AV_FIELD_BT) ? "bt" : "unknown");
 
         if (dec_ctx)
+        {
             mxSetScalarField("refs", dec_ctx->refs);
+        }
         break;
 
     case AVMEDIA_TYPE_AUDIO:
@@ -223,20 +215,32 @@ void FFmpegInputStream::dumpToMatlab(mxArray *mxInfo, mwIndex index) const
 
     case AVMEDIA_TYPE_SUBTITLE:
         if (par->width)
+        {
             mxSetScalarField("width", par->width);
+        }
         else
+        {
             mxSetStringField("width", "N/A");
+        }
         if (par->height)
+        {
             mxSetScalarField("height", par->height);
+        }
         else
+        {
             mxSetStringField("height", "N/A");
+        }
         break;
     }
 
     if (fmt_ctx->iformat->flags)
+    {
         mxSetScalarField("id", st->id);
+    }
     else
+    {
         mxSetStringField("id", "N/A");
+    }
     mxSetRatioField("r_frame_rate", st->r_frame_rate);
     mxSetRatioField("avg_frame_rate", st->avg_frame_rate);
     mxSetRatioField("time_base", st->time_base);
@@ -245,67 +249,58 @@ void FFmpegInputStream::dumpToMatlab(mxArray *mxInfo, mwIndex index) const
     mxSetTimestampField("duration_ts", st->duration, true);
     mxSetTimeField("duration", st->duration, true);
     if (par->bit_rate > 0)
+    {
         mxSetScalarField("bit_rate", (double)par->bit_rate);
+    }
     else
+    {
         mxSetStringField("bit_rate", "N/A");
+    }
     if (dec_ctx && dec_ctx->bits_per_raw_sample > 0)
+    {
         mxSetScalarField("bits_per_raw_sample", dec_ctx->bits_per_raw_sample);
+    }
     else
+    {
         mxSetStringField("bits_per_raw_sample", "N/A");
+    }
     if (st->nb_frames)
+    {
         mxSetScalarField("nb_frames", (double)st->nb_frames);
+    }
     else
+    {
         mxSetStringField("nb_frames", "N/A");
+    }
 
     /* Get disposition information */
-    int dispocount = (st->disposition & AV_DISPOSITION_DEFAULT) ? 1 : 0;
+    std::vector<std::string> dispositions;
 
-#define COUNT_DISPOSITION(flagname)                  \
+#define QUEUE_DISPOSITION(flagname, name)            \
     if (st->disposition & AV_DISPOSITION_##flagname) \
-    ++dispocount
+    dispositions.push_back(name)
+    QUEUE_DISPOSITION(DEFAULT, "default");
+    QUEUE_DISPOSITION(DUB, "dub");
+    QUEUE_DISPOSITION(ORIGINAL, "original");
+    QUEUE_DISPOSITION(COMMENT, "comment");
+    QUEUE_DISPOSITION(LYRICS, "lyrics");
+    QUEUE_DISPOSITION(KARAOKE, "karaoke");
+    QUEUE_DISPOSITION(FORCED, "forced");
+    QUEUE_DISPOSITION(HEARING_IMPAIRED, "hearing_impaired");
+    QUEUE_DISPOSITION(VISUAL_IMPAIRED, "visual_impaired");
+    QUEUE_DISPOSITION(CLEAN_EFFECTS, "clean_effects");
+    QUEUE_DISPOSITION(ATTACHED_PIC, "attached_pic");
+    QUEUE_DISPOSITION(TIMED_THUMBNAILS, "timed_thumbnails");
+    QUEUE_DISPOSITION(CAPTIONS, "captions");
+    QUEUE_DISPOSITION(DESCRIPTIONS, "descriptions");
+    QUEUE_DISPOSITION(METADATA, "metadata");
+    QUEUE_DISPOSITION(DEPENDENT, "dependent");
+    QUEUE_DISPOSITION(STILL_IMAGE, "still_image");
 
-    COUNT_DISPOSITION(DUB);
-    COUNT_DISPOSITION(ORIGINAL);
-    COUNT_DISPOSITION(COMMENT);
-    COUNT_DISPOSITION(LYRICS);
-    COUNT_DISPOSITION(KARAOKE);
-    COUNT_DISPOSITION(FORCED);
-    COUNT_DISPOSITION(HEARING_IMPAIRED);
-    COUNT_DISPOSITION(VISUAL_IMPAIRED);
-    COUNT_DISPOSITION(CLEAN_EFFECTS);
-    COUNT_DISPOSITION(ATTACHED_PIC);
-    COUNT_DISPOSITION(TIMED_THUMBNAILS);
-    COUNT_DISPOSITION(CAPTIONS);
-    COUNT_DISPOSITION(DESCRIPTIONS);
-    COUNT_DISPOSITION(METADATA);
-    COUNT_DISPOSITION(DEPENDENT);
-    COUNT_DISPOSITION(STILL_IMAGE);
-
-    mxArray *mxCell = mxCreateCellMatrix(1, dispocount);
-    mxSetField(mxTMP, index, "disposition", mxCell);
-
-    int i = 0;
-#define mxSetDispositionField(flagname, name)        \
-    if (st->disposition & AV_DISPOSITION_##flagname) \
-    mxSetCell(mxCell, i++, mxCreateString(name))
-
-    mxSetDispositionField(DEFAULT, "default");
-    mxSetDispositionField(DUB, "dub");
-    mxSetDispositionField(ORIGINAL, "original");
-    mxSetDispositionField(COMMENT, "comment");
-    mxSetDispositionField(LYRICS, "lyrics");
-    mxSetDispositionField(KARAOKE, "karaoke");
-    mxSetDispositionField(FORCED, "forced");
-    mxSetDispositionField(HEARING_IMPAIRED, "hearing_impaired");
-    mxSetDispositionField(VISUAL_IMPAIRED, "visual_impaired");
-    mxSetDispositionField(CLEAN_EFFECTS, "clean_effects");
-    mxSetDispositionField(ATTACHED_PIC, "attached_pic");
-    mxSetDispositionField(TIMED_THUMBNAILS, "timed_thumbnails");
-    mxSetDispositionField(CAPTIONS, "captions");
-    mxSetDispositionField(DESCRIPTIONS, "descriptions");
-    mxSetDispositionField(METADATA, "metadata");
-    mxSetDispositionField(DEPENDENT, "dependent");
-    mxSetDispositionField(STILL_IMAGE, "still_image");
+    mxArray *mxCell = mxCreateCellMatrix(1, dispositions.size());
+    mxSetField(mxInfo, index, "dispositions", mxCell);
+    for (int i = 0; i<dispositions.size(); ++i)
+        mxSetCell(mxCell, i, mxCreateString(dispositions[i].c_str()));
 
     mxSetField(mxInfo, index, "metadata", mxCreateTags(st->metadata));
 }
@@ -354,4 +349,5 @@ const char *FFmpegInputStream::field_names[] = {
     "bit_rate",
     "bits_per_raw_sample",
     "nb_frames",
+    "dispositions",
     "metadata"};
