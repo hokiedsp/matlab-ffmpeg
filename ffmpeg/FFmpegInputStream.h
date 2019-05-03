@@ -19,7 +19,7 @@ struct FFmpegInputStream
     static const char *field_names[37];
 
     FFmpegInputStream(AVFormatContext *s, int i, AVDictionary *format_opts = nullptr);
-    virtual ~FFmpegInputStream() { avcodec_free_context(&dec_ctx); }
+    virtual ~FFmpegInputStream() { if (dec_ctx) avcodec_free_context(&dec_ctx); }
 
     std::string getMediaType() const
     {

@@ -18,14 +18,11 @@ struct FFmpegInputFile
 
   std::vector<FFmpegInputStream> streams;
 
-  FFmpegInputFile(const char *filename) : fmt_ctx(nullptr)
-  {
-    if (filename)
-      open(filename);
-  }
-  ~FFmpegInputFile();
+  FFmpegInputFile(const char *filename) : fmt_ctx(nullptr) { if (filename) open(filename); }
+  ~FFmpegInputFile() { close(); }
 
   void open(const char *filename, AVInputFormat *iformat = nullptr, AVDictionary *format_opts = nullptr);
+  void close();
 
   std::vector<std::string> getMediaTypes() const;
 

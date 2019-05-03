@@ -5,9 +5,13 @@
 #include "ffmpeg_utils.h"
 #include "avexception.h"
 
-FFmpegInputFile::~FFmpegInputFile()
+void FFmpegInputFile::close()
 {
-    avformat_free_context(fmt_ctx);
+    if (fmt_ctx)
+    {
+        streams.clear();                // kill stream codecs first
+        avformat_close_input(&fmt_ctx); // close file and clear fmt_ctx
+    }
 }
 
 void FFmpegInputFile::open(const char *filename, AVInputFormat *iformat, AVDictionary *opts)

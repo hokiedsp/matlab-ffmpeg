@@ -17,7 +17,7 @@ extern "C"
 
 inline void av_dict_delete(AVDictionary *dict)
 {
-    av_dict_free(&dict);
+    if (dict) av_dict_free(&dict);
 }
 #define AVDictionaryAutoDelete(dict) std::unique_ptr<AVDictionary, decltype(&av_dict_delete)> cleanup_##dict(dict, &av_dict_delete) // auto-deallocate the buffer
 
