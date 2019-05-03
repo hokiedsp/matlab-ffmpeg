@@ -24,20 +24,20 @@ void FFmpegInputFile::open(const char *filename, AVInputFormat *iformat, AVDicti
     //     av_dict_set(&format_opts, "scan_all_pmts", "1", AV_DICT_DONT_OVERWRITE);
     //     scan_all_pmts_set = 1;
     // }
-    if ((err = avformat_open_input(&fmt_ctx, filename, iformat, &opts)) < 0)
+    if ((err = avformat_open_input(&fmt_ctx, filename, iformat, opts ? &opts : nullptr)) < 0)
     {
         // try search in the MATLAB path before quitting
         std::string filepath = mxWhich(filename);
         if (filepath.size())
-            err = avformat_open_input(&fmt_ctx, filepath.c_str(), iformat, &opts);
-        if (err<0) // no luck
+            err = avformat_open_input(&fmt_ctx, filepath.c_str(), iformat, opts ? &opts : nullptr);
+        if (err < 0) // no luck
             AVException::log_error(filename, err, true);
     }
 
     // fmt_ctx valid
 
     // fill stream information if not populated yet
-    err = avformat_find_stream_info(fmt_ctx, &opts);
+    err = avformat_find_stream_info(fmt_ctx, opts ? &opts : nullptr);
     if (err < 0)
         AVException::log_error(filename, err, true);
 
