@@ -43,7 +43,7 @@ if strcmp(units,'samples')
 else
    fs = opts.InputFrameRate;
    if isempty(fs)
-      fs = get_framerate(infile);
+      fs = ffmpegvideoframerate(infile);
    end
 end
 

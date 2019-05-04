@@ -18,7 +18,7 @@ if ~strcmpi(progressopt,'none')
    N = [];
    for k = 1:numel(infile)
       try
-         [fs0,T] = get_framerate(infile{k});
+         [fs0,T] = ffmpegget(infile{k},'videoframerate','duration');
          if isempty(fs)
             fs = fs0;
          end
