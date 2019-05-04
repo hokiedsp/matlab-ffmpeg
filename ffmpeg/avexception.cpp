@@ -74,16 +74,16 @@ void AVException::log_callback(void *ptr, int level, const char *fmt, va_list vl
         *line && line[strlen(line) - 1] != '\r')
     {
         count++;
-        return;
+        if (level <= av_throw_level)
+            throw AVException(line);
+        else
+            return;
     }
     prev = line; // store the last message for future comparison
 
     // first the exception
     if (level <= av_throw_level)
-    {
-        prev = line;
         throw AVException(line);
-    }
 
     // then the log message(s)
     if (count > 0)
