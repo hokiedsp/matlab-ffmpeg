@@ -40,6 +40,8 @@ struct FFmpegInputFile
 
   std::vector<std::string> getMediaTypes() const;
 
+  double getDuration() const;
+
   /* Find the "best" stream in the file.
    * The best stream is determined according to various heuristics as the most
    * likely to be what the user expects.

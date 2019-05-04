@@ -72,13 +72,23 @@ std::vector<std::string> FFmpegInputFile::getMediaTypes() const
     return ret;
 }
 
+double FFmpegInputFile::getDuration() const
+{
+    if (!fmt_ctx) AVException::log(AV_LOG_FATAL,"No file is open.\n");
+
+    int64_t duration = fmt_ctx->duration + (fmt_ctx->duration <= INT64_MAX - 5000 ? 5000 : 0);
+    return duration / (double)AV_TIME_BASE;
+}
+
 int FFmpegInputFile::getStreamIndex(const enum AVMediaType type, int wanted_stream_index) const
 {
+    if (!fmt_ctx) AVException::log(AV_LOG_FATAL,"No file is open.\n");
     return av_find_best_stream(fmt_ctx, type, wanted_stream_index, -1, nullptr, 0);
 }
 
 int FFmpegInputFile::getStreamIndex(const std::string &spec_str) const
 {
+    if (!fmt_ctx) AVException::log(AV_LOG_FATAL,"No file is open.\n");
     const char *spec = spec_str.c_str();
     int i = 0;
 
@@ -115,6 +125,7 @@ double FFmpegInputFile::getVideoFrameRate(const std::string &spec_str, const boo
 
 void FFmpegInputFile::dumpToMatlab(mxArray *mxInfo, const int index) const
 {
+    if (fmt_ctx) AVException::log(AV_LOG_FATAL,"No file is open.\n");
     ///////////////////////////////////////////
     // MACROs to set mxArray struct fields
     mxArray *mxTMP;
