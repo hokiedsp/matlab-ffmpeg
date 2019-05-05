@@ -29,7 +29,7 @@ FFmpegDownloadDev(${FFMPEG_VERSION})
 
 # Find dependent packages
 find_package(MATLAB REQUIRED MX_LIBRARY)
-find_package(FFMPEG REQUIRED COMPONENTS AVUTIL OPTIONAL_COMPONENTS AVDEVICE)
+find_package(FFMPEG REQUIRED COMPONENTS AVUTIL OPTIONAL_COMPONENTS AVDEVICE SWSCALE)
 
 # Set C++ options
 set(CMAKE_CXX_STANDARD 17)
@@ -41,7 +41,7 @@ endif()
 
 get_filename_component(Matlab_RELEASE ${Matlab_ROOT_DIR} NAME)
 matlab_get_version_from_release_name(${Matlab_RELEASE} Matlab_VERSION)
-if (Matlab_VERSION VERSION_LESS "8.5")
+if (Matlab_VERSION AND Matlab_VERSION VERSION_LESS "8.5")
   add_compile_definitions(MATLAB_PRE_R2015A)
 endif()
 
@@ -67,6 +67,9 @@ install(TARGETS ffmpegget RUNTIME DESTINATION ${CMAKE_INSTALL_PREFIX})
 
 matlab_add_mex(NAME ffmpegcolors SRC ffmpegcolors.cpp LINK_TO $<TARGET_OBJECTS:ffmpeg>)
 install(TARGETS ffmpegcolors RUNTIME DESTINATION ${CMAKE_INSTALL_PREFIX})
+
+matlab_add_mex(NAME ffmpegpixfmts SRC ffmpegpixfmts.cpp LINK_TO $<TARGET_OBJECTS:ffmpeg>)
+install(TARGETS ffmpegpixfmts RUNTIME DESTINATION ${CMAKE_INSTALL_PREFIX})
 
 # install copies all the m-files
 # add the install procedures
