@@ -1,6 +1,7 @@
 #pragma once
 
 #include <vector>
+#include <string>
 
 extern "C"
 {
@@ -14,6 +15,7 @@ extern "C"
 
 struct FFmpegInputFile
 {
+  std::string filename;
   AVFormatContext *fmt_ctx;
 
   std::vector<FFmpegInputStream> streams;
@@ -102,7 +104,7 @@ struct FFmpegInputFile
   void dumpToMatlab(mxArray *mxInfo, const int index = 0) const;
 
 private:
-  static const char *field_names[10];
+  static const char *field_names[11];
   static const char *chapter_field_names[3];
   static const char *program_field_names[4];
   static mxArray *createMxChapterStruct(mwSize size);

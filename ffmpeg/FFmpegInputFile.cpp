@@ -8,35 +8,35 @@
 
 void FFmpegInputFile::close()
 {
-    if (fmt_ctx)
+    if (!fmt_ctx)
     {
         streams.clear();                // kill stream codecs first
         avformat_close_input(&fmt_ctx); // close file and clear fmt_ctx
     }
 }
 
-void FFmpegInputFile::open(const char *filename, AVInputFormat *iformat, AVDictionary *opts)
+void FFmpegInputFile::open(const char *infile, AVInputFormat *iformat, AVDictionary *opts)
 {
     int err, i;
     int scan_all_pmts_set = 0;
 
     fmt_ctx = avformat_alloc_context();
     if (!fmt_ctx)
-        AVException::log_error(filename, AVERROR(ENOMEM), true);
+        AVException::log_error(infile, AVERROR(ENOMEM), true);
 
     // if (!av_dict_get(format_opts, "scan_all_pmts", NULL, AV_DICT_MATCH_CASE))
     // {
     //     av_dict_set(&format_opts, "scan_all_pmts", "1", AV_DICT_DONT_OVERWRITE);
     //     scan_all_pmts_set = 1;
     // }
-    if ((err = avformat_open_input(&fmt_ctx, filename, iformat, opts ? &opts : nullptr)) < 0)
+    if ((err = avformat_open_input(&fmt_ctx, infile, iformat, opts ? &opts : nullptr)) < 0)
     {
         // try search in the MATLAB path before quitting
-        std::string filepath = mxWhich(filename);
+        std::string filepath = mxWhich(infile);
         if (filepath.size())
             err = avformat_open_input(&fmt_ctx, filepath.c_str(), iformat, opts ? &opts : nullptr);
         if (err < 0) // no luck
-            AVException::log_error(filename, err, true);
+            AVException::log_error(infile, err, true);
     }
 
     // fmt_ctx valid
@@ -44,7 +44,7 @@ void FFmpegInputFile::open(const char *filename, AVInputFormat *iformat, AVDicti
     // fill stream information if not populated yet
     err = avformat_find_stream_info(fmt_ctx, opts ? &opts : nullptr);
     if (err < 0)
-        AVException::log_error(filename, err, true);
+        AVException::log_error(infile, err, true);
 
     // if (scan_all_pmts_set)
     //     av_dict_set(&format_opts, "scan_all_pmts", NULL, AV_DICT_MATCH_CASE);
@@ -57,6 +57,9 @@ void FFmpegInputFile::open(const char *filename, AVInputFormat *iformat, AVDicti
     /* bind a decoder to each input stream */
     for (i = 0; i < (int)fmt_ctx->nb_streams; i++)
         streams.emplace_back(fmt_ctx, i, opts);
+    
+    // save the file name
+    filename = infile;
 }
 
 std::vector<std::string> FFmpegInputFile::getMediaTypes() const
@@ -126,7 +129,7 @@ double FFmpegInputFile::getVideoFrameRate(const std::string &spec_str, const boo
 
 void FFmpegInputFile::dumpToMatlab(mxArray *mxInfo, const int index) const
 {
-    if (fmt_ctx) AVException::log(AV_LOG_FATAL,"No file is open.\n");
+    if (!fmt_ctx) AVException::log(AV_LOG_FATAL,"No file is open.\n");
     ///////////////////////////////////////////
     // MACROs to set mxArray struct fields
     mxArray *mxTMP;
@@ -148,6 +151,7 @@ void FFmpegInputFile::dumpToMatlab(mxArray *mxInfo, const int index) const
     mxSetField(mxInfo, index, (fname), mxTMP)
 
     mxSetStringField("format", fmt_ctx->iformat->name);
+    mxSetStringField("filename", filename.c_str());
     mxSetField(mxInfo, index, "metadata", mxCreateTags(fmt_ctx->metadata));
 
     if (fmt_ctx->duration != AV_NOPTS_VALUE)
@@ -245,6 +249,7 @@ mxArray *FFmpegInputFile::createMxProgramStruct(mwSize size)
 
 const char *FFmpegInputFile::field_names[] = {
     "format",
+    "filename",
     "metadata",
     "duration_ts",
     "duration",
