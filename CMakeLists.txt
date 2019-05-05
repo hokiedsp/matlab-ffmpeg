@@ -23,9 +23,13 @@ endif()
 # set(MATLAB_FFMPEG_TOOLBOX_DIR "ffmpeg" CACHE PATH "Installation subdirectory for Matlab-FFmpeg package")
 #set(MATLAB_FFMPEG_EXAMPLE_DIR "ffmpeg" CACHE PATH "Installation subdirectory for Matlab-FFmpeg examples")
 
+# download FFmpeg DEV & SHARED
+include("${CMAKE_CURRENT_LIST_DIR}/cmake/FFmpegDownloadDev.cmake")
+FFmpegDownloadDev(${FFMPEG_VERSION})
+
 # Find dependent packages
-find_package(FFMPEG REQUIRED COMPONENTS AVUTIL OPTIONAL_COMPONENTS AVDEVICE)
 find_package(MATLAB REQUIRED MX_LIBRARY)
+find_package(FFMPEG REQUIRED COMPONENTS AVUTIL OPTIONAL_COMPONENTS AVDEVICE)
 
 # Set C++ options
 set(CMAKE_CXX_STANDARD 17)
@@ -35,12 +39,14 @@ if (FFMPEG_AVDEVICE_FOUND)
   add_compile_definitions(CONFIG_AVDEVICE)
 endif()
 
+get_filename_component(Matlab_RELEASE ${Matlab_ROOT_DIR} NAME)
+matlab_get_version_from_release_name(${Matlab_RELEASE} Matlab_VERSION)
+if (Matlab_VERSION VERSION_LESS "8.5")
+  add_compile_definitions(MATLAB_PRE_R2015A)
+endif()
+
 # turn off new Matlab class support
 set(Matlab_HAS_CPP_API 0)
-
-# download FFmpeg DEV & SHARED
-include("${CMAKE_CURRENT_LIST_DIR}/cmake/FFmpegDownloadDev.cmake")
-FFmpegDownloadDev(${FFMPEG_VERSION})
 
 # common include & libraries
 include_directories(${FFMPEG_INCLUDE_DIR} ${Matlab_INCLUDE_DIRS})

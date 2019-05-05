@@ -15,6 +15,11 @@ extern "C"
 
 #define mxAutoFree(p) std::unique_ptr<void, decltype(&mxFree)> cleanup_##p(p, &mxFree) // auto-deallocate the buffer
 
+#ifdef MATLAB_PRE_R2015A
+#define mxArrayToUTF8String mxArrayToString
+inline bool mxIsScalar(const mxArray *array_ptr) { return mxGetNumberOfElements(array_ptr) == 1; }
+#endif
+
 /**
  * Returns 2-column Matlab cell array with the AVDicationary key names on the
  * first column and their values on the second column.
