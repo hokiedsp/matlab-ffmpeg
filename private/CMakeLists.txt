@@ -7,6 +7,12 @@ file(RELATIVE_PATH DstRelativePath ${CMAKE_SOURCE_DIR} ${CMAKE_CURRENT_SOURCE_DI
 matlab_add_mex(NAME ffmpeginfo_mex SRC ffmpeginfo_mex.cpp LINK_TO $<TARGET_OBJECTS:ffmpeg>)
 install(TARGETS ffmpeginfo_mex RUNTIME DESTINATION "${DstRelativePath}")
 
+matlab_add_mex(NAME ffmpegformats_mex SRC ffmpegformats_mex.cpp LINK_TO $<TARGET_OBJECTS:ffmpeg>)
+install(TARGETS ffmpegformats_mex RUNTIME DESTINATION "${DstRelativePath}")
+
+matlab_add_mex(NAME ffmpegcodecs_mex SRC ffmpegcodecs_mex.cpp LINK_TO $<TARGET_OBJECTS:ffmpeg>)
+install(TARGETS ffmpegcodecs_mex RUNTIME DESTINATION "${DstRelativePath}")
+
 if (WIN32 OR APPLE)
     # copy all the downloaded binary files as well
     file(GLOB BINFILES LIST_DIRECTORIES false "${FFMPEG_BIN_DIRECTORY}/bin/*")
