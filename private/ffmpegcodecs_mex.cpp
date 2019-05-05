@@ -100,7 +100,9 @@ void dumpOneCodec(mxArray *mxInfo, int index, const codec_pair_t &codec_pair, bo
         mxSetField(mxInfo, index, "avoid_probing", mxCreateLogicalScalar(cap & AV_CODEC_CAP_AVOID_PROBING));
         mxSetField(mxInfo, index, "hardware", mxCreateLogicalScalar(cap & AV_CODEC_CAP_HARDWARE));
         mxSetField(mxInfo, index, "hybrid", mxCreateLogicalScalar(cap & AV_CODEC_CAP_HYBRID));
+#ifdef AV_CODEC_CAP_ENCODER_REORDERED_OPAQUE
         mxSetField(mxInfo, index, "encoder_reordered_opaque", mxCreateLogicalScalar(cap & AV_CODEC_CAP_ENCODER_REORDERED_OPAQUE));
+#endif
 
         // if (avcodec_get_hw_config(c, 0))
         // {
