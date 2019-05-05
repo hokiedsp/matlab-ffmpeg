@@ -15,13 +15,11 @@ extern "C"
 #include "ffmpeg/ffmpeg_utils.h"
 #include "ffmpeg/mxutils.h"
 
-// info = ffmpeginfo_mex(filename)
+// info = ffmpeginfo_mex(filenames)
 void mexFunction(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[])
 {
-    if (nlhs > 1 || nrhs != 1)
-        mexErrMsgTxt("Takes exactly 1 input argument and produces 1 output.");
-    if (!mxIsChar(prhs[0]))
-        mexErrMsgTxt("Filename must be given as a character array.");
+    // retrieve file names (prevalidated)
+    auto filenames = mxParseStringArgs((int)mxGetNumberOfElements(prhs[0]), (const mxArray **)mxGetData(prhs[0]));
 
     // initialize FFmpeg
     avformat_network_init();
@@ -31,15 +29,17 @@ void mexFunction(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[])
 
     // initialize AVException
     AVException::initialize();
-    
-    // get media file name
-    char *filename = mxArrayToUTF8String(prhs[0]);
-    mxAutoFree(filename);
 
-    // open the media file
-    FFmpegInputFile mediafile(filename);
+    // initialize the output struct
+    plhs[0] = FFmpegInputFile::createMxInfoStruct(filenames.size());
 
-    // get a dump of the media info
-    plhs[0] = FFmpegInputFile::createMxInfoStruct();
-    mediafile.dumpToMatlab(plhs[0]);
+    int index = 0;
+    for (auto pfile = filenames.begin(); pfile != filenames.end(); ++pfile)
+    {
+        // open the media file
+        FFmpegInputFile mediafile(pfile->c_str());
+
+        // get a dump of the media info
+        mediafile.dumpToMatlab(plhs[0], index++);
+    }
 }
