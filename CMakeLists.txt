@@ -59,6 +59,9 @@ install(TARGETS ffmpegvideoframerate RUNTIME DESTINATION ${CMAKE_INSTALL_PREFIX}
 matlab_add_mex(NAME ffmpegget SRC ffmpegget.cpp LINK_TO $<TARGET_OBJECTS:ffmpeg>)
 install(TARGETS ffmpegget RUNTIME DESTINATION ${CMAKE_INSTALL_PREFIX})
 
+matlab_add_mex(NAME ffmpegcolors SRC ffmpegcolors.cpp LINK_TO $<TARGET_OBJECTS:ffmpeg>)
+install(TARGETS ffmpegcolors RUNTIME DESTINATION ${CMAKE_INSTALL_PREFIX})
+
 # install copies all the m-files
 # add the install procedures
 file(GLOB MFILES LIST_DIRECTORIES false RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} "*.m")
