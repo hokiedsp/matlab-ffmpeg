@@ -7,39 +7,6 @@ extern "C"
 
 #include "avexception.h"
 
-mxArray *mxCreateTags(AVDictionary *tags)
-{
-    int ntags = av_dict_count(tags);
-    mxArray *mxTags = mxCreateCellMatrix(ntags, 2);
-
-#define mxSetDict(index, tag)                           \
-    mxSetCell(mxTags, index, mxCreateString(tag->key)); \
-    mxSetCell(mxTags, index + ntags, mxCreateString(tag->value))
-
-    int n = 0;
-    AVDictionaryEntry *tag = NULL;
-    for (int n = 0; n < ntags; ++n)
-    {
-        tag = av_dict_get(tags, "", tag, AV_DICT_IGNORE_SUFFIX);
-        mxSetDict(n, tag);
-    }
-
-    return mxTags;
-}
-
-std::string mxWhich(const std::string &filename)
-{
-    // create mxArray
-    mxArray *rhs = mxCreateString(filename.c_str());
-    mxArray *plhs[1];
-    mexCallMATLAB(1, plhs, 1, &rhs, "which");
-
-    char *filepath = mxArrayToUTF8String(plhs[0]);
-    mxAutoFree(filepath);
-
-    return std::string(filepath);
-}
-
 /////////////////////////////////////////////////////////////////
 // FROM ffmpeg cmdutils.c
 

@@ -13,6 +13,7 @@ extern "C"
 #include "ffmpeg/FFmpegInputFile.h"
 #include "ffmpeg/avexception.h"
 #include "ffmpeg/ffmpeg_utils.h"
+#include "ffmpeg/mxutils.h"
 
 // info = ffmpeginfo_mex(filename)
 void mexFunction(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[])

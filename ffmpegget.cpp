@@ -13,7 +13,7 @@ extern "C"
 
 #include "ffmpeg/FFmpegInputFile.h"
 #include "ffmpeg/avexception.h"
-#include "ffmpeg/ffmpeg_utils.h"
+#include "ffmpeg/mxutils.h"
 
 const char *pnames[] = {
     "duration"};

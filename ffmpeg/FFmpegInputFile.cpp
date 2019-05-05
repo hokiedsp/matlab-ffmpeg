@@ -4,6 +4,7 @@
 
 #include "ffmpeg_utils.h"
 #include "avexception.h"
+#include "mxutils.h"
 
 void FFmpegInputFile::close()
 {

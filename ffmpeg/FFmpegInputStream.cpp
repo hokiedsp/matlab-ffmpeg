@@ -11,6 +11,7 @@ extern "C"
 }
 
 #include "ffmpeg_utils.h"
+#include "mxutils.h"
 #include "avexception.h"
 
 FFmpegInputStream::FFmpegInputStream(AVFormatContext *s, int i, AVDictionary *opts) : st(s->streams[i]), dec_ctx(nullptr), fmt_ctx(s)
