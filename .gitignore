@@ -54,3 +54,9 @@ Network Trash Folder
 Temporary Items
 .apdisk
 
+# Visual Studio Code extreneous files
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
