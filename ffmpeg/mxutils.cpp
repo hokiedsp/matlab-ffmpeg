@@ -58,9 +58,16 @@ std::vector<std::string> mxParseStringArgs(const int narg, const mxArray *args[]
 std::string mxArrayToStdString(const mxArray *array, bool lower)
 {
     char *strptr = mxArrayToUTF8String(array);
-    std::string str(strptr);
-    mxFree(strptr);
-    if (lower)
-        std::transform(str.begin(), str.end(), str.begin(), ::tolower); // lower case
-    return str;
+    if (strptr)
+    {
+        std::string str(strptr);
+        mxFree(strptr);
+        if (lower)
+            std::transform(str.begin(), str.end(), str.begin(), ::tolower); // lower case
+        return str;
+    }
+    else
+    {
+        return "";
+    }
 }
