@@ -73,6 +73,17 @@ void mexFunction(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[])
                 plhs[i] = mxCreateDoubleMatrix(0, 0, mxREAL);
             }
         }
+        else if (pname == "audiosamplerate")
+        {
+            try
+            {
+                plhs[i] = mxCreateDoubleScalar(mediafile.getAudioSampleRate());
+            }
+            catch (const AVException &)
+            {
+                plhs[i] = mxCreateDoubleMatrix(0, 0, mxREAL);
+            }
+        }
         else
         {
             mexErrMsgIdAndTxt("ffmpeggetprop:invalidName", "Property %s does not exist.", pname.c_str());
