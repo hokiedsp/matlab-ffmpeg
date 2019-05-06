@@ -38,12 +38,12 @@ N = numel(opts.Range);
 if strcmp(units,'samples')
    fs = opts.InputSampleRate;
    if isempty(fs)
-      fs = get_samplerate(infile);
+      fs = ffmpegget(infile,'audiosamplerate');
    end
 else
    fs = opts.InputFrameRate;
    if isempty(fs)
-      fs = ffmpegvideoframerate(infile);
+      fs = ffmpegget(infile,'videoframerate');
    end
 end
 
