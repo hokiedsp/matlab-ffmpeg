@@ -57,7 +57,7 @@ void FFmpegInputFile::open(const char *infile, AVInputFormat *iformat, AVDiction
     /* bind a decoder to each input stream */
     for (i = 0; i < (int)fmt_ctx->nb_streams; i++)
         streams.emplace_back(fmt_ctx, i, opts);
-    
+
     // save the file name
     filename = infile;
 }
@@ -78,7 +78,8 @@ std::vector<std::string> FFmpegInputFile::getMediaTypes() const
 
 double FFmpegInputFile::getDuration() const
 {
-    if (!fmt_ctx) AVException::log(AV_LOG_FATAL,"No file is open.\n");
+    if (!fmt_ctx)
+        AVException::log(AV_LOG_FATAL, "No file is open.\n");
 
     int64_t duration = fmt_ctx->duration + (fmt_ctx->duration <= INT64_MAX - 5000 ? 5000 : 0);
     return duration / (double)AV_TIME_BASE;
@@ -86,13 +87,15 @@ double FFmpegInputFile::getDuration() const
 
 int FFmpegInputFile::getStreamIndex(const enum AVMediaType type, int wanted_stream_index) const
 {
-    if (!fmt_ctx) AVException::log(AV_LOG_FATAL,"No file is open.\n");
+    if (!fmt_ctx)
+        AVException::log(AV_LOG_FATAL, "No file is open.\n");
     return av_find_best_stream(fmt_ctx, type, wanted_stream_index, -1, nullptr, 0);
 }
 
 int FFmpegInputFile::getStreamIndex(const std::string &spec_str) const
 {
-    if (!fmt_ctx) AVException::log(AV_LOG_FATAL,"No file is open.\n");
+    if (!fmt_ctx)
+        AVException::log(AV_LOG_FATAL, "No file is open.\n");
     const char *spec = spec_str.c_str();
     int i = 0;
 
@@ -112,7 +115,7 @@ int FFmpegInputFile::getStreamIndex(const std::string &spec_str) const
 double FFmpegInputFile::getVideoFrameRate(int wanted_stream_index, const bool get_avg) const
 {
     int i = getStreamIndex(AVMEDIA_TYPE_VIDEO, wanted_stream_index);
-    if (i < 0 || i >= fmt_ctx->nb_streams)
+    if (i < 0)
         AVException::log(AV_LOG_FATAL, "No video stream found.\n");
     return av_q2d(get_avg ? (fmt_ctx->streams[i]->avg_frame_rate) : (fmt_ctx->streams[i]->r_frame_rate));
 }
@@ -120,16 +123,34 @@ double FFmpegInputFile::getVideoFrameRate(int wanted_stream_index, const bool ge
 double FFmpegInputFile::getVideoFrameRate(const std::string &spec_str, const bool get_avg) const
 {
     int i = getStreamIndex(spec_str);
-    if (i < 0 || i >= fmt_ctx->nb_streams)
+    if (i < 0 || fmt_ctx->streams[i]->codecpar->codec_type != AVMEDIA_TYPE_VIDEO)
         AVException::log(AV_LOG_FATAL, "Stream specifier \"%s\" is either invalid expression or no match found.\n", spec_str.c_str());
     return av_q2d(get_avg ? (fmt_ctx->streams[i]->avg_frame_rate) : (fmt_ctx->streams[i]->r_frame_rate));
+}
+
+int FFmpegInputFile::getAudioSampleRate(int wanted_stream_index) const
+{
+    int i = getStreamIndex(AVMEDIA_TYPE_AUDIO, wanted_stream_index);
+    if (i < 0)
+        AVException::log(AV_LOG_FATAL, "No audio stream found.\n");
+    return fmt_ctx->streams[i]->codecpar->sample_rate;
+}
+
+int FFmpegInputFile::getAudioSampleRate(const std::string &spec_str) const
+{
+    int i = getStreamIndex(spec_str);
+    if (i < 0 || fmt_ctx->streams[i]->codecpar->codec_type != AVMEDIA_TYPE_AUDIO)
+        AVException::log(AV_LOG_FATAL, "Stream specifier \"%s\" is either invalid expression or no match found.\n", spec_str.c_str());
+
+    return fmt_ctx->streams[i]->codecpar->sample_rate;
 }
 
 ////////////////////////////////////////////////////////////////////////////
 
 void FFmpegInputFile::dumpToMatlab(mxArray *mxInfo, const int index) const
 {
-    if (!fmt_ctx) AVException::log(AV_LOG_FATAL,"No file is open.\n");
+    if (!fmt_ctx)
+        AVException::log(AV_LOG_FATAL, "No file is open.\n");
     ///////////////////////////////////////////
     // MACROs to set mxArray struct fields
     mxArray *mxTMP;

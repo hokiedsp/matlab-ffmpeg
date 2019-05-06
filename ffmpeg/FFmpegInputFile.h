@@ -100,6 +100,31 @@ struct FFmpegInputFile
    */
   double getVideoFrameRate(const std::string &spec, const bool get_avg = true) const;
 
+  /*
+   * Returns the sample rate of the "best" audio stream.
+   * 
+   * @param wanted_stream_nb  user-requested stream number,
+   *                          or -1 for automatic selection (default)
+   * 
+   * @return  the non-negative stream number in case of success,
+   *          AVERROR_STREAM_NOT_FOUND if no stream with the requested type
+   *          could be found,
+   *          AVERROR_DECODER_NOT_FOUND if streams were found but no decoder
+   */
+  int getAudioSampleRate(int wanted_stream_index = -1) const;
+
+  /*
+   * Returns the sample rate of the specified audio stream
+   * 
+   * @param[in] spec    FFmpeg stream specifier string
+   * 
+   * @return  the non-negative stream number in case of success,
+   *          AVERROR_STREAM_NOT_FOUND if no stream with the requested type
+   *          could be found,
+   *          AVERROR_DECODER_NOT_FOUND if streams were found but no decoder
+   */
+  int getAudioSampleRate(const std::string &spec) const;
+
   static mxArray *createMxInfoStruct(mwSize size = 1);
   void dumpToMatlab(mxArray *mxInfo, const int index = 0) const;
 
