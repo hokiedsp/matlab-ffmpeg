@@ -13,8 +13,8 @@ namespace ffmpeg
 /**
  * \brief   Template AVFrame sink to manage receive & send buffers
  */
-template <typename Buffer>
-class AVFrameDoubleBufferSink : public AVFrameSinkBase
+template <typename Buffer, class Mutex_t = std::shared_mutex>
+class AVFrameDoubleBufferSink : public AVFrameSinkBase<Mutex_t>
 {
 protected:
   /**
@@ -69,6 +69,93 @@ public:
   virtual ~AVFrameDoubleBufferSink(){};
 
   /**
+   * \brief Receive AVFrame, block if no space avail
+   */
+  virtual void push(AVFrame *frame)
+  {
+    // read-lock to check if there is room left in the current receive buffer
+    // if not, upgrade to write-lock to swap buffers
+    //         if send buffer not read yet, wait
+    //         downgrade the lock
+    // then perform receiver's push 
+
+    std::shared_lock<MUTEX_t> l_rx(m);
+    if (!readyToPush_threadunsafe())
+    {
+      std::unique_lock<Mutex_t> ul_rx = upgrade_lock(l_rx);
+      swap_buffer();
+      l_rx.unlock();
+      cv_rx.wait(l_rx);
+    }
+    push_threadunsafe(frame);
+
+    receiver.tryToPush(frame);
+  }
+
+  /**
+   * \brief Receive AVFrame, block if no space avail
+   */
+  template <class Predicate>
+  virtual int push(AVFrame *frame, Predicate pred)
+  {
+    std::shared_lock<MUTEX_t> l_rx(m);
+    bool ready = true;
+    while (ready && !readyToPush_threadunsafe())
+      ready = cv_rx.wait(l_rx, pred);
+    if (!ready)
+      return AVERROR(EAGAIN);
+
+    push_threadunsafe(frame);
+    return 0;
+  }
+
+  /**
+   * \brief Receive AVFrame, block if no space avail
+   */
+  virtual int push(AVFrame *frame, const std::chrono::milliseconds &rel_time)
+  {
+    std::shared_lock<MUTEX_t> l_rx(m);
+    std::cv_status status = std::cv_status::no_timeout;
+    while (status == std::cv_status::no_timeout && !readyToPush_threadunsafe())
+      status = cv_rx.wait_for(l_rx, rel_time);
+    if (status == std::cv_status::timeout)
+      return AVERROR(EAGAIN);
+
+    push_threadunsafe(frame);
+    return 0;
+  }
+
+  /**
+   * \brief Receive AVFrame, block if no space avail
+   */
+  template <class Predicate>
+  virtual int push(AVFrame *frame, const std::chrono::milliseconds &rel_time, Predicate pred)
+  {
+    std::shared_lock<MUTEX_t> l_rx(m);
+    bool ready = true;
+    while (ready && !readyToPush_threadunsafe())
+      ready = cv_rx.wait_for(m, rel_time, pred);
+    if (!ready)
+      return AVERROR(EAGAIN);
+
+    push_threadunsafe(frame);
+    return 0;
+  }
+
+  /**
+   * \brief Try to receive AVFrame only without blocking
+   */
+  virtual int tryToPush(AVFrame *frame)
+  {
+    std::shared_lock<MUTEX_t> l_rx(m);
+    if (!readyToPush_threadunsafe())
+      return AVERROR(EAGAIN);
+
+    push_threadunsafe(frame);
+    return 0;
+  }
+
+  /**
    * \brief Perform a task on sender buffer
    * 
    * \param[in] op Function to process the sender buffer. Must have the signature
@@ -83,9 +170,11 @@ public:
   template<ReadOp>
   bool processSenderBuffer(ReadOp op)
   {
+    std::shared_lock<Mutex_t> l_rx(m);
+
     if (sender==buffers.end())
 
-    return *sender;
+    if (op(*sender))
   }
 
   /**

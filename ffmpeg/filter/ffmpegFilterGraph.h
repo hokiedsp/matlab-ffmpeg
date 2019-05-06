@@ -287,6 +287,7 @@ public:
 protected:
   // thread function: responsible to read packet and send it to ffmpeg decoder
   void thread_fcn();
+  void thread_fcn_siso();
 
   template <typename EP, typename VEP, typename AEP, typename BUFF>
   void assign_endpoint(EP *&ep, AVMediaType type, BUFF &buf)
