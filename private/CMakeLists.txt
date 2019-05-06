@@ -22,6 +22,9 @@ install(TARGETS isframerate RUNTIME DESTINATION "${DstRelativePath}")
 matlab_add_mex(NAME isframesize SRC isframesize.cpp LINK_TO $<TARGET_OBJECTS:ffmpeg>)
 install(TARGETS isframesize RUNTIME DESTINATION "${DstRelativePath}")
 
+matlab_add_mex(NAME ispixfmt SRC ispixfmt.cpp LINK_TO $<TARGET_OBJECTS:ffmpeg>)
+install(TARGETS ispixfmt RUNTIME DESTINATION "${DstRelativePath}")
+
 if (WIN32 OR APPLE)
     # copy all the downloaded binary files as well
     file(GLOB BINFILES LIST_DIRECTORIES false "${FFMPEG_BIN_DIRECTORY}/bin/*")
