@@ -4,8 +4,8 @@ function addOutputParameters(p,defvals,altlist,optacodecs,optvcodecs)
 %
 %   addOutputParameters(p,defvals,altlist)
 %
-%   altlist - a cell array of string, possibly {±all, ±audio, ±video,
-%   ±{optname}} Leading + indicates inclusion, leading - indicates
+%   altlist - a cell array of string, possibly {ï¿½all, ï¿½audio, ï¿½video,
+%   ï¿½{optname}} Leading + indicates inclusion, leading - indicates
 %   exclusion. If leading sign is missing, it assumes exclusion. The items
 %   are processed in a sequential order. 'audio' and 'video' removes all
 %   options exclusively related to audio or video, respectively.
@@ -47,7 +47,7 @@ function addOutputParameters(p,defvals,altlist,optacodecs,optvcodecs)
 %      x264Crf          Integer scaler between 1 and 51 {18}
 %                       x264 video codec constant rate factor. Lower the
 %                       higher quality, and 18 is considered perceptually
-%                       indistinguishable to lossless. Change by ±6 roughly
+%                       indistinguishable to lossless. Change by ï¿½6 roughly
 %                       doubles/halves the file size.
 %      Mpeg4Quality     Integer scalar between 1 and 31 {1}
 %                       Mpeg4 video codec quality scale. Lower the higher
@@ -125,11 +125,11 @@ else % if optvcodecs specified
 end
 
 args = {
-   'AudioCodec',   'copy',    @(val)iscodec(val,'audio','encoder',optacodecs)
+   'AudioCodec',   'copy',    @(val)iscodec(val,1,true)
    'OutputSampleRate', [],    @isposintorratio
    'Mp3Quality',      [],     @(v)validateattributes(v,{'numeric'},{'scalar','integer','>=',0,'<',10})
    'AacBitRate',      [],     @(v)validateattributes(v,{'numeric'},{'scalar','positive','finite'})
-   'VideoCodec',   'copy',    @(val)iscodec(val,'video','encoder',optvcodecs)
+   'VideoCodec',   'copy',    @(val)iscodec(val,0,true)
    'OutputFrameRate', [],     @isframerate
    'PixelFormat',     [],     @ispixfmt
    'x264Preset',      '',     @(v)any(strcmpi(v,{'ultrafast' 'superfast' 'veryfast' 'faster' 'fast' 'medium' 'slow' 'slower' 'veryslow' 'placebo'}))

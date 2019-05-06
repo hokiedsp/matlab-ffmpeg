@@ -53,9 +53,9 @@ args = {
    'Range',             [],        @isrange
    'Units',             'seconds', @(v)any(strcmpi(v,{'seconds' 'frames' 'samples'}))
    'FastSearch',        '',        @(v)any(strcmpi(v,{'on','off'}))
-   'InputAudioCodec',   '',        @(val)iscodec(val,'audio','decoder')
+   'InputAudioCodec',   '',        @(val)iscodec(val,1,false)
    'InputSampleRate',   [],        @isposintorratio
-   'InputVideoCodec',   '',        @(val)iscodec(val,'video','decoder')
+   'InputVideoCodec',   '',        @(val)iscodec(val,0,false)
    'InputFrameRate',    [],        @isframerate
    'InputPixelFormat',  [],        @ispixfmt
    'InputFrameSize',    [],        @isframesize

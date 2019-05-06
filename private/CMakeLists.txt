@@ -13,6 +13,9 @@ install(TARGETS ffmpegformats_mex RUNTIME DESTINATION "${DstRelativePath}")
 matlab_add_mex(NAME ffmpegcodecs_mex SRC ffmpegcodecs_mex.cpp LINK_TO $<TARGET_OBJECTS:ffmpeg>)
 install(TARGETS ffmpegcodecs_mex RUNTIME DESTINATION "${DstRelativePath}")
 
+matlab_add_mex(NAME iscodec SRC iscodec.cpp LINK_TO $<TARGET_OBJECTS:ffmpeg>)
+install(TARGETS iscodec RUNTIME DESTINATION "${DstRelativePath}")
+
 if (WIN32 OR APPLE)
     # copy all the downloaded binary files as well
     file(GLOB BINFILES LIST_DIRECTORIES false "${FFMPEG_BIN_DIRECTORY}/bin/*")
