@@ -42,3 +42,12 @@ std::string mxWhich(const std::string &filename);
  * @returns vector of strings
  */
 std::vector<std::string> mxParseStringArgs(const int narg, const mxArray *args[], int inc = 1, bool lower = false);
+
+/**
+ * Retrieve string from an mxArray
+ * 
+ * @param[in] arg  Array of mxArray
+ * @param[in] lower True to convert characters to lower cases (default: false)
+ * @returns a string
+ */
+std::string mxArrayToStdString(const mxArray *array, bool lower = false);

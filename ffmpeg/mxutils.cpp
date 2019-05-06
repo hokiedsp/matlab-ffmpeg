@@ -45,17 +45,22 @@ std::string mxWhich(const std::string &filename)
 std::vector<std::string> mxParseStringArgs(const int narg, const mxArray *args[], int inc, bool lower)
 {
     // make sure inc is positive
-    if (inc<=0) inc = 1;
+    if (inc <= 0)
+        inc = 1;
 
+    // process one mxArray at a time
     std::vector<std::string> argstrs;
     for (int n = 0; (n < narg) && (mxIsChar(args[n])); n += inc)
-    {
-        char *pname_str = mxArrayToUTF8String(args[n]);
-        std::string pname(pname_str);
-        mxFree(pname_str);
-        if (lower)
-            std::transform(pname.begin(), pname.end(), pname.begin(), ::tolower); // lower case
-        argstrs.push_back(std::move(pname));
-    }
+        argstrs.push_back(mxArrayToStdString(args[n], lower));
     return argstrs;
+}
+
+std::string mxArrayToStdString(const mxArray *array, bool lower)
+{
+    char *strptr = mxArrayToUTF8String(array);
+    std::string str(strptr);
+    mxFree(strptr);
+    if (lower)
+        std::transform(str.begin(), str.end(), str.begin(), ::tolower); // lower case
+    return str;
 }
