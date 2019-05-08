@@ -25,23 +25,22 @@ void AVException::force_throw() // throw exception with the previous log
         throw AVException(prev.c_str());
 }
 
-void AVException::log_error(const char *filename, int err, bool fatal)
-{
-    char errbuf[128];
-    const char *errbuf_ptr = errbuf;
-
-    if (av_strerror(err, errbuf, sizeof(errbuf)) < 0)
-        errbuf_ptr = strerror(AVUNERROR(err));
-    av_log(NULL, fatal ? AV_LOG_FATAL : AV_LOG_ERROR, "%s: %s\n", filename, errbuf_ptr);
-}
-
-void AVException::log(int log_level, const char *msg...)
+void AVException::log(void *avcl, int log_level, const char *msg...)
 {
     va_list args;
     va_start(args, msg);
-    av_log(NULL, log_level, msg, args);
+    av_log(avcl, log_level, msg, args);
     va_end(args);
 }
+
+void AVException::log_error(void *avcl, int level, const char *msg)
+{
+    av_log(avcl, level, msg);
+    if (level <= av_throw_level)
+        throw; // Should've already thrown AVException, but just in case
+}
+
+/////////////////////////
 
 std::shared_mutex AVException::mutex_;
 int AVException::av_throw_level = AV_LOG_FATAL;
