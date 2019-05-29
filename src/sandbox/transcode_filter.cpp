@@ -14,7 +14,7 @@ extern "C"
 #include <libavutil/display.h>
 }
 
-#include "avexception.h"
+#include "../ffmpeg/avexception.h"
 #include "transcode_inputfile.h"
 #include "transcode_inputstream.h"
 #include "transcode_outputfile.h"

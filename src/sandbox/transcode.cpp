@@ -9,6 +9,7 @@ extern "C"
 #include <libavfilter/avfilter.h>
 #include <libavfilter/buffersrc.h>
 #include <libavfilter/buffersink.h>
+#include <libavutil/opt.h>
 }
 
 #include "transcode_inputfile.h"
@@ -17,7 +18,7 @@ extern "C"
 #include "transcode_outputstream.h"
 #include "transcode_filter.h"
 #include "transcode_utils.h"
-#include "avexception.h"
+#include "../ffmpeg/avexception.h"
 
 // prototypes
 
@@ -25,10 +26,10 @@ std::atomic_int transcode_init_done = 0;
 volatile int received_sigterm = 0;
 int nb_input_streams = 0;
 AVBufferRef *hw_device_ctx;
+int stdin_interaction = 1;
 
 InputStream **input_streams = NULL;
-InputFile **input_files = NULL;
-int nb_input_files = 0;
+std::vector<InputFile> input_files;
 OutputStream **output_streams = NULL;
 int nb_output_streams = 0;
 OutputFile **output_files = NULL;
@@ -52,6 +53,216 @@ int reap_filters(int flush);
 
 // int check_output_constraints(InputStream *ist, OutputStream *ost);
 // void do_streamcopy(InputStream *ist, OutputStream *ost, const AVPacket *pkt);
+
+int open_input_file(OptionsContext *o, const char *filename)
+{
+    AVInputFormat *file_iformat = NULL;
+
+    if (o->stop_time != INT64_MAX && o->recording_time != INT64_MAX) {
+        o->stop_time = INT64_MAX;
+        av_log(NULL, AV_LOG_WARNING, "-t and -to cannot be used together; using -t.\n");
+    }
+
+    if (o->stop_time != INT64_MAX && o->recording_time == INT64_MAX) {
+        int64_t start_time = o->start_time == AV_NOPTS_VALUE ? 0 : o->start_time;
+        if (o->stop_time <= start_time) {
+            av_log(NULL, AV_LOG_ERROR, "-to value smaller than -ss; aborting.\n");
+            exit_program(1);
+        } else {
+            o->recording_time = o->stop_time - start_time;
+        }
+    }
+
+    if (o->format) {
+        if (!(file_iformat = av_find_input_format(o->format))) {
+            av_log(NULL, AV_LOG_FATAL, "Unknown input format: '%s'\n", o->format);
+            exit_program(1);
+        }
+    }
+
+    if (!strcmp(filename, "-"))
+        filename = "pipe:";
+
+    stdin_interaction &= strncmp(filename, "pipe:", 5) &&
+                         strcmp(filename, "/dev/stdin");
+
+    if (o->nb_audio_sample_rate) {
+        av_dict_set_int(&o->g->format_opts, "sample_rate", o->audio_sample_rate[o->nb_audio_sample_rate - 1].u.i, 0);
+    }
+    if (o->nb_audio_channels) {
+        /* because we set audio_channels based on both the "ac" and
+         * "channel_layout" options, we need to check that the specified
+         * demuxer actually has the "channels" option before setting it */
+        if (file_iformat && file_iformat->priv_class &&
+            av_opt_find(&file_iformat->priv_class, "channels", NULL, 0,
+                        AV_OPT_SEARCH_FAKE_OBJ)) {
+            av_dict_set_int(&o->g->format_opts, "channels", o->audio_channels[o->nb_audio_channels - 1].u.i, 0);
+        }
+    }
+    if (o->nb_frame_rates) {
+        /* set the format-level framerate option;
+         * this is important for video grabbers, e.g. x11 */
+        if (file_iformat && file_iformat->priv_class &&
+            av_opt_find(&file_iformat->priv_class, "framerate", NULL, 0,
+                        AV_OPT_SEARCH_FAKE_OBJ)) {
+            av_dict_set(&o->g->format_opts, "framerate",
+                        o->frame_rates[o->nb_frame_rates - 1].u.str, 0);
+        }
+    }
+    if (o->nb_frame_sizes) {
+        av_dict_set(&o->g->format_opts, "video_size", o->frame_sizes[o->nb_frame_sizes - 1].u.str, 0);
+    }
+    if (o->nb_frame_pix_fmts)
+        av_dict_set(&o->g->format_opts, "pixel_format", o->frame_pix_fmts[o->nb_frame_pix_fmts - 1].u.str, 0);
+
+    if (!av_dict_get(o->g->format_opts, "scan_all_pmts", NULL, AV_DICT_MATCH_CASE)) {
+        av_dict_set(&o->g->format_opts, "scan_all_pmts", "1", AV_DICT_DONT_OVERWRITE);
+        InputFile::scan_all_pmts_set = true;
+    }
+
+    char *   video_codec_name = NULL;
+    char *   audio_codec_name = NULL;
+    char *subtitle_codec_name = NULL;
+    char *    data_codec_name = NULL;
+
+    MATCH_PER_TYPE_OPT(codec_names, str,    video_codec_name, ic, "v");
+    MATCH_PER_TYPE_OPT(codec_names, str,    audio_codec_name, ic, "a");
+    MATCH_PER_TYPE_OPT(codec_names, str, subtitle_codec_name, ic, "s");
+    MATCH_PER_TYPE_OPT(codec_names, str,     data_codec_name, ic, "d");
+
+    AVCodecIDSet forced_codecs;
+    if (video_codec_name)
+        forced_codecs.video    = find_codec_or_die(video_codec_name   , AVMEDIA_TYPE_VIDEO   , 0);
+    if (audio_codec_name)
+        forced_codecs.audio    = find_codec_or_die(audio_codec_name   , AVMEDIA_TYPE_AUDIO   , 0);
+    if (subtitle_codec_name)
+        forced_codecs.subtitle = find_codec_or_die(subtitle_codec_name, AVMEDIA_TYPE_SUBTITLE, 0);
+    if (data_codec_name)
+        forced_codecs.data     = find_codec_or_die(data_codec_name    , AVMEDIA_TYPE_DATA    , 0);
+
+    input_files.emplace_back(filename, file_iformat, forced_codecs, &o->g->format_opts, &o->g->codec_opts);
+    remove_avoptions(&o->g->format_opts, o->g->codec_opts);
+    assert_avoptions(o->g->format_opts);
+
+    AVFormatContext *ic;
+    int err, i, ret;
+    int64_t timestamp;
+    AVDictionary *unused_opts = NULL;
+    AVDictionaryEntry *e = NULL;
+    
+    if (o->start_time != AV_NOPTS_VALUE && o->start_time_eof != AV_NOPTS_VALUE)
+    {
+        av_log(NULL, AV_LOG_WARNING, "Cannot use -ss and -sseof both, using -ss for %s\n", filename);
+        o->start_time_eof = AV_NOPTS_VALUE;
+    }
+
+    if (o->start_time_eof != AV_NOPTS_VALUE)
+    {
+        if (o->start_time_eof >= 0)
+        {
+            av_log(NULL, AV_LOG_ERROR, "-sseof value must be negative; aborting\n");
+            throw;
+        }
+        if (ctx->duration > 0)
+        {
+            o->start_time = o->start_time_eof + ctx->duration;
+            if (o->start_time < 0)
+            {
+                av_log(NULL, AV_LOG_WARNING, "-sseof value seeks to before start of file %s; ignored\n", filename);
+                o->start_time = AV_NOPTS_VALUE;
+            }
+        }
+        else
+            av_log(NULL, AV_LOG_WARNING, "Cannot use -sseof, duration of %s not known\n", filename);
+    }
+    timestamp = (o->start_time == AV_NOPTS_VALUE) ? 0 : o->start_time;
+    /* add the stream start time */
+    if (!o->seek_timestamp && ctx->start_time != AV_NOPTS_VALUE)
+        timestamp += ctx->start_time;
+
+    /* if seeking requested, we execute it */
+    if (o->start_time != AV_NOPTS_VALUE)
+    {
+        int64_t seek_timestamp = timestamp;
+
+        if (!(ctx->iformat->flags & AVFMT_SEEK_TO_PTS))
+        {
+            int dts_heuristic = 0;
+            for (i = 0; i < ctx->nb_streams; i++)
+            {
+                const AVCodecParameters *par = ctx->streams[i]->codecpar;
+                if (par->video_delay)
+                {
+                    dts_heuristic = 1;
+                    break;
+                }
+            }
+            if (dts_heuristic)
+            {
+                seek_timestamp -= 3 * AV_TIME_BASE / 23;
+            }
+        }
+        ret = avformat_seek_file(ctx, -1, INT64_MIN, seek_timestamp, seek_timestamp, 0);
+        if (ret < 0)
+        {
+            av_log(NULL, AV_LOG_WARNING, "%s: could not seek to position %0.3f\n",
+                   filename, (double)timestamp / AV_TIME_BASE);
+        }
+    }
+
+    /* check if all codec options have been used */
+    unused_opts = strip_specifiers(o->g->codec_opts);
+    for (i = f->ist_index; i < nb_input_streams; i++) {
+        e = NULL;
+        while ((e = av_dict_get(input_streams[i]->decoder_opts, "", e,
+                                AV_DICT_IGNORE_SUFFIX)))
+            av_dict_set(&unused_opts, e->key, NULL, 0);
+    }
+
+    e = NULL;
+    while ((e = av_dict_get(unused_opts, "", e, AV_DICT_IGNORE_SUFFIX))) {
+        const AVClass *class = avcodec_get_class();
+        const AVOption *option = av_opt_find(&class, e->key, NULL, 0,
+                                             AV_OPT_SEARCH_CHILDREN | AV_OPT_SEARCH_FAKE_OBJ);
+        const AVClass *fclass = avformat_get_class();
+        const AVOption *foption = av_opt_find(&fclass, e->key, NULL, 0,
+                                             AV_OPT_SEARCH_CHILDREN | AV_OPT_SEARCH_FAKE_OBJ);
+        if (!option || foption)
+            continue;
+
+
+        if (!(option->flags & AV_OPT_FLAG_DECODING_PARAM)) {
+            av_log(NULL, AV_LOG_ERROR, "Codec AVOption %s (%s) specified for "
+                   "input file #%d (%s) is not a decoding option.\n", e->key,
+                   option->help ? option->help : "", nb_input_files - 1,
+                   filename);
+            exit_program(1);
+        }
+
+        av_log(NULL, AV_LOG_WARNING, "Codec AVOption %s (%s) specified for "
+               "input file #%d (%s) has not been used for any stream. The most "
+               "likely reason is either wrong type (e.g. a video option with "
+               "no video streams) or that it is a private option of some decoder "
+               "which was not actually used for any stream.\n", e->key,
+               option->help ? option->help : "", nb_input_files - 1, filename);
+    }
+    av_dict_free(&unused_opts);
+
+    for (i = 0; i < o->nb_dump_attachment; i++) {
+        int j;
+
+        for (j = 0; j < ic->nb_streams; j++) {
+            AVStream *st = ic->streams[j];
+
+            if (check_stream_specifier(ic, st, o->dump_attachment[i].specifier) == 1)
+                dump_attachment(st, o->dump_attachment[i].u.str);
+        }
+    }
+
+    input_stream_potentially_available = 1;
+
+    return 0;
+}
 
 /*
  * The following code is the main loop of the file converter

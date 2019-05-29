@@ -26,11 +26,14 @@ enum forced_keyframes_const {
     FKF_NB
 };
 
+class InputStream;
+
 struct OutputStream
 {
     int file_index;      /* T file index */
     int index;           /* T stream index in the output file */
-    int source_index;    /* T InputStream index */
+    // int source_index;    /* T InputStream index */
+    InputStream *source;
     AVStream *st;        /* T stream in the output file */
     int encoding_needed; /* T true if encoding needed for this stream */
     int frame_number;    // T

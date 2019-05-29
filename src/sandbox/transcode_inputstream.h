@@ -1,5 +1,8 @@
 #pragma once
 
+#include <vector>
+#include <string>
+
 extern "C"
 {
 #include <libavformat/avformat.h>
@@ -7,14 +10,33 @@ extern "C"
 #include <libavutil/fifo.h>
 }
 
+// #include "transcode_inputfile.h"
 #include "transcode_filter.h"
 #include "transcode_hw.h"
 
+struct InputFile;
+
 struct InputStream
 {
-    int file_index;      // T
+    static bool bitexact;
+
+    InputStream(InputFile &file, int index, bool open_codec = true, const AVDictionary *codec_opts = NULL);
+    std::string IdString() const;
+    void setDecoder(const std::string &name_str);
+    void setHWAccel(const std::string &hwaccel, const std::string &hwaccel_device, const std::string &hwaccel_output_format);
+
+    void initDecoder(const AVDictionary *codec_opts = NULL);
+    void openDecoder();
+
+    InputFile &file; // T
+
+    int process_input_packet(const AVPacket *pkt, bool no_eof); // from transcode.cpp
+
+    void sub2video_heartbeat(int64_t pts); // from transcode_inputfile.cpp
+    void sub2video_update(AVSubtitle *sub);
+
     AVStream *st;        // T
-    int discard;         /* T true if stream data should be discarded */
+    bool discard;        /* T true if stream data should be discarded */
                          //     int user_set_discard;
     int decoding_needed; /* T non zero if the packets must be decoded in 'raw_fifo', see DECODING_FOR_* */
 #define DECODING_FOR_OST 1
@@ -47,11 +69,11 @@ struct InputStream
     int64_t nb_samples; /* IF number of samples in the last decoded audio frame before looping */
 
     double ts_scale; // IF
-    int saw_first_ts;
+    bool saw_first_ts;
     AVDictionary *decoder_opts; // IF
     AVRational framerate;       /* IF framerate forced with -r */
     int top_field_first;
-    //     int guess_layout_max;
+    int guess_layout_max;
 
     int autorotate;
 
@@ -63,14 +85,15 @@ struct InputStream
         AVSubtitle subtitle;
     } prev_sub;
 
-    struct sub2video
+    struct sub2video_s
     {
         int64_t last_pts;
         int64_t end_pts;
         AVFifoBuffer *sub_queue; ///< queue of AVSubtitle* before filter init
         AVFrame *frame;
         int w, h;
-    } sub2video;
+    };
+    sub2video_s sub2video;
 
     //     int dr1;
 
@@ -108,13 +131,24 @@ struct InputStream
     int nb_dts_buffer;
 
     int got_output; // T
+
+private:
+    void hw_device_setup_for_decode();
+    int decode_audio(AVPacket *pkt, int *got_output, int *decode_failed);
+    int decode_video(AVPacket *pkt, int *got_output, int64_t *duration_pts, int eof, int *decode_failed);
+    int transcode_subtitles(AVPacket *pkt, int *got_output, int *decode_failed);
+    void send_filter_eof();
+    void check_decode_result(int *got_output, int ret);
+    int send_frame_to_filters(AVFrame *decoded_frame);
+
+    // likely to be privatized
+    static int decode(AVCodecContext *avctx, AVFrame *frame, int *got_frame, AVPacket *pkt);
+    static int get_buffer(AVCodecContext *s, AVFrame *frame, int flags);
+    static AVPixelFormat get_format(AVCodecContext *s, const AVPixelFormat *pix_fmts);
+
+    void sub2video_flush();
+    void sub2video_push_ref(int64_t pts);
+    int sub2video_get_blank_frame();
 };
 
-int init_input_stream(int ist_index, char *error, int error_len);
-int process_input_packet(InputStream *ist, const AVPacket *pkt, int no_eof); // from transcode.cpp
-void sub2video_heartbeat(InputStream *ist, int64_t pts);                     // from transcode_inputfile.cpp
-void sub2video_update(InputStream *ist, AVSubtitle *sub);
-
-// likely to be privatized
-int get_buffer(AVCodecContext *s, AVFrame *frame, int flags);
-AVPixelFormat get_format(AVCodecContext *s, const AVPixelFormat *pix_fmts);
+typedef std::vector<InputStream> InputStreamVect;

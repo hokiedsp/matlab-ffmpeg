@@ -2,6 +2,7 @@ project (matlab-ffmpeg)
 
 # must build the ffmpeg library first as it is used by all mex files
 add_subdirectory("ffmpeg")
+add_subdirectory("sandbox")
 
 # build visible mex functions
 matlab_add_mex(NAME ffmpegmediatypes SRC ffmpegmediatypes.cpp LINK_TO $<TARGET_OBJECTS:ffmpeg>)

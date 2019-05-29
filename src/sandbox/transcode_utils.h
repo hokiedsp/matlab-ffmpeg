@@ -24,3 +24,5 @@ void assert_avoptions(AVDictionary *m);
 AVRational duration_max(int64_t tmp, int64_t *duration, AVRational tmp_time_base, AVRational time_base); // from transcode_inputfile.cpp
 av_const int mid_pred(int a, int b, int c);
 int64_t parse_time_or_die(const char *context, const char *timestr, int is_duration);
+
+AVDictionary *filter_codec_opts(AVDictionary *opts, AVCodecID codec_id, AVFormatContext *s, AVStream *st, AVCodec *codec);

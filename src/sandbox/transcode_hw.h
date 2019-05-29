@@ -38,6 +38,12 @@ struct HWDevice
     AVBufferRef *device_ref;
 };
 
+HWDevice *hw_device_get_by_type(AVHWDeviceType type);
+HWDevice *hw_device_match_by_codec(const AVCodec *codec);
+HWDevice *hw_device_get_by_name(const char *name);
+int hw_device_init_from_type(AVHWDeviceType type,
+                             const char *device,
+                             HWDevice **dev_out);
+
 int hwaccel_decode_init(AVCodecContext *avctx);
-int hw_device_setup_for_decode(InputStream *ist);
 int hw_device_setup_for_encode(OutputStream *ost);

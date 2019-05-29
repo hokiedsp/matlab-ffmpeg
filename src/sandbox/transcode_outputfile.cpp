@@ -14,7 +14,7 @@ extern "C"
 #include <libavutil/avstring.h>
 }
 
-#include "avexception.h"
+#include "../ffmpeg/avexception.h"
 #include "transcode_utils.h"
 #include "transcode_inputstream.h"
 #include "transcode_inputfile.h"

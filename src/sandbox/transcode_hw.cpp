@@ -231,7 +231,7 @@ fail:
     goto done;
 }
 
-static int hw_device_init_from_type(enum AVHWDeviceType type,
+int hw_device_init_from_type(enum AVHWDeviceType type,
                                     const char *device,
                                     HWDevice **dev_out)
 {
@@ -290,7 +290,7 @@ void hw_device_free_all(void)
     nb_hw_devices = 0;
 }
 
-static HWDevice *hw_device_match_by_codec(const AVCodec *codec)
+HWDevice *hw_device_match_by_codec(const AVCodec *codec)
 {
     const AVCodecHWConfig *config;
     HWDevice *dev;
@@ -306,157 +306,6 @@ static HWDevice *hw_device_match_by_codec(const AVCodec *codec)
         if (dev)
             return dev;
     }
-}
-
-int hw_device_setup_for_decode(InputStream *ist)
-{
-    const AVCodecHWConfig *config;
-    enum AVHWDeviceType type;
-    HWDevice *dev = NULL;
-    int err, auto_device = 0;
-
-    if (ist->hwaccel_device)
-    {
-        dev = hw_device_get_by_name(ist->hwaccel_device);
-        if (!dev)
-        {
-            if (ist->hwaccel_id == HWACCEL_AUTO)
-            {
-                auto_device = 1;
-            }
-            else if (ist->hwaccel_id == HWACCEL_GENERIC)
-            {
-                type = ist->hwaccel_device_type;
-                err = hw_device_init_from_type(type, ist->hwaccel_device,
-                                               &dev);
-            }
-            else
-            {
-                // This will be dealt with by API-specific initialisation
-                // (using hwaccel_device), so nothing further needed here.
-                return 0;
-            }
-        }
-        else
-        {
-            if (ist->hwaccel_id == HWACCEL_AUTO)
-            {
-                ist->hwaccel_device_type = dev->type;
-            }
-            else if (ist->hwaccel_device_type != dev->type)
-            {
-                av_log(ist->dec_ctx, AV_LOG_ERROR, "Invalid hwaccel device "
-                                                   "specified for decoder: device %s of type %s is not "
-                                                   "usable with hwaccel %s.\n",
-                       dev->name,
-                       av_hwdevice_get_type_name(dev->type),
-                       av_hwdevice_get_type_name(ist->hwaccel_device_type));
-                return AVERROR(EINVAL);
-            }
-        }
-    }
-    else
-    {
-        if (ist->hwaccel_id == HWACCEL_AUTO)
-        {
-            auto_device = 1;
-        }
-        else if (ist->hwaccel_id == HWACCEL_GENERIC)
-        {
-            type = ist->hwaccel_device_type;
-            dev = hw_device_get_by_type(type);
-            if (!dev)
-                err = hw_device_init_from_type(type, NULL, &dev);
-        }
-        else
-        {
-            dev = hw_device_match_by_codec(ist->dec);
-            if (!dev)
-            {
-                // No device for this codec, but not using generic hwaccel
-                // and therefore may well not need one - ignore.
-                return 0;
-            }
-        }
-    }
-
-    if (auto_device)
-    {
-        int i;
-        if (!avcodec_get_hw_config(ist->dec, 0))
-        {
-            // Decoder does not support any hardware devices.
-            return 0;
-        }
-        for (i = 0; !dev; i++)
-        {
-            config = avcodec_get_hw_config(ist->dec, i);
-            if (!config)
-                break;
-            type = config->device_type;
-            dev = hw_device_get_by_type(type);
-            if (dev)
-            {
-                av_log(ist->dec_ctx, AV_LOG_INFO, "Using auto "
-                                                  "hwaccel type %s with existing device %s.\n",
-                       av_hwdevice_get_type_name(type), dev->name);
-            }
-        }
-        for (i = 0; !dev; i++)
-        {
-            config = avcodec_get_hw_config(ist->dec, i);
-            if (!config)
-                break;
-            type = config->device_type;
-            // Try to make a new device of this type.
-            err = hw_device_init_from_type(type, ist->hwaccel_device,
-                                           &dev);
-            if (err < 0)
-            {
-                // Can't make a device of this type.
-                continue;
-            }
-            if (ist->hwaccel_device)
-            {
-                av_log(ist->dec_ctx, AV_LOG_INFO, "Using auto "
-                                                  "hwaccel type %s with new device created "
-                                                  "from %s.\n",
-                       av_hwdevice_get_type_name(type),
-                       ist->hwaccel_device);
-            }
-            else
-            {
-                av_log(ist->dec_ctx, AV_LOG_INFO, "Using auto "
-                                                  "hwaccel type %s with new default device.\n",
-                       av_hwdevice_get_type_name(type));
-            }
-        }
-        if (dev)
-        {
-            ist->hwaccel_device_type = type;
-        }
-        else
-        {
-            av_log(ist->dec_ctx, AV_LOG_INFO, "Auto hwaccel "
-                                              "disabled: no device found.\n");
-            ist->hwaccel_id = HWACCEL_NONE;
-            return 0;
-        }
-    }
-
-    if (!dev)
-    {
-        av_log(ist->dec_ctx, AV_LOG_ERROR, "No device available "
-                                           "for decoder: device type %s needed for codec %s.\n",
-               av_hwdevice_get_type_name(type), ist->dec->name);
-        return err;
-    }
-
-    ist->dec_ctx->hw_device_ctx = av_buffer_ref(dev->device_ref);
-    if (!ist->dec_ctx->hw_device_ctx)
-        return AVERROR(ENOMEM);
-
-    return 0;
 }
 
 int hw_device_setup_for_encode(OutputStream *ost)

@@ -8,7 +8,7 @@ extern "C"
 #include <libavutil/avassert.h>
 }
 
-#include "avexception.h"
+#include "../ffmpeg/avexception.h"
 #include "transcode_inputstream.h"
 #include "transcode_outputfile.h"
 #include "transcode_hw.h"
