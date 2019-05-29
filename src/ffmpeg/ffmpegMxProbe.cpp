@@ -29,7 +29,7 @@ void FFmpegMxProbe::open(const char *infile, AVInputFormat *iformat, AVDictionar
 
     fmt_ctx = avformat_alloc_context();
     if (!fmt_ctx)
-        AVException::log_error(infile, AVERROR(ENOMEM), true);
+        AVException::log_error(AV_LOG_FATAL, "%s: %s", 1, infile, AVERROR(ENOMEM));
 
     // if (!av_dict_get(format_opts, "scan_all_pmts", NULL, AV_DICT_MATCH_CASE))
     // {
@@ -43,7 +43,7 @@ void FFmpegMxProbe::open(const char *infile, AVInputFormat *iformat, AVDictionar
         if (filepath.size())
             err = avformat_open_input(&fmt_ctx, filepath.c_str(), iformat, opts ? &opts : nullptr);
         if (err < 0) // no luck
-            AVException::log_error(infile, err, true);
+            AVException::log_error(AV_LOG_FATAL, "%s: %s", 1, infile, err);
     }
 
     // fmt_ctx valid
@@ -51,7 +51,7 @@ void FFmpegMxProbe::open(const char *infile, AVInputFormat *iformat, AVDictionar
     // fill stream information if not populated yet
     err = avformat_find_stream_info(fmt_ctx, opts ? &opts : nullptr);
     if (err < 0)
-        AVException::log_error(infile, err, true);
+        AVException::log_error(AV_LOG_FATAL, "%s: %s", 1, infile, err);
 
     // if (scan_all_pmts_set)
     //     av_dict_set(&format_opts, "scan_all_pmts", NULL, AV_DICT_MATCH_CASE);
@@ -92,12 +92,12 @@ AVCodecContext *FFmpegMxProbe::open_stream(AVStream *st, AVDictionary *opts)
 
     dec_ctx = avcodec_alloc_context3(codec);
     if (!dec_ctx)
-        AVException::log_error("Stream", AVERROR(ENOMEM), true);
+        AVException::log_error(AV_LOG_FATAL, "%s", AVERROR(ENOMEM));
     AVCodecContextAutoDelete(dec_ctx);
 
     int err = avcodec_parameters_to_context(dec_ctx, st->codecpar);
     if (err < 0)
-        AVException::log_error("Stream", err, true);
+        AVException::log_error(AV_LOG_FATAL, "%s", err);
 
     dec_ctx->pkt_timebase = st->time_base;
     dec_ctx->framerate = st->avg_frame_rate;

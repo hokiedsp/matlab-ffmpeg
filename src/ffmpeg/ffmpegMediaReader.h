@@ -33,9 +33,8 @@ public:
   void addAllStreams();
   void clearStreams();
 
-  void startReading();
-  void stopReading();
-
+  void readNextPacket();
+   
   int64_t getCurrentTimeStamp() const;
   void setCurrentTimeStamp(const int64_t val, const bool exact_search = true);
 

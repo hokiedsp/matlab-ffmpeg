@@ -62,7 +62,8 @@ AVDictionary *filter_codec_opts(AVDictionary *opts, enum AVCodecID codec_id,
             case 0:
                 continue;
             default:
-                AVException::force_throw();
+                AVException::log(AV_LOG_FATAL, "Invalid stream specified.");
+                AVException::throw_last_log();
             }
 
         if (av_opt_find(&cc, t->key, NULL, flags, AV_OPT_SEARCH_FAKE_OBJ) || codec ||

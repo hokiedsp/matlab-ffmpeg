@@ -18,11 +18,13 @@ void AVException::initialize()
     }
 }
 
-void AVException::force_throw() // throw exception with the previous log
+void AVException::throw_last_log() // throw exception with the previous log
 {
     std::shared_lock lock(mutex_);
     if (prev.size())
         throw AVException(prev.c_str());
+    else
+        throw AVException("Unknown error.");
 }
 
 void AVException::log(void *avcl, int log_level, const char *msg...)

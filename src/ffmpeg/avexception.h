@@ -19,7 +19,6 @@ public:
 
   // FFmpeg av_log
   static void initialize();                                                             // initialize the AVException static components
-  static void force_throw();                                                            // throw exception with the previous log (only if it exists)
   static void log_error(int level, const char *msg) { log_error(nullptr, level, msg); } // fixed error log
   static void log_error(void *avcl, int level, const char *msg);                        // fixed error log
 
@@ -91,6 +90,8 @@ public:
     }
   }
 
+  static void throw_last_log();
+
   static int av_log_level;   // set the minimum FFmpeg log level to throw exception
   static int av_throw_level; // set the minimum FFmpeg log level to throw exception
 
@@ -98,6 +99,7 @@ public:
 
   static bool skip_repeated;
 
+  virtual ~AVException() {}
 protected:
   /**
      * FFmpeg logging callback
@@ -123,5 +125,4 @@ private:
 
   std::string errmsg;
   AVException(const char *line) : errmsg(line) {}
-  virtual ~AVException() {}
 };

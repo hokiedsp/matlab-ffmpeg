@@ -53,6 +53,23 @@
         "xlocmes": "cpp",
         "xlocmon": "cpp",
         "xlocnum": "cpp",
-        "xloctime": "cpp"
+        "xloctime": "cpp",
+        "array": "cpp",
+        "atomic": "cpp",
+        "codecvt": "cpp",
+        "filesystem": "cpp",
+        "fstream": "cpp",
+        "functional": "cpp",
+        "iomanip": "cpp",
+        "ios": "cpp",
+        "istream": "cpp",
+        "iterator": "cpp",
+        "list": "cpp",
+        "ostream": "cpp",
+        "regex": "cpp",
+        "sstream": "cpp",
+        "unordered_map": "cpp",
+        "xhash": "cpp",
+        "iostream": "cpp"
     }
 }
