@@ -4,7 +4,8 @@
 #include "ffmpegPtrs.h"
 #include "ffmpegAvRedefine.h"
 
-extern "C" {
+extern "C"
+{
 #include <libavutil/mathematics.h>
 }
 
@@ -15,12 +16,20 @@ using namespace ffmpeg;
 MediaReader::MediaReader(const std::string &filename, const AVMediaType type)
     : fmt_ctx(NULL), pts(AV_NOPTS_VALUE)
 {
+  // initialize to allow preemptive unreferencing
   if (!filename.empty())
     openFile(filename, type);
+
+  // initialize packet struct
+  av_init_packet(&packet);
 }
 
 MediaReader::~MediaReader()
 {
+  // release whatever currently is in the packet holder
+  av_packet_unref(&packet);
+
+  // close the file
   closeFile();
 }
 
@@ -65,10 +74,6 @@ void MediaReader::closeFile()
   // nothing to do if file is not open
   if (!isFileOpen())
     return;
-
-  // stop the thread
-  if (!isRunning())
-    stop();
 
   // close all the streams
   clearStreams();
@@ -130,32 +135,62 @@ void MediaReader::addAllStreams()
 
 void MediaReader::add_stream(const int id)
 {
-  if (isRunning())
-    ffmpegException("MediaReader is active. Streams cannot be changed");
-
   AVStream *st = fmt_ctx->streams[id];
   AVCodecParameters *par = st->codecpar;
   switch (par->codec_type)
   {
   case AVMEDIA_TYPE_VIDEO:
-    streams.push_back(new InputVideoStream(st));
+    streams.insert(std::make_pair(id, new InputVideoStream(st)));
     break;
   case AVMEDIA_TYPE_AUDIO:
   case AVMEDIA_TYPE_DATA:
   case AVMEDIA_TYPE_SUBTITLE:
   case AVMEDIA_TYPE_ATTACHMENT:
   default:
-    streams.push_back(new InputStream(st));
+    streams.insert(std::make_pair(id, new InputStream(st)));
   }
 }
 
 void MediaReader::clearStreams()
 {
-  if (isRunning())
-    ffmpegException("MediaReader is active. Streams cannot be changed");
-
-  std::for_each(streams.begin(), streams.end(), [&](InputStream *is) { delete is; });
+  std::for_each(streams.begin(), streams.end(), [&](auto is) { delete is.second; });
   streams.clear();
+}
+
+InputStream &MediaReader::getStream(int stream_id)
+{
+  try
+  {
+    return *streams.at(stream_id);
+  }
+  catch(const std::out_of_range& e)
+  {
+    throw ffmpegException("Invalid/inactive stream ID");
+  }
+}
+
+InputStream &MediaReader::getStream(AVMediaType type, int related_stream_id)
+{
+  int ret = av_find_best_stream(fmt_ctx, type, -1, related_stream_id, NULL, 0);
+  if (ret < 0)
+    return getStream(ret);
+  throw ffmpegException("Could not find matching stream in the media file");
+}
+
+const InputStream &MediaReader::getStream(int stream_id) const
+{
+  auto it = streams.find(stream_id);
+  if (it == streams.end())
+    throw ffmpegException("Invalid/inactive stream ID");
+  return *(it->second);
+}
+
+const InputStream &MediaReader::getStream(AVMediaType type, int related_stream_id) const
+{
+  int ret = av_find_best_stream(fmt_ctx, type, -1, related_stream_id, NULL, 0);
+  if (ret < 0)
+    return getStream(ret);
+  throw ffmpegException("Could not find matching stream in the media file");
 }
 
 int64_t MediaReader::getDuration() const
@@ -169,7 +204,7 @@ int64_t MediaReader::getDuration() const
 
 std::string MediaReader::getFilePath() const
 {
-  return fmt_ctx ? fmt_ctx->filename : "";
+  return fmt_ctx ? fmt_ctx->url : "";
 }
 
 AVRational MediaReader::getTimeBase() const
@@ -190,9 +225,6 @@ void MediaReader::setCurrentTimeStamp(const int64_t seek_timestamp, const bool e
   // if (val<0.0 || val>getDuration())
   //   throw ffmpegException("Out-of-range timestamp.");
 
-  // pause the threads and flush the remaining frames
-  pause();
-
   // AV_TIME_BASE
 
   // set new time
@@ -209,109 +241,32 @@ void MediaReader::setCurrentTimeStamp(const int64_t seek_timestamp, const bool e
   if (exact_search)
   {
     std::for_each(streams.begin(), streams.end(),
-                  [&](InputStream *is) { is->setStartTime(av_rescale_q(seek_timestamp, getTimeBase(), is->getTimeBase())); });
+                  [&](auto pr) { pr.second->setStartTime(av_rescale_q(seek_timestamp, getTimeBase(), pr.second->getTimeBase())); });
   };
-
-  // restart
-  resume();
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////
 // THREAD FUNCTIONS: Read file and send it to the FFmpeg decoder
 
-void MediaReader::startReading()
-{
-  // start the file reading thread (sets up and idles)
-  start();
-}
-
-void MediaReader::stopReading()
-{
-  stop();
-}
-
-void MediaReader::thread_fcn()
+void MediaReader::readNextPacket()
 {
   int ret;
-  AVPacket packet;
 
-  // create stream lookup table
-  std::vector<InputStream *> st_lut(fmt_ctx->nb_streams, NULL);
-  std::for_each(streams.begin(), streams.end(), [&st_lut](InputStream *is) { st_lut[is->getId()] = is; });
-
-  try
-  {
-    // initialize to allow preemptive unreferencing
-    av_init_packet(&packet);
-
-    // mutex guard, locked initially
-    std::unique_lock<std::mutex> thread_guard(thread_lock);
-
-    // read all packets
-    while (!killnow)
-    {
-      // wait until a file is opened and the reader is unleashed
-      if (status == IDLE)
-      {
-        thread_ready.notify_one();
-        thread_ready.wait(thread_guard);
-        thread_guard.unlock();
-
-        if (killnow || status == PAUSE_RQ)
-          continue;
-        status = ACTIVE;
-      }
-
-      // end of status management::unlock the mutex guard
-      thread_guard.unlock();
-
-      // read the next frame packet
-      ret = av_read_frame(fmt_ctx, &packet);
-      bool eof = ret == AVERROR_EOF;
-      if (ret < 0 && !eof) // should not return EAGAIN
-        throw ffmpegException(ret);
-
-      // work only on the registered streams
-      if (InputStream *is = st_lut[packet.stream_index])
-      {
-        ret = is->processPacket(eof ? NULL : &packet);
-        if (ret < 0)
-          throw ffmpegException(ret);
-
-        // update pts
-        pts = av_rescale_q(is->getLastFrameTimeStamp(), is->getTimeBase(), getTimeBase());
-      }
-
-      // release the packet
-      av_packet_unref(&packet);
-
-      // re-lock the mutex for the status management
-      thread_guard.lock();
-
-      if (status == PAUSE_RQ)
-      { // if pause requested -> reset streams
-        std::for_each(streams.begin(), streams.end(), [&](InputStream *is) { is->reset(); });
-        status = IDLE;
-      }
-      else if (eof)
-      { // EOF -> all done
-        status = IDLE;
-      }
-    }
-  }
-  catch (...)
-  {
-    av_log(NULL, AV_LOG_FATAL, "MediaReader::thread_fcn() thread threw exception.\n");
-
-    // log the exception
-    eptr = std::current_exception();
-
-    // flag the exception
-    std::unique_lock<std::mutex> thread_guard(thread_lock);
-    killnow = true;
-    status = FAILED;
-    thread_ready.notify_all();
-  }
-
+  // unreference previously read packet
   av_packet_unref(&packet);
+
+  // read the next frame packet
+  ret = av_read_frame(fmt_ctx, &packet);
+  bool eof = ret == AVERROR_EOF;
+  if (ret < 0 && !eof) // should not return EAGAIN
+    throw ffmpegException(ret);
+
+  // work only on the registered streams
+  InputStream &is = getStream(packet.stream_index);
+  ret = is.processPacket(eof ? NULL : &packet);
+  if (ret < 0)
+    throw ffmpegException(ret);
+
+  // update pts
+  pts = av_rescale_q(is.getLastFrameTimeStamp(), is.getTimeBase(), getTimeBase());
 }
