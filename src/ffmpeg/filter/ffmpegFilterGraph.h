@@ -1,6 +1,5 @@
 #pragma once
 
-#include "../ThreadBase.h"
 #include "../ffmpegBase.h"
 #include "../ffmpegStreamInput.h"
 #include "../ffmpegStreamOutput.h"
@@ -14,11 +13,12 @@
 // #include "ffmpegAVFramePtrBuffer.h"
 // #include "ffmpegFrameBuffers.h"
 
-extern "C" {
+extern "C"
+{
 // #include <libavcodec/avcodec.h>
 // #include <libavformat/avformat.h>
-#include <libavfilter/avfiltergraph.h>
-// #include <libavutil/pixdesc.h>
+#include <libavfilter/avfilter.h>
+  // #include <libavutil/pixdesc.h>
 }
 
 #include <vector>
@@ -34,7 +34,7 @@ namespace ffmpeg
 {
 namespace filter
 {
-class Graph : public ffmpeg::Base, public ThreadBase
+class Graph : public ffmpeg::Base
 {
 public:
   Graph(const std::string &filtdesc = "");
@@ -259,36 +259,16 @@ public:
 
   bool isSource(const std::string &name)
   {
-    try
-    {
-      inputs.at(name);
-      return true;
-    }
-    catch (...)
-    {
-      return false;
-    }
+    return inputs.find(name) != inputs.end();
   }
 
   bool isSink(const std::string &name)
   {
-    try
-    {
-      const SinkInfo &sink = outputs.at(name);
-      return true;
-    }
-    catch (...)
-    {
-      return false;
-    }
+    return outputs.find(name) != outputs.end();
   }
 
   // avfilter_graph_send_command, avfilter_graph_queue_command
 protected:
-  // thread function: responsible to read packet and send it to ffmpeg decoder
-  void thread_fcn();
-  void thread_fcn_siso();
-
   template <typename EP, typename VEP, typename AEP, typename BUFF>
   void assign_endpoint(EP *&ep, AVMediaType type, BUFF &buf)
   {
@@ -342,11 +322,7 @@ private:
   std::map<std::string, SourceInfo> inputs;
   std::map<std::string, SinkInfo> outputs;
 
-  std::mutex inmon_m;
-  std::condition_variable inmon_cv;
   int inmon_status; // 0:no monitoring; 1:monitor; <0 quit
-
-  void child_thread_fcn(SourceBase *src);
 
   template <typename InfoMap>
   static string_vector get_names(const InfoMap &map)
@@ -362,8 +338,8 @@ private:
 
   void connect_nullsource(AVFilterInOut *in);
   void connect_nullsink(AVFilterInOut *out);
-  
+
   void use_src_splitter(SourceBase *src, const ConnectionList &conns);
 };
-}
-}
+} // namespace filter
+} // namespace ffmpeg
