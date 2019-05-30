@@ -1,8 +1,10 @@
 # BUILD ffmpeg.obj which is to be used by all the mex functions
 add_library(ffmpeg OBJECT FFmpegMxProbe.cpp ffmpeg_utils.cpp avexception.cpp mxutils.cpp)
+set(ffmpeg ${ffmpeg} PARENT_SCOPE) # make the library target available at the root level
 
-# make the library target available at the root level
-set(ffmpeg ${ffmpeg} PARENT_SCOPE)
+set(LIBFFMPEGFILTER "libffmpeg")
+add_library(LIBFFMPEG OBJECT ffmpegBase.cpp ffmpegStream.cpp ffmpegMediaReader.cpp)
+set(LIBFFMPEG ${LIBFFMPEG} PARENT_SCOPE)
 
 # if(TARGET ${LIBFFMPEG})
 
@@ -23,7 +25,7 @@ set(ffmpeg ${ffmpeg} PARENT_SCOPE)
   
 #   set(LIBFFMPEG ${LIBFFMPEG} PARENT_SCOPE)
 
-#   add_subdirectory(filter)
-#   set(LIBFFMPEGFILTER ${LIBFFMPEGFILTER} PARENT_SCOPE)
+  add_subdirectory(filter)
+  set(LIBFFMPEGFILTER ${LIBFFMPEGFILTER} PARENT_SCOPE)
   
 # endif()

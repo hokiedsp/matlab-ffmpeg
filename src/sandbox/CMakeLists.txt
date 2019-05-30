@@ -1,5 +1,5 @@
 # BUILD ffmpeg.obj which is to be used by all the mex functions
-add_library(transcode OBJECT transcode_inputstream.cpp transcode_inputfile.cpp)
+# add_library(transcode OBJECT transcode_inputstream.cpp transcode_inputfile.cpp)
 # transcode.cpp   transcode_outputfile.cpp transcode_outputstream.cpp transcode_hw.cpp transcode_filter.cpp transcode_utils.cpp
 
 # make the library target available at the root level

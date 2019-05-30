@@ -1,7 +1,5 @@
 cmake_minimum_required(VERSION 3.3)
 
-set(LIBFFMPEGFILTER_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR} PARENT_SCOPE)
-
 set(LIBFFMPEGFILTER "libffmpegfilter")
 
 # set(FFMPEG_SRCS ./src/ffmpegBase.cpp)
@@ -10,8 +8,6 @@ file(GLOB LIBFFMPEGFILTER_SRCS "*.cpp")
 # remove source files not quite ready
 # list(REMOVE_ITEM LIBFFMPEGFILTER_SRCS "${CMAKE_CURRENT_SOURCE_DIR}/ffmpegFilterGraph.cpp")
 
-include_directories(${LIBFFMPEGFILTER_INCLUDE_DIR})
 add_library(${LIBFFMPEGFILTER} OBJECT ${LIBFFMPEGFILTER_SRCS})
 
 set(LIBFFMPEGFILTER ${LIBFFMPEGFILTER} PARENT_SCOPE)
-
