@@ -36,12 +36,12 @@ struct Base
 
    //  static int decode_interrupt_cb(void *ctx);
 
-   static AVOutputFormatPtrs get_output_formats_devices(const AVMediaType type, const int flags);
-   static AVInputFormatPtrs get_input_formats_devices(const AVMediaType type, const int flags);
+  //  static AVOutputFormatPtrs get_output_formats_devices(const AVMediaType type, const int flags);
+  //  static AVInputFormatPtrs get_input_formats_devices(const AVMediaType type, const int flags);
  private:
    static int num_objs;
 
-   static bool match_format_name(std::string name, const unique_strings &names);
+  //  static bool match_format_name(std::string name, const unique_strings &names);
    
    template <typename FormatPtrs>
    static unique_strings get_format_names(const FormatPtrs &fmtptrs)

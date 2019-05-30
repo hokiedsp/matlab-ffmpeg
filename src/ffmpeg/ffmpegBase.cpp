@@ -1,6 +1,7 @@
 #include "ffmpegBase.h"
 
-extern "C" {
+extern "C"
+{
 #include <libavformat/avformat.h>
 #include <libavcodec/avcodec.h>
 #include <libavfilter/avfilter.h>
@@ -31,9 +32,9 @@ Base::Base()
   {
     //init_dynload();
 
-    av_register_all(); // Initialize libavformat and register all the muxers, demuxers and protocols.
+    // av_register_all(); // Initialize libavformat and register all the muxers, demuxers and protocols.
     //av_log_set_flags(AV_LOG_SKIP_REPEATED);
-    avcodec_register_all();
+    // avcodec_register_all();
     // #if CONFIG_AVDEVICE
     // avdevice_register_all();
     // #endif
@@ -44,10 +45,10 @@ Base::Base()
                              //       avdevice_register_all(); // Initialize libavdevice and register all the input and output devices.
                              // #endif
 
-    avfilter_register_all();
-
-    setvbuf(stderr, NULL, _IONBF, 0); /* win32 runtime needs this */
+    // avfilter_register_all();
   }
+
+  setvbuf(stderr, NULL, _IONBF, 0); /* win32 runtime needs this */
 }
 
 Base::~Base()
@@ -58,50 +59,50 @@ Base::~Base()
   }
 }
 
-AVOutputFormatPtrs Base::get_output_formats_devices(const AVMediaType type, const int flags)
-{
-  AVOutputFormatPtrs rval;
-  //AVCodecIDs cids = get_cids(type, true);
+// AVOutputFormatPtrs Base::get_output_formats_devices(const AVMediaType type, const int flags)
+// {
+//   AVOutputFormatPtrs rval;
+//   //AVCodecIDs cids = get_cids(type, true);
 
-  av_register_all(); // Initialize libavformat and register all the muxers, demuxers and protocols.
+//   av_register_all(); // Initialize libavformat and register all the muxers, demuxers and protocols.
 
-  for (AVOutputFormat *ofmt = av_oformat_next(NULL); ofmt; ofmt = av_oformat_next(ofmt))
-  {
-    // int supported = false;
-    // for (AVCodecIDs::iterator cid = cids.begin(); !supported && cid > cids.end(); cid++)
-    //   supported = avformat_query_codec(ofmt, *cid, true);
-    // if (supported)
-    if (((type == AVMEDIA_TYPE_VIDEO && ofmt->video_codec != AV_CODEC_ID_NONE) ||
-         (type == AVMEDIA_TYPE_AUDIO && ofmt->audio_codec != AV_CODEC_ID_NONE) ||
-         (type == AVMEDIA_TYPE_SUBTITLE && ofmt->subtitle_codec != AV_CODEC_ID_NONE)) &&
-        !(ofmt->flags & flags))
-      rval.push_back(ofmt);
-  }
-  return rval;
-}
+//   for (AVOutputFormat *ofmt = av_oformat_next(NULL); ofmt; ofmt = av_oformat_next(ofmt))
+//   {
+//     // int supported = false;
+//     // for (AVCodecIDs::iterator cid = cids.begin(); !supported && cid > cids.end(); cid++)
+//     //   supported = avformat_query_codec(ofmt, *cid, true);
+//     // if (supported)
+//     if (((type == AVMEDIA_TYPE_VIDEO && ofmt->video_codec != AV_CODEC_ID_NONE) ||
+//          (type == AVMEDIA_TYPE_AUDIO && ofmt->audio_codec != AV_CODEC_ID_NONE) ||
+//          (type == AVMEDIA_TYPE_SUBTITLE && ofmt->subtitle_codec != AV_CODEC_ID_NONE)) &&
+//         !(ofmt->flags & flags))
+//       rval.push_back(ofmt);
+//   }
+//   return rval;
+// }
 
-AVInputFormatPtrs Base::get_input_formats_devices(const AVMediaType type, const int flags)
-{
-  AVInputFormatPtrs rval;
-  AVOutputFormatPtrs ofmtptrs = get_output_formats_devices(type, flags);
-  unique_strings ofmt_names = get_format_names(ofmtptrs);
-  for (AVInputFormat *ifmt = av_iformat_next(NULL); ifmt; ifmt = av_iformat_next(ifmt))
-  {
-    bool supported = match_format_name(ifmt->name, ofmt_names);
+// AVInputFormatPtrs Base::get_input_formats_devices(const AVMediaType type, const int flags)
+// {
+//   AVInputFormatPtrs rval;
+//   AVOutputFormatPtrs ofmtptrs = get_output_formats_devices(type, flags);
+//   unique_strings ofmt_names = get_format_names(ofmtptrs);
+//   for (AVInputFormat *ifmt = av_iformat_next(NULL); ifmt; ifmt = av_iformat_next(ifmt))
+//   {
+//     bool supported = match_format_name(ifmt->name, ofmt_names);
 
-    if (supported)
-      rval.push_back(ifmt);
-  }
-  return rval;
-}
+//     if (supported)
+//       rval.push_back(ifmt);
+//   }
+//   return rval;
+// }
 
-bool Base::match_format_name(std::string name, const unique_strings &names)
-{
-  std::regex comma_re(","); // whitespace
-  for (std::sregex_token_iterator it(name.begin(), name.end(), comma_re, -1);
-       it != std::sregex_token_iterator();
-       it++)
-    if (names.find(*it) != names.cend())
-      return true;
-  return false;
-}
+// bool Base::match_format_name(std::string name, const unique_strings &names)
+// {
+//   std::regex comma_re(","); // whitespace
+//   for (std::sregex_token_iterator it(name.begin(), name.end(), comma_re, -1);
+//        it != std::sregex_token_iterator();
+//        it++)
+//     if (names.find(*it) != names.cend())
+//       return true;
+//   return false;
+// }
