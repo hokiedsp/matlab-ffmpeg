@@ -1,9 +1,7 @@
 #pragma once
 
 #include "../ffmpegBase.h"
-#include "../ffmpegStreamInput.h"
-#include "../ffmpegStreamOutput.h"
-
+#include "../ffmpegFormatInput.h"
 #include "ffmpegFilterSinks.h"
 #include "ffmpegFilterSources.h"
 
@@ -21,10 +19,10 @@ extern "C"
   // #include <libavutil/pixdesc.h>
 }
 
-#include <vector>
-#include <map>
-#include <utility>
 #include <chrono>
+#include <unordered_map>
+#include <utility>
+#include <vector>
 
 typedef std::vector<std::string> string_vector;
 
@@ -36,7 +34,7 @@ namespace filter
 {
 class Graph : public ffmpeg::Base
 {
-public:
+  public:
   Graph(const std::string &filtdesc = "");
   ~Graph();
 
@@ -72,6 +70,21 @@ public:
   void parse(const std::string &desc);
 
   /**
+   * \brief Parse and match unassigned filter input names to the input streams of the given input files.
+   * 
+   * \param[in] fmts   Pointers to the input file formats
+   * 
+   * \throws ffmpegException if the stream has already been taken
+   */
+  void parseSourceStreamSpecs(const std::vector<InputFormat *> fmts);
+
+  /**
+   * \brief returns the name, its expected file and stream IDs (if assigned and requested) of filter
+   *        input pad without buffer
+   */
+  std::string getNextUnassignedSourcePad(int *file_id = nullptr, int *stream_id = nullptr, const std::string &last = "");
+
+  /**
    * \brief Assign a source buffer to a parsed filtergraph
    * 
    * assignSource() links the filter graph input with the given label \ref name to the given AVFrame 
@@ -87,7 +100,7 @@ public:
    *                 for a single-input graph with unnamed input.
    * \returns the reference of the created Source filter object
    */
-  SourceBase &assignSource(IAVFrameSource &buf, const std::string &name = "in");
+  SourceBase &assignSource(IAVFrameSourceBuffer &buf, const std::string &name = "in");
 
   /**
    * \brief Assign a sink buffer to a parsed filtergraph
@@ -105,7 +118,7 @@ public:
    *                 for a single-output graph with unnamed input.
    * \returns the reference of the created Source filter object
    */
-  SinkBase &assignSink(IAVFrameSink &buf, const std::string &name = "out");
+  SinkBase &assignSink(IAVFrameSinkBuffer &buf, const std::string &name = "out");
 
   /**
    * \brief Finalize the preparation of a new filtergraph
@@ -153,9 +166,9 @@ public:
   void flush();
 
   /**
-   * \brief Thread-free execution of the filter graph
+   * \brief Execute the filter graph for one frame
    * 
-   * runOnce() executes one filtering transaction without the threaded portion of 
+   * processFrame() executes one filtering transaction without the threaded portion of 
    * ffmpeg::filter::Graph class. The input/source AVFrame buffers linked to the filter 
    * graph must be pre-populated. If no AVFrame could be retrieved, the function throws
    * an exception. 
@@ -164,16 +177,14 @@ public:
    * so that all the filtered output AVFrame could be captured. If an output buffer remains
    * full after \var rel_time milliseconds, the filtered AVFrame will be dropped.
    * 
-   * \note runOnce() assumes that the thread of ffmpeg::filter::Graph object is not running.
-   *       So, make sure to stop the thread before running this function.
+   * \returns total number of frames filter output.
+   * \returns negative value if no input frame is available
    * 
-   * \param[in] rel_time the maximum time to spend waiting for exclusive access to each 
-   *                     source/sink buffer.
    * \throws ffmpegException if fails to retrieve any input AVFrame from input source buffers.
    * \throws ffmpegException if input buffer returns an error during frame retrieval.
    * \throws ffmpegException if output buffer returns an error during frame retrieval.
    */
-  void runOnce(const std::chrono::milliseconds &rel_time = 1000ms);
+  int processFrame();
 
   AVFilterGraph *getAVFilterGraph() const { return graph; }
 
@@ -184,14 +195,14 @@ public:
   string_vector getInputNames() const { return Graph::get_names(inputs); }
   string_vector getOutputNames() const { return Graph::get_names(outputs); }
 
-  IAVFrameSource *getInputBuffer(std::string name = "")
+  IAVFrameSourceBuffer *getInputBuffer(std::string name = "")
   {
     if (name.empty())
       return inputs.begin()->second.buf;
     else
       return inputs.at(name).buf;
   }
-  IAVFrameSink *getOutputBuffer(std::string name = "")
+  IAVFrameSinkBuffer *getOutputBuffer(std::string name = "")
   {
     if (name.empty())
       return outputs.begin()->second.buf;
@@ -268,7 +279,7 @@ public:
   }
 
   // avfilter_graph_send_command, avfilter_graph_queue_command
-protected:
+  protected:
   template <typename EP, typename VEP, typename AEP, typename BUFF>
   void assign_endpoint(EP *&ep, AVMediaType type, BUFF &buf)
   {
@@ -294,7 +305,7 @@ protected:
       throw ffmpegException("[ffmpeg::filter::Graph::assign_endpoint] Failed to allocate a new filter endpoint.");
   }
 
-private:
+  private:
   AVFilterGraph *graph;
   std::string graph_desc;
 
@@ -308,19 +319,23 @@ private:
   typedef struct
   {
     AVMediaType type;
-    IAVFrameSource *buf;
+    int file_id;
+    int stream_id;
+    IAVFrameSourceBuffer *buf;
     SourceBase *filter;
     ConnectionList conns;
   } SourceInfo;
   typedef struct
   {
     AVMediaType type;
-    IAVFrameSink *buf;
+    int file_id;
+    int stream_id;
+    IAVFrameSinkBuffer *buf;
     SinkBase *filter;
     ConnectTo conn;
   } SinkInfo;
-  std::map<std::string, SourceInfo> inputs;
-  std::map<std::string, SinkInfo> outputs;
+  std::unordered_map<std::string, SourceInfo> inputs;
+  std::unordered_map<std::string, SinkInfo> outputs;
 
   int inmon_status; // 0:no monitoring; 1:monitor; <0 quit
 
@@ -336,8 +351,8 @@ private:
   void parse_sources(AVFilterInOut *ins);
   void parse_sinks(AVFilterInOut *outs);
 
-  void connect_nullsource(AVFilterInOut *in);
-  void connect_nullsink(AVFilterInOut *out);
+  void connect_nullsources();
+  void connect_nullsinks();
 
   void use_src_splitter(SourceBase *src, const ConnectionList &conns);
 };

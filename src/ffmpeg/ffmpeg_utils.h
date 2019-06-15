@@ -24,7 +24,7 @@ inline void av_codec_context_delete(AVCodecContext *ctx)
 {
     if (ctx) avcodec_free_context(&ctx);
 }
-#define AVCodecContextAutoDelete(ctx) std::unique_ptr<AVCodecContext, decltype(&av_codec_context_delete)> cleanup_##dict(ctx, &av_codec_context_delete)
+#define AVCodecContextAutoDelete(ctx) std::unique_ptr<AVCodecContext, decltype(&av_codec_context_delete)> cleanup_##ctx(ctx, &av_codec_context_delete)
 #define AVCodecContextUniquePtr std::unique_ptr<AVCodecContext, decltype(&av_codec_context_delete)>
 #define NewAVCodecContextUniquePtr(ctx) std::unique_ptr<AVCodecContext, decltype(&av_codec_context_delete)>(ctx, &av_codec_context_delete)
 

@@ -12,15 +12,13 @@ using namespace ffmpeg;
 /**
  * \brief Class to manage AVStream
  */
-OutputStream::OutputStream(IAVFrameSource *buf) : src(buf), encoder_opts(NULL)
+OutputStream::OutputStream(IAVFrameSourceBuffer *buf) : src(buf), encoder_opts(NULL)
 {}
 
 OutputStream::~OutputStream()
 {
   av_dict_free(&encoder_opts);
 }
-
-bool OutputStream::ready() { return ctx && src; }
 
 AVStream *OutputStream::open()
 {
@@ -30,11 +28,11 @@ AVStream *OutputStream::open()
   return NULL;
 }
 
-IAVFrameSource *OutputStream::setgetBuffer(IAVFrameSource *other_buf) { std::swap(src, other_buf); return other_buf; }
-void OutputStream::swapBuffer(IAVFrameSource *&other_buf) { std::swap(src, other_buf); }
-void OutputStream::setBuffer(IAVFrameSource *new_buf) { src = new_buf; }
-IAVFrameSource *OutputStream::getBuffer() const { return src; }
-IAVFrameSource *OutputStream::releaseBuffer() { IAVFrameSource *rval = src; src = NULL; return rval; }
+IAVFrameSourceBuffer *OutputStream::setgetBuffer(IAVFrameSourceBuffer *other_buf) { std::swap(src, other_buf); return other_buf; }
+void OutputStream::swapBuffer(IAVFrameSourceBuffer *&other_buf) { std::swap(src, other_buf); }
+void OutputStream::setBuffer(IAVFrameSourceBuffer *new_buf) { src = new_buf; }
+IAVFrameSourceBuffer *OutputStream::getBuffer() const { return src; }
+IAVFrameSourceBuffer *OutputStream::releaseBuffer() { IAVFrameSourceBuffer *rval = src; src = NULL; return rval; }
 
 int OutputStream::processFrame(AVPacket *packet)
 {

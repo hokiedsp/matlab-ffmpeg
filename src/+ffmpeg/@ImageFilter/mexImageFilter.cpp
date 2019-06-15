@@ -235,7 +235,7 @@ void mexImageFilter::runComplex(const mxArray *mxObj, int nout, mxArray **mxOut,
 
   // get the input & output buffer
   av_log(NULL, AV_LOG_INFO, "[runComplex] Loading inputs...\n");
-  filtergraph.forEachInputBuffer([&](const std::string &name, ffmpeg::IAVFrameSource *srcbuf) {
+  filtergraph.forEachInputBuffer([&](const std::string &name, ffmpeg::IAVFrameSourceBuffer *srcbuf) {
     mexComponentSource &src = *dynamic_cast<mexComponentSource *>(srcbuf);
     logVideoParams(src.getVideoParams(), name);
     // grab the input image array (field name )
@@ -305,7 +305,7 @@ void mexImageFilter::runComplex(const mxArray *mxObj, int nout, mxArray **mxOut,
 
   // get the output
   av_log(NULL, AV_LOG_INFO, "[runComplex] Retrieve the output data...\n");
-  filtergraph.forEachOutputBuffer([&](const std::string &name, ffmpeg::IAVFrameSink *sinkbuf) {
+  filtergraph.forEachOutputBuffer([&](const std::string &name, ffmpeg::IAVFrameSinkBuffer *sinkbuf) {
 
     av_log(NULL, AV_LOG_INFO, "[runComplex] Obtaining the output %s...\n", name.c_str());
 
@@ -350,7 +350,7 @@ void mexImageFilter::syncInputFormat(const mxArray *mxObj)
   mxArray *mxFmt = mxGetProperty(mxObj, 0, "InputFormat");
   if (mxIsStruct(mxFmt))
   {
-    filtergraph.forEachInputBuffer([&](const std::string &name, ffmpeg::IAVFrameSource *buf) {
+    filtergraph.forEachInputBuffer([&](const std::string &name, ffmpeg::IAVFrameSourceBuffer *buf) {
       std::string fmt_str = mexGetString(mxGetField(mxFmt, 0, name.c_str()));
       AVPixelFormat fmt = av_get_pix_fmt(fmt_str.c_str());
       mexComponentSource *src = dynamic_cast<mexComponentSource *>(buf);
@@ -364,7 +364,7 @@ void mexImageFilter::syncInputFormat(const mxArray *mxObj)
   {
     std::string fmt_str = mexGetString(mxFmt);
     AVPixelFormat fmt = av_get_pix_fmt(fmt_str.c_str());
-    filtergraph.forEachInputBuffer([&](const std::string &name, ffmpeg::IAVFrameSource *buf) {
+    filtergraph.forEachInputBuffer([&](const std::string &name, ffmpeg::IAVFrameSourceBuffer *buf) {
       mexComponentSource *src = dynamic_cast<mexComponentSource *>(buf);
       if (!ran)
         src->setFormat(fmt);
@@ -440,7 +440,7 @@ void mexImageFilter::syncInputSAR(const mxArray *mxObj)
 
   if (mxIsStruct(mxSAR))
   {
-    filtergraph.forEachInputBuffer([&](const std::string &name, ffmpeg::IAVFrameSource *buf) {
+    filtergraph.forEachInputBuffer([&](const std::string &name, ffmpeg::IAVFrameSourceBuffer *buf) {
       AVRational sar = mexImageFilter::getSAR(mxGetField(mxSAR, 0, name.c_str()));
       mexComponentSource *src = dynamic_cast<mexComponentSource *>(buf);
       if (!ran)
@@ -452,7 +452,7 @@ void mexImageFilter::syncInputSAR(const mxArray *mxObj)
   else
   {
     AVRational sar = mexImageFilter::getSAR(mxSAR);
-    filtergraph.forEachInputBuffer([&](const std::string &name, ffmpeg::IAVFrameSource *buf) {
+    filtergraph.forEachInputBuffer([&](const std::string &name, ffmpeg::IAVFrameSourceBuffer *buf) {
       mexComponentSource *src = dynamic_cast<mexComponentSource *>(buf);
       if (!ran)
         src->setSAR(sar);

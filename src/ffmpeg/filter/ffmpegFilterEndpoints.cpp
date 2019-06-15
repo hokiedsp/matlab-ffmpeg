@@ -1,6 +1,7 @@
 #include "ffmpegFilterEndPoints.h"
 
-extern "C" {
+extern "C"
+{
 #include <libavfilter/avfilter.h>
 }
 
@@ -9,10 +10,7 @@ extern "C" {
 using namespace ffmpeg;
 using namespace filter;
 
-EndpointBase::EndpointBase(Graph &parent, const AVMediaType type, const AVRational &tb)
-    : Base(parent), MediaHandler(type, tb), prefilter_context(NULL), prefilter_pad(0) {}
-EndpointBase::EndpointBase(Graph &parent, const IMediaHandler &mdev)
-    : Base(parent), MediaHandler(mdev), prefilter_pad(0) {}
+EndpointBase::EndpointBase(Graph &parent) : Base(parent), prefilter_pad(0) {}
 EndpointBase::~EndpointBase() {}
 
 void EndpointBase::purge()
@@ -48,7 +46,7 @@ void EndpointBase::setPrefilter(const std::string &desc)
     // Parse the string to get I/O endpoints
     AVFilterInOut *ins = NULL, *outs = NULL;
     if ((avfilter_graph_parse2(temp_graph, desc.c_str(), &ins, &outs)) < 0)
-      throw ffmpegException("[ffmpeg::filter::EndpointBase::setPrefilter] Failed to parse the prefilter chain description: %s.",desc.c_str());
+      throw ffmpegException("[ffmpeg::filter::EndpointBase::setPrefilter] Failed to parse the prefilter chain description: %s.", desc.c_str());
 
     bool fail = !(ins && !ins->next && outs && !outs->next);
     avfilter_inout_free(&ins);

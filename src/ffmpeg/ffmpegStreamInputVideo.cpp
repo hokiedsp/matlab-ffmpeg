@@ -2,11 +2,6 @@
 
 using namespace ffmpeg;
 
-InputVideoStream::InputVideoStream(AVStream *st, IAVFrameSink *buf) : InputStream(st, buf) {}
-InputVideoStream::~InputVideoStream() {}
-
-AVRational InputVideoStream::getAvgFrameRate() const { return st ? st->avg_frame_rate : AVRational({0, 0}); }
-
 // AVRational InputVideoStream::getSAR()
 // {
 //   return fmt_ctx ? av_guess_sample_aspect_ratio(fmt_ctx, st, firstframe) : AVRational({0, 1});

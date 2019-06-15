@@ -16,12 +16,11 @@ namespace ffmpeg
 {
 namespace filter
 {
-class EndpointBase : public Base, public MediaHandler, public AVFrameHandler
+class EndpointBase : public Base
 {
 public:
   // AVMediaType type;   AVRational time_base
-  EndpointBase(Graph &parent, const AVMediaType type, const AVRational &tb = {0, 0});
-  EndpointBase(Graph &parent, const IMediaHandler &mdev);
+  EndpointBase(Graph &parent);
   virtual ~EndpointBase();
   
   /**

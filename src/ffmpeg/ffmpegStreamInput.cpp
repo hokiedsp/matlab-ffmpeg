@@ -1,10 +1,13 @@
 #include "ffmpegStreamInput.h"
 #include "ffmpegException.h"
+#include "ffmpegMediaReader.h"
 
-extern "C" {
+extern "C"
+{
 #include <libavcodec/avcodec.h>
 // #include <libavformat/avformat.h>
 #include <libavutil/opt.h>
+#include <libavutil/rational.h>
 }
 
 using namespace ffmpeg;
@@ -12,16 +15,15 @@ using namespace ffmpeg;
 /**
  * \brief Class to manage AVStream
  */
-InputStream::InputStream(AVStream *s, IAVFrameSink *buf) : sink(buf), buf_start_ts(0)
+InputStream::InputStream(InputFormat &rdr, int stream_id, IAVFrameSinkBuffer &buf) : reader(&rdr), sink(&buf), buf_start_ts(0)
 {
+  AVStream *st = reader->_get_stream(stream_id);
   if (st) open(st);
 }
 
 InputStream::~InputStream()
 {
 }
-
-bool InputStream::ready() { return ctx && sink; }
 
 void InputStream::open(AVStream *s)
 {
@@ -55,14 +57,8 @@ void InputStream::open(AVStream *s)
   st->discard = AVDISCARD_NONE;
 }
 
-IAVFrameSink *InputStream::setgetBuffer(IAVFrameSink *other_buf) { std::swap(sink, other_buf); return other_buf; }
-void InputStream::swapBuffer(IAVFrameSink *&other_buf) { std::swap(sink, other_buf); }
-void InputStream::setBuffer(IAVFrameSink *new_buf) { sink = new_buf; }
-IAVFrameSink *InputStream::getBuffer() const { return sink; }
-IAVFrameSink *InputStream::releaseBuffer() { IAVFrameSink *rval = sink; sink = NULL; return rval; }
-
 void InputStream::setStartTime(const int64_t timestamp) { buf_start_ts = timestamp; }
-        
+
 int InputStream::processPacket(AVPacket *packet)
 {
   int ret; // FFmpeg return error code
@@ -85,14 +81,14 @@ int InputStream::processPacket(AVPacket *packet)
     }
     else if (ret >= 0)
     {
-      pts = frame->pts = frame->best_effort_timestamp;
+      pts = av_rescale_q(frame->best_effort_timestamp, st->time_base, AV_TIME_BASE_Q); // a * b / c
       if (sink && frame->pts >= buf_start_ts)
         sink->push(frame);
     }
   }
 
-  if (ret==AVERROR_EOF || ret==AVERROR(EAGAIN))
+  if (ret == AVERROR_EOF || ret == AVERROR(EAGAIN))
     ret = 0;
-  
+
   return ret;
 }

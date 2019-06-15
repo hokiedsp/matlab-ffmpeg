@@ -8,7 +8,7 @@ extern "C" {
 
 using namespace ffmpeg;
 
-OutputVideoStream::OutputVideoStream(IAVFrameSource *buf) : OutputStream(buf), keep_pix_fmt(true)
+OutputVideoStream::OutputVideoStream(IAVFrameSourceBuffer *buf) : OutputStream(buf), keep_pix_fmt(true)
 {
 }
 OutputVideoStream::~OutputVideoStream() {}

@@ -46,7 +46,7 @@ protected:
 
 // Base Thread-Safe Sink Class
 template <class Mutex_t = std::shared_mutex>
-class AVFrameSinkBase : public IAVFrameSink, public AVFrameBufferBase<Mutex_t>
+class AVFrameSinkBase : public IAVFrameSinkBuffer, public AVFrameBufferBase<Mutex_t>
 {
 protected:
   AVFrameSinkBase(){}; // must be default-constructable
@@ -202,7 +202,7 @@ protected:
 
 // Base Source Class
 template <class Mutex_t = std::mutex>
-class AVFrameSourceBase : public AVFrameBufferBase<Mutex_t>, public IAVFrameSource
+class AVFrameSourceBase : public AVFrameBufferBase<Mutex_t>, public IAVFrameSourceBuffer
 {
 public:
   virtual ~AVFrameSourceBase(){};

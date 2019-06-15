@@ -3,7 +3,7 @@ add_library(ffmpeg OBJECT FFmpegMxProbe.cpp ffmpeg_utils.cpp avexception.cpp mxu
 set(ffmpeg ${ffmpeg} PARENT_SCOPE) # make the library target available at the root level
 
 set(LIBFFMPEGFILTER "libffmpeg")
-add_library(LIBFFMPEG OBJECT ffmpegBase.cpp ffmpegStream.cpp ffmpegMediaReader.cpp)
+add_library(LIBFFMPEG OBJECT ffmpegBase.cpp ffmpegStream.cpp ffmpegFormatInput.cpp ffmpegDump.cpp ffmpegReader.cpp)
 set(LIBFFMPEG ${LIBFFMPEG} PARENT_SCOPE)
 
 # if(TARGET ${LIBFFMPEG})

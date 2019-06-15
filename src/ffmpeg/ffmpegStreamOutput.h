@@ -3,12 +3,14 @@
 #include "ffmpegStream.h"
 // #include "ffmpegAvRedefine.h"
 #include "ffmpegAVFrameBufferInterfaces.h"
+#include "ffmpegAVFrameEndpointInterfaces.h"
 #include "ffmpegMediaStructs.h"
 
-extern "C" {
-// #include <libavformat/avformat.h>
-// #include <libavcodec/avcodec.h>
-// #include <libavutil/pixdesc.h>
+extern "C"
+{
+    // #include <libavformat/avformat.h>
+    // #include <libavcodec/avcodec.h>
+    // #include <libavutil/pixdesc.h>
 }
 
 namespace ffmpeg
@@ -17,33 +19,47 @@ namespace ffmpeg
 /**
  * \brief Class to manage AVStream
  */
-class OutputStream : virtual public BaseStream
+class OutputStream : virtual public BaseStream, public IAVFrameSink
 {
 public:
-  OutputStream(IAVFrameSource *buf);
-  virtual ~OutputStream();
+    OutputStream(IAVFrameSourceBuffer *buf);
+    virtual ~OutputStream();
 
-  virtual bool ready();
+    virtual bool ready() { return ctx && src; }
 
-  virtual AVStream *open();
-  virtual void close() {}
+    virtual AVStream *open();
+    virtual void close() {}
 
-  IAVFrameSource *setgetBuffer(IAVFrameSource *other_buf);
-  void swapBuffer(IAVFrameSource *&other_buf);
-  void setBuffer(IAVFrameSource *new_buf);
-  IAVFrameSource *getBuffer() const;
-  IAVFrameSource *releaseBuffer();
+    IAVFrameSourceBuffer &getSourceBuffer() const
+    {
+        if (src) return *src;
+        throw ffmpegException("No buffer.");
+    }
+    void setSourceBuffer(IAVFrameSourceBuffer &buf)
+    {
+        if (src) src->clrDst();
+        src = &buf;
+        src->setDst(*this);
+    }
+    void clrSourceBuffer()
+    {
+        if (src)
+        {
+            src->clrDst();
+            src = NULL;
+        }
+    }
 
-  virtual int reset()
-  {
-    avcodec_flush_buffers(ctx);
-    return 0;
-  } // reset decoder states
-  virtual int OutputStream::processFrame(AVPacket *packet);
+    virtual int reset()
+    {
+        avcodec_flush_buffers(ctx);
+        return 0;
+    } // reset decoder states
+    virtual int OutputStream::processFrame(AVPacket *packet);
 
 protected:
-  IAVFrameSource *src;
-  AVDictionary *encoder_opts;
+    IAVFrameSourceBuffer *src;
+    AVDictionary *encoder_opts;
 };
 
 typedef std::vector<OutputStream *> OutputStreamPtrs;
@@ -51,23 +67,23 @@ typedef std::vector<OutputStream *> OutputStreamPtrs;
 class OutputVideoStream : public VideoStream, public OutputStream
 {
 public:
-  OutputVideoStream(IAVFrameSource *buf = NULL);
-  virtual ~OutputVideoStream();
+    OutputVideoStream(IAVFrameSourceBuffer *buf = NULL);
+    virtual ~OutputVideoStream();
 
-  AVPixelFormats getPixelFormats() const;
-  AVPixelFormat choose_pixel_fmt(AVPixelFormat target) const;
-  AVPixelFormats choose_pix_fmts() const;
+    AVPixelFormats getPixelFormats() const;
+    AVPixelFormat choose_pixel_fmt(AVPixelFormat target) const;
+    AVPixelFormats choose_pix_fmts() const;
 
 private:
-  bool keep_pix_fmt;
+    bool keep_pix_fmt;
 };
 
 class OutputAudioStream : public AudioStream, public OutputStream
 {
 public:
-  OutputAudioStream(IAVFrameSource *buf = NULL) : OutputStream(buf) {}
-  virtual ~OutputAudioStream() {}
+    OutputAudioStream(IAVFrameSourceBuffer *buf = NULL) : OutputStream(buf) {}
+    virtual ~OutputAudioStream() {}
 
 private:
 };
-}
+} // namespace ffmpeg

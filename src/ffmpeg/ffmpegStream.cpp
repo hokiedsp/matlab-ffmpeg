@@ -6,7 +6,7 @@ using namespace ffmpeg;
 /**
  * \brief Class to manage AVStream
  */
-BaseStream::BaseStream() : st(NULL), ctx(NULL), pts(0)
+BaseStream::BaseStream() : st(NULL), ctx(NULL), pts(-1)
 {
 }
 
@@ -17,10 +17,6 @@ BaseStream::~BaseStream()
 }
 
 // IMediaHandler interface functions
-BasicMediaParams BaseStream::getBasicMediaParams() const { return {getMediaType(), getTimeBase()}; }
-AVMediaType BaseStream::getMediaType() const { return ctx ? ctx->codec_type : AVMEDIA_TYPE_UNKNOWN; }
-std::string BaseStream::getMediaTypeString() const { return ctx ? av_get_media_type_string(ctx->codec_type):"unknown"; }
-AVRational BaseStream::getTimeBase() const { return (st) ? st->time_base : (ctx) ? ctx->time_base : AVRational({0, 0}); }
 void BaseStream::setTimeBase(const AVRational &tb)
 {
   if (!st)
@@ -49,26 +45,6 @@ int BaseStream::reset()
 {
   return avcodec_send_packet(ctx, NULL);
 }
-
-///////////////////////////////////////////////////////
-
-AVStream *BaseStream::getAVStream() const { return st; }
-int BaseStream::getId() const { return st ? st->index : -1; }
-
-const AVCodec *BaseStream::getAVCodec() const { return ctx ? ctx->codec : NULL; }
-std::string BaseStream::getCodecName() const
-{
-  return (ctx && ctx->codec && ctx->codec->name) ? ctx->codec->name : "";
-}
-std::string BaseStream::getCodecDescription() const
-{
-  return (ctx && ctx->codec && ctx->codec->long_name) ? ctx->codec->long_name : "";
-}
-bool BaseStream::getCodecFlags(const int mask) const { return ctx->flags & mask; }
-
-int BaseStream::getCodecFrameSize() const { return ctx ? ctx->frame_size : 0; }
-
-int64_t BaseStream::getLastFrameTimeStamp() const { return pts; }
 
 ////////////////////////////
 
@@ -131,127 +107,87 @@ void BaseStream::choose_sample_fmt()
 
 // VIDEOSTREAM
 
-void VideoStream::setVideoParams(const VideoParams &params)
+void VideoStream::setMediaParams(const MediaParams &new_params)
 {
-  if (!ctx)
-    throw ffmpegException("Stream codec is not set.");
-  ctx->pix_fmt = params.format;
-  ctx->width = params.width;
-  ctx->height = params.height;
-  ctx->sample_aspect_ratio = params.sample_aspect_ratio;
+  VideoHandler::setMediaParams(new_params); // may throw if type mismatch detected
+  VideoParams &p = *dynamic_cast<VideoParams *>(params);
+
+  BaseStream::setTimeBase(p.time_base);
+  if (!ctx) return;
+
+  ctx->pix_fmt = p.format;
+  ctx->width = p.width;
+  ctx->height = p.height;
+  ctx->sample_aspect_ratio = p.sample_aspect_ratio;
 }
 
-void VideoStream::setValidVideoParams(const VideoParams &params)
+void VideoStream::setTimeBase(const AVRational &tb)
 {
-  if (!ctx)
-    throw ffmpegException("Stream codec is not set.");
-  if (params.format!=AV_PIX_FMT_NONE) ctx->pix_fmt = params.format;
-  if (params.width>0) ctx->width = params.width;
-  if (params.height>0) ctx->height = params.height;
-  if (params.sample_aspect_ratio.num > 0 && params.sample_aspect_ratio.den > 0)
-    ctx->sample_aspect_ratio = params.sample_aspect_ratio;
-}
-
-void VideoStream::setVideoParams(const IVideoHandler &other)
-{
-  setVideoParams(other.getVideoParams());
-}
-
-void VideoStream::setValidVideoParams(const IVideoHandler &other)
-{
-  setValidVideoParams(other.getVideoParams());
+  VideoHandler::setTimeBase(tb);
+  BaseStream::setTimeBase(tb);
 }
 
 void VideoStream::setFormat(const AVPixelFormat fmt)
 {
-  if (!ctx)
-    throw ffmpegException("Stream codec is not set.");
-  ctx->pix_fmt = fmt;
+  VideoHandler::setFormat(fmt);
+  if (ctx) ctx->pix_fmt = fmt;
 }
 void VideoStream::setWidth(const int w)
 {
-  if (!ctx)
-    throw ffmpegException("Stream codec is not set.");
-  ctx->width = w;
+  VideoHandler::setWidth(w);
+  if (ctx) ctx->width = w;
 }
 void VideoStream::setHeight(const int h)
 {
-  if (!ctx)
-    throw ffmpegException("Stream codec is not set.");
-  ctx->height = h;
+  VideoHandler::setHeight(h);
+  if (ctx) ctx->height = h;
 }
 void VideoStream::setSAR(const AVRational &sar)
 {
-  if (!ctx)
-    throw ffmpegException("Stream codec is not set.");
-  ctx->sample_aspect_ratio = sar;
+  VideoHandler::setSAR(sar);
+  if (ctx) ctx->sample_aspect_ratio = sar;
 }
 
-//AUDIOSTREAM
-std::string AudioStream::getChannelLayoutName() const
-{
-  if (!ctx)
-    return "";
+///////////////////////////////////////////////////////////////////////////////
 
-  int nb_channels = av_get_channel_layout_nb_channels(ctx->channel_layout);
-  if (nb_channels)
-  {
-    char buf[1024];
-    av_get_channel_layout_string(buf, 1024, nb_channels, ctx->channel_layout);
-    return buf;
-  }
-  else
-    return "";
-}
-void AudioStream::setAudioParams(const AudioParams &params)
+// AUDIOSTREAM
+
+void AudioStream::setMediaParams(const MediaParams &new_params)
 {
-  if (!ctx)
-    throw ffmpegException("Stream codec is not set.");
-  ctx->sample_fmt = params.format;
-  ctx->channel_layout = params.channel_layout;
-  ctx->sample_rate = params.sample_rate;
+  AudioHandler::setMediaParams(new_params); // may throw if type mismatch detected
+  AudioParams &p = *dynamic_cast<AudioParams *>(params);
+
+  BaseStream::setTimeBase(p.time_base);
+  if (!ctx) return;
+
+  ctx->sample_fmt = p.format;
+  ctx->channel_layout = p.channel_layout;
+  ctx->sample_rate = p.sample_rate;
 }
-void AudioStream::setValidAudioParams(const AudioParams &params)
+
+void AudioStream::setTimeBase(const AVRational &tb)
 {
-  if (!ctx)
-    throw ffmpegException("Stream codec is not set.");
-  if (params.format != AV_SAMPLE_FMT_NONE)
-    ctx->sample_fmt = params.format;
-  if (!params.channel_layout)
-    ctx->channel_layout = params.channel_layout;
-  if (params.sample_rate > 0)
-    ctx->sample_rate = params.sample_rate;
+  AudioHandler::setTimeBase(tb);
+  BaseStream::setTimeBase(tb);
 }
-void AudioStream::setAudioParams(const IAudioHandler &other)
-{
-  setAudioParams(other.getAudioParams());
-}
-void AudioStream::setValidAudioParams(const IAudioHandler &other)
-{
-  setValidAudioParams(other.getAudioParams());
-}
+
 void AudioStream::setFormat(const AVSampleFormat fmt)
 {
-  if (!ctx)
-    throw ffmpegException("Stream codec is not set.");
-  ctx->sample_fmt = fmt;
+  AudioHandler::setFormat(fmt);
+  if (ctx) ctx->sample_fmt = dynamic_cast<AudioParams *>(params)->format;
 }
 void AudioStream::setChannelLayout(const uint64_t layout)
 {
-  if (!ctx)
-    throw ffmpegException("Stream codec is not set.");
-  ctx->channel_layout = layout;
+  AudioHandler::setChannelLayout(layout);
+  if (ctx) ctx->channel_layout = dynamic_cast<AudioParams *>(params)->channel_layout;
 }
 void AudioStream::setChannelLayoutByName(const std::string &name)
 {
-  if (!ctx)
-    throw ffmpegException("Stream codec is not set.");
-
-  ctx->channel_layout = av_get_channel_layout(name.c_str());
+  AudioHandler::setChannelLayoutByName(name);
+  if (ctx) ctx->channel_layout = dynamic_cast<AudioParams *>(params)->channel_layout;
 }
 void AudioStream::setSampleRate(const int fs)
 {
-  if (!ctx)
-    throw ffmpegException("Stream codec is not set.");
-  ctx->sample_rate = fs;
+  AudioHandler::setSampleRate(fs);
+  if (ctx) ctx->sample_rate = dynamic_cast<AudioParams *>(params)->sample_rate;
 }

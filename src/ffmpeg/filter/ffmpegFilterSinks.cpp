@@ -1,21 +1,22 @@
 #include "ffmpegFilterSinks.h"
 
-#include "ffmpegFilterGraph.h"
 #include "../ffmpegException.h"
+#include "ffmpegFilterGraph.h"
 
-extern "C" {
+extern "C"
+{
 #include <libavfilter/buffersink.h>
 #include <libavutil/opt.h>
 }
 
-#include <sstream> // std::stringstream
 #include <iomanip>
+#include <sstream> // std::stringstream
 
 using namespace ffmpeg;
 using namespace ffmpeg::filter;
 
 ///////////////////////////////////////////////////////////
-SinkBase::SinkBase(Graph &fg, IAVFrameSink &buf) : EndpointBase(fg, buf), sink(buf), ena(false) {}
+SinkBase::SinkBase(Graph &fg, IAVFrameSinkBuffer &buf) : EndpointBase(fg), sink(&buf), ena(false), synced(false) {}
 SinkBase::~SinkBase()
 {
   av_log(NULL, AV_LOG_INFO, "destroying SinkBase\n");
@@ -38,56 +39,40 @@ void SinkBase::link(AVFilterContext *other, const unsigned otherpad, const unsig
 
 int SinkBase::processFrame()
 {
+  if (!ena) return AVERROR_EOF;
+  AVFrame *frame = sink->peekToPush();
   int ret = av_buffersink_get_frame(context, frame);
-  bool eof = (ret == AVERROR_EOF);
-  if (ret == 0 || eof)
-  {
-    sink.push(eof ? NULL : frame);
-    if (eof)
-      ena = false;
-  }
-  av_frame_unref(frame);
-  return ret;
-}
-
-int SinkBase::processFrame(const std::chrono::milliseconds &rel_time)
-{
-  int ret = av_buffersink_get_frame(context, frame);
-  bool eof = (ret == AVERROR_EOF);
-  if (ena && (ret == 0 || eof))
-  {
-    sink.push(eof ? NULL : frame, rel_time);
-    if (eof)
-      ena = false;
-  }
-  av_frame_unref(frame);
+  ena = (ret != AVERROR_EOF);
+  if (ena)
+    sink->push(); // new frame already placed, complete the transaction
+  else
+    sink->push(nullptr); // push EOF
   return ret;
 }
 
 ////////////////////////////////
-VideoSink::VideoSink(Graph &fg, IAVFrameSink &buf)
-    : SinkBase(fg, buf), VideoHandler(dynamic_cast<IVideoHandler &>(buf)) { }
+VideoSink::VideoSink(Graph &fg, IAVFrameSinkBuffer &buf) : SinkBase(fg, buf) {}
 AVFilterContext *VideoSink::configure(const std::string &name)
 { // configure the AVFilterContext
   create_context("buffersink", name);
   return SinkBase::configure();
 }
 
-void VideoSink::sync()
+bool VideoSink::sync()
 {
-  if (!context || context->inputs[0])
-    throw ffmpegException("[ffmpeg::filter::VideoSink::sync] AVFilterContext not set or parameters not yet available.");
-
-  format = (AVPixelFormat)av_buffersink_get_format(context);
-  width = av_buffersink_get_w(context);
-  height = av_buffersink_get_h(context);
-  time_base = av_buffersink_get_time_base(context);
-  sample_aspect_ratio = av_buffersink_get_sample_aspect_ratio(context);
+  if (!context || context->inputs[0]) return synced;
+  VideoParams &p = *static_cast<VideoParams*>(params);
+  p.time_base = av_buffersink_get_time_base(context);
+  p.format = (AVPixelFormat)av_buffersink_get_format(context);
+  p.width = av_buffersink_get_w(context);
+  p.height = av_buffersink_get_h(context);
+  p.sample_aspect_ratio = av_buffersink_get_sample_aspect_ratio(context);
+  synced = true;
+  return synced;
 }
 
 ////////////////////////////////
-AudioSink::AudioSink(Graph &fg, IAVFrameSink &buf)
-    : SinkBase(fg, buf), AudioHandler(dynamic_cast<IAudioHandler &>(buf)) {}
+AudioSink::AudioSink(Graph &fg, IAVFrameSinkBuffer &buf) : SinkBase(fg, buf) {}
 AVFilterContext *AudioSink::configure(const std::string &name)
 {
   // configure the filter
@@ -98,14 +83,16 @@ AVFilterContext *AudioSink::configure(const std::string &name)
   return SinkBase::configure();
 }
 
-void AudioSink::sync()
+bool AudioSink::sync()
 {
-  if (!context)
-    throw ffmpegException("[ffmpeg::filter::VideoSink::sync] AVFilterContext not set.");
-  
-  format = (AVSampleFormat)av_buffersink_get_format(context);
-  time_base = av_buffersink_get_time_base(context);
-  channel_layout = av_buffersink_get_channel_layout(context);
+  if (!context || context->inputs[0]) return synced;
+  AudioParams &p = *static_cast<AudioParams*>(params);
+
+  p.time_base = av_buffersink_get_time_base(context);
+  p.format = (AVSampleFormat)av_buffersink_get_format(context);
+  p.channel_layout = av_buffersink_get_channel_layout(context);
+  synced = true;
+  return true;
 
   // if linked to a stream
   // if (st)

@@ -2,8 +2,8 @@
 
 #include "ffmpegFilterEndpoints.h"
 
-#include "../ffmpegStreamOutput.h"
 #include "../ffmpegException.h"
+#include "../ffmpegStreamOutput.h"
 
 // #include "mexClassHandler.h"
 // #include "ffmpegPtrs.h"
@@ -11,11 +11,12 @@
 // #include "ffmpegAVFramePtrBuffer.h"
 // #include "ffmpegFrameBuffers.h"
 
-extern "C" {
-// #include <libavfilter/avfiltergraph.h>
-// #include <libavcodec/avcodec.h>
-// #include <libavformat/avformat.h>
-// #include <libavutil/pixdesc.h>
+extern "C"
+{
+  // #include <libavfilter/avfiltergraph.h>
+  // #include <libavcodec/avcodec.h>
+  // #include <libavformat/avformat.h>
+  // #include <libavutil/pixdesc.h>
 }
 
 #include <vector>
@@ -25,13 +26,35 @@ namespace ffmpeg
 namespace filter
 {
 
-class SinkBase : public EndpointBase
+class SinkBase : public EndpointBase, public IAVFrameSource
 {
-public:
-  SinkBase(Graph &fg, IAVFrameSink &buf); // connected to a buffer (data from non-FFmpeg source)
+  public:
+  SinkBase(Graph &fg, IAVFrameSinkBuffer &buf); // connected to a buffer (data from non-FFmpeg source)
   virtual ~SinkBase();
 
   AVFilterContext *configure(const std::string &name = "");
+
+  // Implementing IAVFrameSource interface
+  IAVFrameSinkBuffer &getSinkBuffer() const
+  {
+    if (sink) return *sink;
+    throw ffmpegException("No buffer.");
+  }
+  void setSinkBuffer(IAVFrameSinkBuffer &buf)
+  {
+    if (sink) sink->clrSrc();
+    sink = &buf;
+    sink->setSrc(*this);
+  }
+  void clrSinkBuffer()
+  {
+    if (sink)
+    {
+      sink->clrSrc();
+      sink = NULL;
+    }
+  }
+  // end Implementing IAVFrameSource interface
 
   /**
    * \brief Links the filter to another filter
@@ -52,8 +75,14 @@ public:
 
   /**
    * \brief Synchronize parameters to the internal AVFilterContext object
+   * \returns true if sync success
    */
-  virtual void sync() = 0;
+  virtual bool sync() = 0;
+
+  /**
+   * \brief Returns true if media parameters have been synced to the internal AVFilterContext object
+   */
+  bool isSynced() { return synced; }
 
   /**
    * \brief Check for existence of an output AVFrame from the filter graph and 
@@ -61,47 +90,66 @@ public:
    * \returns True if new frame
    */
   virtual int processFrame();
-  virtual int processFrame(const std::chrono::milliseconds &rel_time);
+  // virtual int processFrame(const std::chrono::milliseconds &rel_time);
 
-  virtual void blockTillBufferReady() { sink.blockTillReadyToPush(); }
-  virtual bool blockTillBufferReady(const std::chrono::milliseconds &rel_time) { return sink.blockTillReadyToPush(rel_time); }
+  virtual void blockTillBufferReady() { sink->blockTillReadyToPush(); }
+  virtual bool blockTillBufferReady(const std::chrono::milliseconds &rel_time) { return sink->blockTillReadyToPush(rel_time); }
 
   virtual bool enabled() const { return ena; };
 
-protected:
-  IAVFrameSink &sink;
+  protected:
+  IAVFrameSinkBuffer *sink;
   bool ena;
+
+  bool synced;
+
+  // make IMediaHandler interface read-only
+  using IMediaHandler::setMediaParams;
+  using IMediaHandler::setTimeBase;
 };
 
 typedef std::vector<SinkBase *> Sinks;
 
 class VideoSink : public SinkBase, public VideoHandler
 {
-public:
-  VideoSink(Graph &fg, IAVFrameSink &buf);      // connected to a buffer (data from non-FFmpeg source)
-  virtual ~VideoSink(){}
+  public:
+  VideoSink(Graph &fg, IAVFrameSinkBuffer &buf); // connected to a buffer (data from non-FFmpeg source)
+  virtual ~VideoSink() {}
 
-  AVFilterContext *configure(const std::string &name = "");
+  AVFilterContext *configure(const std::string &name = "") override;
+
   /**
    * \brief Synchronize parameters to the internal AVFilterContext object
+   * \returns true if sync success
    */
-  void sync();
+  bool sync() override;
 
   // std::string choose_pix_fmts();
-};
+  protected:
+  using VideoHandler::setFormat;
+  using VideoHandler::setWidth;
+  using VideoHandler::setHeight;
+  using VideoHandler::setSAR;
+  };
 
 class AudioSink : public SinkBase, public AudioHandler
 {
-public:
-  AudioSink(Graph &fg, IAVFrameSink &buf); // connected to a buffer (data from non-FFmpeg source)
-  virtual ~AudioSink(){}
+  public:
+  AudioSink(Graph &fg, IAVFrameSinkBuffer &buf); // connected to a buffer (data from non-FFmpeg source)
+  virtual ~AudioSink() {}
 
-  AVFilterContext *configure(const std::string &name = "");
+  AVFilterContext *configure(const std::string &name = "") override;
 
   /**
    * \brief Synchronize parameters to the internal AVFilterContext object
    */
-  void sync();
+  bool sync() override;
+
+  protected: // make AudioHandler read-only
+  using AudioHandler::setFormat;
+  using AudioHandler::setChannelLayout;
+  using AudioHandler::setChannelLayoutByName;
+  using AudioHandler::setSampleRate;
 };
-}
-}
+} // namespace filter
+} // namespace ffmpeg

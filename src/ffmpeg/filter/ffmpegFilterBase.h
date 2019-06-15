@@ -1,10 +1,11 @@
 #pragma once
 
-extern "C" {
+extern "C"
+{
 // #include <libavcodec/avcodec.h>
 // #include <libavformat/avformat.h>
 #define __STDC_CONSTANT_MACROS
-#include <libavfilter/avfiltergraph.h>
+#include <libavfilter/avfilter.h>
 #include <libavutil/pixdesc.h>
 }
 
@@ -86,7 +87,7 @@ public:
    * \throws ffmpegException if filter contexts are not for the same filtergraph.
    * \throws ffmpegException if failed to link.
    */
-  virtual void link(AVFilterContext *other, const unsigned otherpad, const unsigned pad=0, const bool issrc=true);
+  virtual void link(AVFilterContext *other, const unsigned otherpad, const unsigned pad = 0, const bool issrc = true);
 
   /**
    * \brief Links the filter to another filter
@@ -100,7 +101,7 @@ public:
    * 
    * \throws ffmpegException see \ref link(AVFilterContext*, const unsigned, const unsigned, const bool)
    */
-  void link(Base &other, const unsigned otherpad, const unsigned pad=0, const bool issrc=true);
+  void link(Base &other, const unsigned otherpad, const unsigned pad = 0, const bool issrc = true);
 
   /**
    * \brief Name of this filter instance
@@ -118,7 +119,7 @@ public:
    * 
    * \returns Pointer to the AVFilterContext object or NULL if not yet configured.
    */
-  AVFilterContext* getAVFilterContext() const;
+  AVFilterContext *getAVFilterContext() const;
 
 protected:
   /**
@@ -152,8 +153,8 @@ protected:
    */
   virtual std::string generate_args();
 
-  Graph &graph; // associated filtergraph object (does not change during the life of the object)
+  Graph &graph;             // associated filtergraph object (does not change during the life of the object)
   AVFilterContext *context; // context object
 };
-}
-}
+} // namespace filter
+} // namespace ffmpeg
