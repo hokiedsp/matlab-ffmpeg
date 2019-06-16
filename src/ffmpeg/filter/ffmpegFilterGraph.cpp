@@ -696,7 +696,7 @@ void Graph::parseSourceStreamSpecs(const std::vector<InputFormat *> fmts)
   }
 }
 
-std::string Graph::getNextUnassignedSourcePad(int *file_id, int *stream_id, const std::string &last)
+std::string Graph::getNextUnassignedSourceLink(int *file_id, int *stream_id, const std::string &last)
 {
   auto in = inputs.begin();
   if (last.size())

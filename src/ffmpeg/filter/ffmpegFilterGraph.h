@@ -72,7 +72,7 @@ class Graph : public ffmpeg::Base
   /**
    * \brief Parse and match unassigned filter input names to the input streams of the given input files.
    * 
-   * \param[in] fmts   Pointers to the input file formats
+   * \param[in] fmts   Vector of pointers to the input file formats (all pointers must be valid.)
    * 
    * \throws ffmpegException if the stream has already been taken
    */
@@ -80,9 +80,19 @@ class Graph : public ffmpeg::Base
 
   /**
    * \brief returns the name, its expected file and stream IDs (if assigned and requested) of filter
-   *        input pad without buffer
+   *        input link without buffer.
+   * 
+   * \param[out] file_id   InputFormat index in the InputFormat vector provided in parseSourceStreamSpecs() call
+   * \param[out] stream_id Stream index of the chosen InputFormat
+   * \param[in]  last      Input link name returned by the last call of getNextUnassignedSourceLink(). If empty 
+   *                       string, returns the first unassigned input link.
+   * 
+   * \returns the label of the next input link, which is yet has input AVFrame buffer assigned to it. If all the
+   *          links have been configured, returns empty.
+   * 
+   * \note file_id & stream_id are -1 unless parseSourceStreamSpecs() was called beforehand
    */
-  std::string getNextUnassignedSourcePad(int *file_id = nullptr, int *stream_id = nullptr, const std::string &last = "");
+  std::string getNextUnassignedSourceLink(int *file_id = nullptr, int *stream_id = nullptr, const std::string &last = "");
 
   /**
    * \brief Assign a source buffer to a parsed filtergraph
