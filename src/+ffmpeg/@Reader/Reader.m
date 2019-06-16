@@ -11,7 +11,7 @@ classdef Reader < matlab.mixin.SetGet & matlab.mixin.CustomDisplay
    %   STREAMS could be a vector of stream ID numbers (integers) or a string
    %   of FFmpeg stream specifier or an cell array, containing either format.
    %
-   %   OBJ = FFMPEG.VIDEOREADER(FILENAME, 'P1', V1, 'P2', V2, ...) constructs
+   %   OBJ = FFMPEG.READER(FILENAME, 'P1', V1, 'P2', V2, ...) constructs
    %   a multimedia reader object, assigning values V1, V2, etc. to the
    %   specified properties P1, P2, etc. Note that the property value pairs
    %   can be in any format supported by the SET function, e.g.
@@ -38,14 +38,10 @@ classdef Reader < matlab.mixin.SetGet & matlab.mixin.CustomDisplay
    %     VideoFormat      - Video format as it is represented in MATLAB.
    %     FrameRate        - Frame rate of the video in frames per second.
    %
-   %     BitsPerPixel     - Bits per pixel of the video data.
-   %
    %   (If contains an audio stream)
    %     SampleRate       - Audio stream's sampling rate
    %     NumChannels      - Number of channels
    %     AudioFormat      - Video format as it is represented in MATLAB.
-   %
-   %     BitsPerPixel     - Bits per pixel of the audio data.
    %
    %   Example:
    %       % Construct a multimedia reader object associated with file
@@ -86,14 +82,16 @@ classdef Reader < matlab.mixin.SetGet & matlab.mixin.CustomDisplay
    
    properties(GetAccess='public', SetAccess='private')
       FrameRate = []      % Frame rate of the video in frames per second.
-      Height = 0         % Height of the video frame in pixels.
-      Width = 0          % Width of the video frame in pixels.
+      Height = []         % Height of the video frame in pixels.
+      Width = []          % Width of the video frame in pixels.
       PixelAspectRatio = []
-      VideoFormat = 'rgb24'    % Video format as it is represented in MATLAB.
+      VideoFormat = ''    % Video format as it is represented in MATLAB.
       VideoFilter = '' % FFmpeg Video filter chain description
+      SampleRate = []
+      NumberOfAudioChannels = []
       ReadMode = 'components' % 'components'(default if pixel is byte size) |'planes' (default if pixel is sub-byte size)
-      Direction = 'forward'
-      BufferSize = 4  % Underlying frame buffer size
+      % Direction = 'forward'
+      % BufferSize = 4  % Underlying frame buffer size
    end
    
    %------------------------------------------------------------------
@@ -113,7 +111,6 @@ classdef Reader < matlab.mixin.SetGet & matlab.mixin.CustomDisplay
    %------------------------------------------------------------------
    properties(GetAccess='public', SetAccess='private', Dependent, Hidden)
       AudioCompression
-      NumberOfAudioChannels
       VideoCompression
       % NUMBEROFFRAMES property will be removed in a future release. Use
       % CURRENTTIME property instead.
@@ -124,10 +121,10 @@ classdef Reader < matlab.mixin.SetGet & matlab.mixin.CustomDisplay
       backend % Handle to the backend C++ class instance
    end
    methods (Static, Access = private, Hidden = true)
-      varargout = mex_backend(varargin)
+      varargout = mex_backend(varargin)   % mex function
    end
    methods
-      function obj = VideoReader(varargin)
+      function obj = Reader(varargin)
          
          narginchk(1,inf);
          validateattributes(varargin{1},{'char'},{'row'},mfilename,'FILENAME');
@@ -144,8 +141,6 @@ classdef Reader < matlab.mixin.SetGet & matlab.mixin.CustomDisplay
             error('Could not found the specified file: %s',varargin{1});
          end
          
-         ffmpegsetenv(); % make sure ffmpeg DLLs are in the system path
-
          if nargin>1
             set(obj,varargin{2:end});
             
