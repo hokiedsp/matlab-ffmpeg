@@ -79,6 +79,8 @@ public:
 
   AVRational getAvgFrameRate() const { return st ? st->avg_frame_rate : AVRational({0, 0}); }
 
+  void setPixelFormat(const AVPixelFormat pix_fmt);
+
   // int getBitsPerPixel() const;
 
   // const AVPixFmtDescriptor *getPixFmtDescriptor() const;

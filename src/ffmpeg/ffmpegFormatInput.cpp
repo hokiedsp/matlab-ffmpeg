@@ -7,6 +7,7 @@
 extern "C"
 {
 #include <libavutil/mathematics.h>
+#include <libavutil/opt.h>
 }
 
 #include <algorithm>
@@ -50,7 +51,8 @@ void InputFormat::openFile(const std::string &filename)
   if ((ret = avformat_find_stream_info(fmt_ctx, NULL)) < 0)
     throw ffmpegException("Cannot find stream information");
 
-  // initially set to ignore all other streams (an InputStream object sets it to AVDISCARD_NONE when it opens a stream)
+  // initially set to ignore all other streams (an InputStream object sets it to
+  // AVDISCARD_NONE when it opens a stream)
   for (unsigned int i = 0; i < fmt_ctx->nb_streams; ++i)
     fmt_ctx->streams[i]->discard = AVDISCARD_ALL;
 }
@@ -69,7 +71,25 @@ void InputFormat::closeFile()
 
 ////////////////////////////////////////////////////////////////////////////////////////////////
 
-int InputFormat::getStreamId(const int wanted_stream_id, const int related_stream_id) const
+void InputFormat::setPixelFormat(const AVPixelFormat pix_fmt,
+                                 const std::string &spec)
+{
+  if (spec.size())
+    dynamic_cast<InputVideoStream &>(getStream(spec)).setPixelFormat(pix_fmt);
+  else if (pix_fmt != AV_PIX_FMT_NONE &&
+           av_opt_set_pixel_fmt(fmt_ctx, "pix_fmt", pix_fmt, 0) < 0)
+    throw ffmpegException("Invalid pixel format specified.");
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////
+
+// int av_opt_set_video_rate(void *obj, const char *name, AVRational val, int
+// search_flags);
+
+////////////////////////////////////////////////////////////////////////////////////////////////
+
+int InputFormat::getStreamId(const int wanted_stream_id,
+                             const int related_stream_id) const
 {
   int ret = AVERROR_STREAM_NOT_FOUND;
   if (!fmt_ctx) return ret; // if file not open, no stream avail
@@ -78,7 +98,8 @@ int InputFormat::getStreamId(const int wanted_stream_id, const int related_strea
   if (related_stream_id >= 0)
   {
     unsigned *program = NULL;
-    AVProgram *p = av_find_program_from_stream(fmt_ctx, NULL, related_stream_id);
+    AVProgram *p =
+        av_find_program_from_stream(fmt_ctx, NULL, related_stream_id);
     if (p)
     {
       program = p->stream_index;
@@ -103,22 +124,30 @@ int InputFormat::getStreamId(const int wanted_stream_id, const int related_strea
   return ret;
 }
 
-InputStream &InputFormat::addStream(const int wanted_stream_id, IAVFrameSinkBuffer &buf, const int related_stream_id)
+InputStream &InputFormat::addStream(const int wanted_stream_id,
+                                    IAVFrameSinkBuffer &buf,
+                                    const int related_stream_id)
 {
   return add_stream(getStreamId(wanted_stream_id, related_stream_id), buf);
 }
 
-int InputFormat::getStreamId(const AVMediaType type, const int related_stream_id) const
+int InputFormat::getStreamId(const AVMediaType type,
+                             const int related_stream_id) const
 {
-  return fmt_ctx ? av_find_best_stream(fmt_ctx, type, -1, related_stream_id, NULL, 0) : AVERROR_STREAM_NOT_FOUND;
+  return fmt_ctx ? av_find_best_stream(fmt_ctx, type, -1, related_stream_id,
+                                       NULL, 0)
+                 : AVERROR_STREAM_NOT_FOUND;
 }
 
-InputStream &InputFormat::addStream(const AVMediaType type, IAVFrameSinkBuffer &buf, const int related_stream_id)
+InputStream &InputFormat::addStream(const AVMediaType type,
+                                    IAVFrameSinkBuffer &buf,
+                                    const int related_stream_id)
 {
   return add_stream(getStreamId(type, related_stream_id), buf);
 }
 
-int InputFormat::getStreamId(const std::string &spec, const int related_stream_id) const
+int InputFormat::getStreamId(const std::string &spec,
+                             const int related_stream_id) const
 {
   int ret = AVERROR_STREAM_NOT_FOUND;
   if (!fmt_ctx) return ret; // if file not open, no stream avail
@@ -128,7 +157,8 @@ int InputFormat::getStreamId(const std::string &spec, const int related_stream_i
   if (related_stream_id >= 0)
   {
     unsigned *program = NULL;
-    AVProgram *p = av_find_program_from_stream(fmt_ctx, NULL, related_stream_id);
+    AVProgram *p =
+        av_find_program_from_stream(fmt_ctx, NULL, related_stream_id);
     if (p)
     {
       program = p->stream_index;
@@ -144,13 +174,16 @@ int InputFormat::getStreamId(const std::string &spec, const int related_stream_i
   else
   {
     for (int i = 0; ret < 0 && i < fmt_ctx->nb_streams; ++i)
-      ret = avformat_match_stream_specifier(fmt_ctx, fmt_ctx->streams[i], spec_str);
+      ret = avformat_match_stream_specifier(fmt_ctx, fmt_ctx->streams[i],
+                                            spec_str);
   }
 
   return ret;
 }
 
-InputStream &InputFormat::addStream(const std::string &spec, IAVFrameSinkBuffer &buf, const int related_stream_id)
+InputStream &InputFormat::addStream(const std::string &spec,
+                                    IAVFrameSinkBuffer &buf,
+                                    const int related_stream_id)
 {
   int ret = getStreamId(spec, related_stream_id);
   return add_stream(ret, buf);
@@ -166,15 +199,14 @@ InputStream &InputFormat::add_stream(const int id, IAVFrameSinkBuffer &buf)
     switch (par->codec_type)
     {
     case AVMEDIA_TYPE_VIDEO:
-      return *(streams.try_emplace(id, new InputVideoStream(*this, id, buf)).first->second);
+      return *(streams.try_emplace(id, new InputVideoStream(*this, id, buf))
+                   .first->second);
       break;
     case AVMEDIA_TYPE_AUDIO:
     case AVMEDIA_TYPE_DATA:
     case AVMEDIA_TYPE_SUBTITLE:
     case AVMEDIA_TYPE_ATTACHMENT:
-    default:
-      throw ffmpegException("Unsupported stream selected.");
-      ;
+    default: throw ffmpegException("Unsupported stream selected."); ;
     }
   }
   else
@@ -185,11 +217,13 @@ InputStream &InputFormat::add_stream(const int id, IAVFrameSinkBuffer &buf)
 
 void InputFormat::clearStreams()
 {
-  std::for_each(streams.begin(), streams.end(), [&](auto is) { delete is.second; });
+  std::for_each(streams.begin(), streams.end(),
+                [&](auto is) { delete is.second; });
   streams.clear();
 }
 
-InputStream &InputFormat::getStream(const int stream_id, const int related_stream_id)
+InputStream &InputFormat::getStream(const int stream_id,
+                                    const int related_stream_id)
 {
   try
   {
@@ -201,7 +235,8 @@ InputStream &InputFormat::getStream(const int stream_id, const int related_strea
   }
 }
 
-InputStream &InputFormat::getStream(const AVMediaType type, const int related_stream_id)
+InputStream &InputFormat::getStream(const AVMediaType type,
+                                    const int related_stream_id)
 {
   try
   {
@@ -213,7 +248,8 @@ InputStream &InputFormat::getStream(const AVMediaType type, const int related_st
   }
 }
 
-InputStream &InputFormat::getStream(const std::string &spec, const int related_stream_id)
+InputStream &InputFormat::getStream(const std::string &spec,
+                                    const int related_stream_id)
 {
   try
   {
@@ -221,19 +257,21 @@ InputStream &InputFormat::getStream(const std::string &spec, const int related_s
   }
   catch (const std::out_of_range &)
   {
-    throw ffmpegException("Could not find matching active stream by the given specifier.");
+    throw ffmpegException(
+        "Could not find matching active stream by the given specifier.");
   }
 }
 
-const InputStream &InputFormat::getStream(int stream_id, int related_stream_id) const
+const InputStream &InputFormat::getStream(int stream_id,
+                                          int related_stream_id) const
 {
   auto it = streams.find(getStreamId(stream_id, related_stream_id));
-  if (it == streams.end())
-    throw ffmpegException("Invalid/inactive stream ID");
+  if (it == streams.end()) throw ffmpegException("Invalid/inactive stream ID");
   return *(it->second);
 }
 
-const InputStream &InputFormat::getStream(AVMediaType type, int related_stream_id) const
+const InputStream &InputFormat::getStream(AVMediaType type,
+                                          int related_stream_id) const
 {
   try
   {
@@ -245,7 +283,8 @@ const InputStream &InputFormat::getStream(AVMediaType type, int related_stream_i
   }
 }
 
-const InputStream &InputFormat::getStream(const std::string &spec, int related_stream_id) const
+const InputStream &InputFormat::getStream(const std::string &spec,
+                                          int related_stream_id) const
 {
   try
   {
@@ -261,7 +300,8 @@ int64_t InputFormat::getDurationTB() const
 {
   // defined in us in the format context
   if (fmt_ctx)
-    return fmt_ctx->duration + (fmt_ctx->duration <= INT64_MAX - 5000 ? 5000 : 0);
+    return fmt_ctx->duration +
+           (fmt_ctx->duration <= INT64_MAX - 5000 ? 5000 : 0);
   else
     return AV_NOPTS_VALUE;
 }
@@ -281,10 +321,10 @@ int64_t InputFormat::getCurrentTimeStampTB() const
   return (fmt_ctx) ? pts : AV_NOPTS_VALUE;
 }
 
-void InputFormat::setCurrentTimeStampTB(const int64_t seek_timestamp, const bool exact_search)
+void InputFormat::setCurrentTimeStampTB(const int64_t seek_timestamp,
+                                        const bool exact_search)
 {
-  if (!isFileOpen())
-    throw ffmpegException("No file open.");
+  if (!isFileOpen()) throw ffmpegException("No file open.");
 
   // if (val<0.0 || val>getDuration())
   //   throw ffmpegException("Out-of-range timestamp.");
@@ -294,18 +334,25 @@ void InputFormat::setCurrentTimeStampTB(const int64_t seek_timestamp, const bool
   // set new time
   // if filter graph changes frame rate -> convert it to the stream time
   int ret;
-  if (ret = avformat_seek_file(fmt_ctx, -1, INT64_MIN, seek_timestamp, seek_timestamp, 0) < 0)
-    throw ffmpegException("Could not seek to position " + std::to_string(seek_timestamp));
+  if (ret = avformat_seek_file(fmt_ctx, -1, INT64_MIN, seek_timestamp,
+                               seek_timestamp, 0) < 0)
+    throw ffmpegException("Could not seek to position " +
+                          std::to_string(seek_timestamp));
 
-  // av_log(NULL,AV_LOG_INFO,"ffmpeg::InputFormat::setCurrentTimeStamp::seeking %d\n",seek_timestamp);
-  // av_log(NULL,AV_LOG_INFO,"ffmpeg::InputFormat::setCurrentTimeStamp::avformat_seek_file() returned %d\n",ret);
+  // av_log(NULL,AV_LOG_INFO,"ffmpeg::InputFormat::setCurrentTimeStamp::seeking
+  // %d\n",seek_timestamp);
+  // av_log(NULL,AV_LOG_INFO,"ffmpeg::InputFormat::setCurrentTimeStamp::avformat_seek_file()
+  // returned %d\n",ret);
 
-  // avformat_seek_file() typically under-seeks, if exact_search requested, set buf_start_ts to the
-  // requested timestamp (in output frame's timebase) to make copy_frame_ts() to ignore all the frames prior to the requested
+  // avformat_seek_file() typically under-seeks, if exact_search requested, set
+  // buf_start_ts to the requested timestamp (in output frame's timebase) to
+  // make copy_frame_ts() to ignore all the frames prior to the requested
   if (exact_search)
   {
-    std::for_each(streams.begin(), streams.end(),
-                  [&](auto pr) { pr.second->setStartTime(av_rescale_q(seek_timestamp, getTimeBase(), pr.second->getTimeBase())); });
+    std::for_each(streams.begin(), streams.end(), [&](auto pr) {
+      pr.second->setStartTime(av_rescale_q(seek_timestamp, getTimeBase(),
+                                           pr.second->getTimeBase()));
+    });
   };
 }
 
@@ -334,12 +381,15 @@ InputStream *InputFormat::readNextPacket()
     // work only on the registered streams
     InputStream *is = streams[packet.stream_index];
     ret = is->processPacket(&packet);
-    if (ret < 0)
-      throw ffmpegException(ret);
+    if (ret < 0) throw ffmpegException(ret);
 
     // update pts
-    // pts = av_rescale_q(is->getLastFrameTimeStamp(), static_cast<ffmpeg::BaseStream*>(is)->getTimeBase(), AV_TIME_BASE_Q); // a * b / c
-    pts = av_rescale_q(is->getLastFrameTimeStamp(), is->getTimeBase(), AV_TIME_BASE_Q); // a * b / c
+    // pts = av_rescale_q(is->getLastFrameTimeStamp(),
+    // static_cast<ffmpeg::BaseStream*>(is)->getTimeBase(), AV_TIME_BASE_Q); //
+    // a
+    // * b / c
+    pts = av_rescale_q(is->getLastFrameTimeStamp(), is->getTimeBase(),
+                       AV_TIME_BASE_Q); // a * b / c
 
     return is;
   }

@@ -1,6 +1,5 @@
 #include "ffmpegStreamInput.h"
 #include "ffmpegException.h"
-#include "ffmpegMediaReader.h"
 
 extern "C"
 {
@@ -15,15 +14,15 @@ using namespace ffmpeg;
 /**
  * \brief Class to manage AVStream
  */
-InputStream::InputStream(InputFormat &rdr, int stream_id, IAVFrameSinkBuffer &buf) : reader(&rdr), sink(&buf), buf_start_ts(0)
+InputStream::InputStream(InputFormat &rdr, int stream_id,
+                         IAVFrameSinkBuffer &buf)
+    : reader(&rdr), sink(&buf), buf_start_ts(0)
 {
   AVStream *st = reader->_get_stream(stream_id);
   if (st) open(st);
 }
 
-InputStream::~InputStream()
-{
-}
+InputStream::~InputStream() {}
 
 void InputStream::open(AVStream *s)
 {
@@ -31,18 +30,15 @@ void InputStream::open(AVStream *s)
   if (!s) return;
 
   // if codec already open, close first
-  if (ctx)
-    close();
+  if (ctx) close();
 
   AVCodecParameters *par = s->codecpar;
   AVCodec *dec = avcodec_find_decoder(par->codec_id);
-  if (!dec)
-    throw ffmpegException("Failed to find a codec");
+  if (!dec) throw ffmpegException("Failed to find a codec");
 
   // create decoding context if not already created
   AVCodecContext *dec_ctx = avcodec_alloc_context3(dec);
-  if (!dec_ctx)
-    throw ffmpegException("Failed to allocate a decoder context");
+  if (!dec_ctx) throw ffmpegException("Failed to allocate a decoder context");
 
   avcodec_parameters_to_context(dec_ctx, par);
   av_opt_set_int(dec_ctx, "refcounted_frames", 1, 0);
@@ -57,7 +53,10 @@ void InputStream::open(AVStream *s)
   st->discard = AVDISCARD_NONE;
 }
 
-void InputStream::setStartTime(const int64_t timestamp) { buf_start_ts = timestamp; }
+void InputStream::setStartTime(const int64_t timestamp)
+{
+  buf_start_ts = timestamp;
+}
 
 int InputStream::processPacket(AVPacket *packet)
 {
@@ -65,8 +64,7 @@ int InputStream::processPacket(AVPacket *packet)
   AVFrame *frame = NULL;
 
   // send packet to the decoder
-  if (packet)
-    ret = avcodec_send_packet(ctx, packet);
+  if (packet) ret = avcodec_send_packet(ctx, packet);
 
   // receive all the frames (could be more than one)
   while (ret >= 0)
@@ -76,19 +74,26 @@ int InputStream::processPacket(AVPacket *packet)
     // if end-of-file, let sink know it
     if (ret == AVERROR_EOF)
     {
-      if (sink)
-        sink->push(NULL);
+      if (sink) sink->push(NULL);
     }
     else if (ret >= 0)
     {
-      pts = av_rescale_q(frame->best_effort_timestamp, st->time_base, AV_TIME_BASE_Q); // a * b / c
-      if (sink && frame->pts >= buf_start_ts)
-        sink->push(frame);
+      pts = av_rescale_q(frame->best_effort_timestamp, st->time_base,
+                         AV_TIME_BASE_Q); // a * b / c
+      if (sink && frame->pts >= buf_start_ts) sink->push(frame);
     }
   }
 
-  if (ret == AVERROR_EOF || ret == AVERROR(EAGAIN))
-    ret = 0;
+  if (ret == AVERROR_EOF || ret == AVERROR(EAGAIN)) ret = 0;
 
   return ret;
+}
+
+///////////////////////////////////////////////////////////////////////////////
+
+void InputVideoStream::setPixelFormat(const AVPixelFormat pix_fmt)
+{
+  if (pix_fmt == AV_PIX_FMT_NONE) return;
+  if (spec.size() && av_opt_set_pixel_fmt(ctx, "pix_fmt", pix_fmt, 0) > 0)
+    throw ffmpegException("Invalid pixel format specified.");
 }

@@ -18,7 +18,7 @@ namespace ffmpeg
 
 class InputFormat : public Base
 {
-  public:
+public:
   InputFormat(const std::string &filename = "");
   virtual ~InputFormat();
 
@@ -27,6 +27,9 @@ class InputFormat : public Base
 
   void openFile(const std::string &filename);
   void closeFile();
+
+  // setting input options
+  void setPixelFormat(const AVPixelFormat pix_fmt, const std::string &spec = "");
 
   InputStream &addStream(const int wanted_stream_id, IAVFrameSinkBuffer &buf, int related_stream_id = -1);
   InputStream &addStream(const AVMediaType type, IAVFrameSinkBuffer &buf, int related_stream_id = -1);
@@ -85,11 +88,11 @@ class InputFormat : public Base
 
   AVStream *_get_stream(int stream_id, int related_stream_id = -1) { return (fmt_ctx && (stream_id < (int)fmt_ctx->nb_streams)) ? fmt_ctx->streams[stream_id] : nullptr; }
 
-  protected:
+protected:
   // thread function: responsible to read packet and send it to ffmpeg decoder
   // void thread_fcn();
 
-  private:
+private:
   virtual InputStream &add_stream(const int id, IAVFrameSinkBuffer &buf);
 
   AVFormatContext *fmt_ctx;                       // FFmpeg format context

@@ -42,12 +42,17 @@ class Reader
     filter_outbufs.clear();
   }
 
+  void setPixelFormat(const AVPixelFormat pix_fmt, const std::string &spec = "")
+  {
+    file.setPixelFormat(pix_fmt, spec);
+  }
+
   /**
    * \brief Activate a stream to read
-   * 
-   * \param[in] spec              Input stream specifier or filter output link label
-   * \param[in] related_stream_id Specifies related stream of the same program 
-   *                              (only relevant on input stream)
+   *
+   * \param[in] spec              Input stream specifier or filter output link
+   * label \param[in] related_stream_id Specifies related stream of the same
+   * program (only relevant on input stream)
    */
   int addStream(const std::string &spec, int related_stream_id = -1);
 
@@ -64,7 +69,8 @@ class Reader
     return id;
   }
 
-  int addFilterGraph(const std::string &desc, const AVMediaType type = AVMEDIA_TYPE_UNKNOWN);
+  int addFilterGraph(const std::string &desc,
+                     const AVMediaType type = AVMEDIA_TYPE_UNKNOWN);
 
   void clearStreams()
   {
@@ -72,41 +78,69 @@ class Reader
     file.clearStreams();
   }
 
-  InputStream &getStream(int stream_id, int related_stream_id = -1) { return file.getStream(stream_id, related_stream_id); }
-  InputStream &getStream(AVMediaType type, int related_stream_id = -1) { return file.getStream(type, related_stream_id); }
+  InputStream &getStream(int stream_id, int related_stream_id = -1)
+  {
+    return file.getStream(stream_id, related_stream_id);
+  }
+  InputStream &getStream(AVMediaType type, int related_stream_id = -1)
+  {
+    return file.getStream(type, related_stream_id);
+  }
 
-  const InputStream &getStream(int stream_id, int related_stream_id = -1) const { return file.getStream(stream_id, related_stream_id); }
-  const InputStream &getStream(AVMediaType type, int related_stream_id = -1) const { return file.getStream(type, related_stream_id); }
+  const InputStream &getStream(int stream_id, int related_stream_id = -1) const
+  {
+    return file.getStream(stream_id, related_stream_id);
+  }
+  const InputStream &getStream(AVMediaType type,
+                               int related_stream_id = -1) const
+  {
+    return file.getStream(type, related_stream_id);
+  }
 
   /**
    * \brief   Get next frame of the specified stream
    */
-  bool readNextFrame(AVFrame *frame, const int stream_id, const bool getmore = true) { return get_frame(frame, bufs.at(file.getStreamId(stream_id)), getmore); }
+  bool readNextFrame(AVFrame *frame, const int stream_id,
+                     const bool getmore = true)
+  {
+    return get_frame(frame, bufs.at(file.getStreamId(stream_id)), getmore);
+  }
 
-  bool readNextFrame(AVFrame *frame, const std::string &spec, const bool getmore = true);
+  bool readNextFrame(AVFrame *frame, const std::string &spec,
+                     const bool getmore = true);
 
   double getNextTimeStamp() const { return file.getCurrentTimeStamp(); }
-  void setNextTimeStamp(const double val, const bool exact_search = true) { file.setCurrentTimeStamp(val, exact_search); }
+  void setNextTimeStamp(const double val, const bool exact_search = true)
+  {
+    file.setCurrentTimeStamp(val, exact_search);
+  }
 
   std::string getFilePath() const { return file.getFilePath(); }
   double getDuration() const { return file.getDuration(); }
 
   private:
-  typedef AVFrameQueue<NullMutex, NullConditionVariable<NullMutex>, NullUniqueLock<NullMutex>> AVFrameQueueST;
+  typedef AVFrameQueue<NullMutex, NullConditionVariable<NullMutex>,
+                       NullUniqueLock<NullMutex>>
+      AVFrameQueueST;
 
   // activate and adds buffer to an input stream by its id
   void add_stream(const int stream_id);
-  // reads next set of packets from file/stream and push the decoded frame to the stream's sink
+  // reads next set of packets from file/stream and push the decoded frame to
+  // the stream's sink
   bool get_frame(AVFrame *frame, AVFrameQueueST &buf, const bool getmore);
 
   InputFormat file;
-  std::unordered_map<int, AVFrameQueueST> bufs; // output frame buffers (one for each active stream)
+  std::unordered_map<int, AVFrameQueueST>
+      bufs; // output frame buffers (one for each active stream)
 
   bool eof; // true if last frame read was an EOF
   uint64_t pts;
 
-  filter::Graph *filter_graph;                                    // filter graphs
-  std::unordered_map<std::string, AVFrameQueueST> filter_inbufs;  // filter output frame buffers (one for each active stream)
-  std::unordered_map<std::string, AVFrameQueueST> filter_outbufs; // filter output frame buffers (one for each active stream)
+  filter::Graph *filter_graph; // filter graphs
+  std::unordered_map<std::string, AVFrameQueueST>
+      filter_inbufs; // filter output frame buffers (one for each active stream)
+  std::unordered_map<std::string, AVFrameQueueST>
+      filter_outbufs; // filter output frame buffers (one for each active
+                      // stream)
 };
 } // namespace ffmpeg
