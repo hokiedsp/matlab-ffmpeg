@@ -39,7 +39,8 @@ void SinkBase::link(AVFilterContext *other, const unsigned otherpad, const unsig
 
 int SinkBase::processFrame()
 {
-  if (!ena) return AVERROR_EOF;
+  if (!ena)
+    return AVERROR_EOF;
   AVFrame *frame = sink->peekToPush();
   int ret = av_buffersink_get_frame(context, frame);
   ena = (ret != AVERROR_EOF);
@@ -58,10 +59,19 @@ AVFilterContext *VideoSink::configure(const std::string &name)
   return SinkBase::configure();
 }
 
+void VideoSink::setPixelFormat(const AVPixelFormat pix_fmt)
+{
+  AVPixelFormat pix_fmts[] = {pix_fmt, AV_PIX_FMT_NONE};
+  int ret = av_opt_set_int_list(context, "pix_fmts", pix_fmts, AV_PIX_FMT_NONE, AV_OPT_SEARCH_CHILDREN);
+  if (ret < 0)
+    throw ffmpegException("Cannot set output pixel format.");
+}
+
 bool VideoSink::sync()
 {
-  if (!context || context->inputs[0]) return synced;
-  VideoParams &p = *static_cast<VideoParams*>(params);
+  if (!context || context->inputs[0])
+    return synced;
+  VideoParams &p = *static_cast<VideoParams *>(params);
   p.time_base = av_buffersink_get_time_base(context);
   p.format = (AVPixelFormat)av_buffersink_get_format(context);
   p.width = av_buffersink_get_w(context);
@@ -85,8 +95,9 @@ AVFilterContext *AudioSink::configure(const std::string &name)
 
 bool AudioSink::sync()
 {
-  if (!context || context->inputs[0]) return synced;
-  AudioParams &p = *static_cast<AudioParams*>(params);
+  if (!context || context->inputs[0])
+    return synced;
+  AudioParams &p = *static_cast<AudioParams *>(params);
 
   p.time_base = av_buffersink_get_time_base(context);
   p.format = (AVSampleFormat)av_buffersink_get_format(context);
