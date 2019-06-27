@@ -37,7 +37,7 @@ public:
    * /brief   Retrieve the prefilter chain description
    * 
    * \returns Prefilter chain description string
-   * \thrpws ffmpegException if fails to parse
+   * \thrpws Exception if fails to parse
    */
   const std::string &setPrefilter();
 
@@ -48,7 +48,7 @@ public:
    * graph to verify that it is a SISO graph.
    * 
    * \param[in] desc Prefilter chain description
-   * \thrpws ffmpegException if fails to parse
+   * \thrpws Exception if fails to parse
    */
   virtual void setPrefilter(const std::string &desc);
   
@@ -62,9 +62,9 @@ public:
    * \param pad[in]  [optional, default:0] The connector pad of this filter
    * \param issrc[in]  [optional, default:true] True if this filter is the source
    * 
-   * \throws ffmpegException if either filter context is not ready.
-   * \throws ffmpegException if filter contexts are not for the same filtergraph.
-   * \throws ffmpegException if failed to link.
+   * \throws Exception if either filter context is not ready.
+   * \throws Exception if filter contexts are not for the same filtergraph.
+   * \throws Exception if failed to link.
    */
   virtual void link(AVFilterContext *other, const unsigned otherpad, const unsigned pad=0, const bool issrc=true);
 

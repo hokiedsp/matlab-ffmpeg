@@ -32,7 +32,7 @@ AVFilterContext *SinkBase::configure(const std::string &name)
 void SinkBase::link(AVFilterContext *other, const unsigned otherpad, const unsigned pad, const bool issrc)
 {
   if (issrc || pad > 0)
-    throw ffmpegException("Sink filter does not have a input pad and has only one output pad.");
+    throw Exception("Sink filter does not have a input pad and has only one output pad.");
 
   EndpointBase::link(other, otherpad, prefilter_pad, issrc);
 }
@@ -64,7 +64,7 @@ void VideoSink::setPixelFormat(const AVPixelFormat pix_fmt)
   AVPixelFormat pix_fmts[] = {pix_fmt, AV_PIX_FMT_NONE};
   int ret = av_opt_set_int_list(context, "pix_fmts", pix_fmts, AV_PIX_FMT_NONE, AV_OPT_SEARCH_CHILDREN);
   if (ret < 0)
-    throw ffmpegException("Cannot set output pixel format.");
+    throw Exception("Cannot set output pixel format.");
 }
 
 bool VideoSink::sync()
@@ -110,7 +110,7 @@ bool AudioSink::sync()
   // {
   //   const AVCodec *enc = st->getAVCodec();
   //   if (!enc)
-  //     throw ffmpegException("Encoder (codec %s) not found for an output stream",
+  //     throw Exception("Encoder (codec %s) not found for an output stream",
   //                           avcodec_get_name(st->getAVStream()->codecpar->codec_id));
 
   //   if (!(enc->capabilities & AV_CODEC_CAP_VARIABLE_FRAME_SIZE))

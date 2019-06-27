@@ -29,6 +29,8 @@ public:
   SourceBase(Graph &fg, IAVFrameSourceBuffer &srcbuf);
   virtual ~SourceBase();
 
+  bool EndOfFile() { return eof; }
+
   // virtual AVFilterContext *configure(const std::string &name = "") = 0;
   // virtual void destroy(const bool deep = false);
   virtual void link(AVFilterContext *other, const unsigned otherpad, const unsigned pad = 0, const bool issrc = true);
@@ -44,7 +46,7 @@ public:
   IAVFrameSourceBuffer &getSourceBuffer() const
   {
     if (buf) return *buf;
-    throw ffmpegException("No buffer specified.");
+    throw Exception("No buffer specified.");
   }
   void setSourceBuffer(IAVFrameSourceBuffer &new_buf)
   {

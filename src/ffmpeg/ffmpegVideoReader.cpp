@@ -34,7 +34,7 @@ const AVPixFmtDescriptor &VideoReader::getPixFmtDescriptor() const
 {
   const AVPixFmtDescriptor *pix_fmt_desc = av_pix_fmt_desc_get(pix_fmt);
   if (!pix_fmt_desc)
-    throw ffmpegException("Pixel format is unknown.");
+    throw Exception("Pixel format is unknown.");
   return *pix_fmt_desc;
 }
 
@@ -57,18 +57,18 @@ void VideoReader::open_input_file(const std::string &filename)
   AVCodec *dec;
 
   if (fmt_ctx)
-    throw ffmpegException("Another file already open. Close it first.");
+    throw Exception("Another file already open. Close it first.");
 
   if ((ret = avformat_open_input(&fmt_ctx, filename.c_str(), NULL, NULL)) < 0)
-    throw ffmpegException("Cannot open input file");
+    throw Exception("Cannot open input file");
 
   if ((ret = avformat_find_stream_info(fmt_ctx, NULL)) < 0)
-    throw ffmpegException("Cannot find stream information");
+    throw Exception("Cannot find stream information");
 
   /* select the video stream */
   ret = av_find_best_stream(fmt_ctx, AVMEDIA_TYPE_VIDEO, -1, -1, &dec, 0);
   if (ret < 0)
-    throw ffmpegException("Cannot find a video stream in the input file");
+    throw Exception("Cannot find a video stream in the input file");
   video_stream_index = ret;
   st = fmt_ctx->streams[video_stream_index];
 
@@ -80,13 +80,13 @@ void VideoReader::open_input_file(const std::string &filename)
   /* create decoding context */
   dec_ctx = avcodec_alloc_context3(dec);
   if (!dec_ctx)
-    throw ffmpegException("Failed to allocate a decoder context");
+    throw Exception("Failed to allocate a decoder context");
   avcodec_parameters_to_context(dec_ctx, st->codecpar);
   av_opt_set_int(dec_ctx, "refcounted_frames", 1, 0);
 
   /* init the video decoder */
   if ((ret = avcodec_open2(dec_ctx, dec, NULL)) < 0)
-    throw ffmpegException("Cannot open video decoder");
+    throw Exception("Cannot open video decoder");
 
   // set the frame time-base to input
   tb = st->time_base;
@@ -131,7 +131,7 @@ void VideoReader::create_filters(const std::string &filter_description, const AV
   }
 
   if (!dec_ctx)
-    throw ffmpegException("Decoder must be already open to create new filter graph.");
+    throw Exception("Decoder must be already open to create new filter graph.");
 
   int ret = 0;
 
@@ -139,7 +139,7 @@ void VideoReader::create_filters(const std::string &filter_description, const AV
   ffmpeg::AVFilterInOutPtr outputs(avfilter_inout_alloc(), ffmpeg::delete_filter_inout);
   ffmpeg::AVFilterInOutPtr inputs(avfilter_inout_alloc(), ffmpeg::delete_filter_inout);
   if (!outputs || !inputs || !filter_graph)
-    throw ffmpegException("Failed to allocate the filter context or its AVFilterInOut's");
+    throw Exception("Failed to allocate the filter context or its AVFilterInOut's");
 
   /* buffer video source: the decoded frames from the decoder will be inserted here. */
   AVFilter *buffersrc = avfilter_get_by_name("buffer");
@@ -152,18 +152,18 @@ void VideoReader::create_filters(const std::string &filter_description, const AV
            dec_ctx->sample_aspect_ratio.num, dec_ctx->sample_aspect_ratio.den);
   ret = avfilter_graph_create_filter(&buffersrc_ctx, buffersrc, "in", args, NULL, filter_graph);
   if (ret < 0)
-    throw ffmpegException("Cannot create buffer source: %s\n", av_err2str(ret));
+    throw Exception("Cannot create buffer source: %s\n", av_err2str(ret));
 
   /* buffer video sink: to terminate the filter chain. */
   AVFilter *buffersink = avfilter_get_by_name("buffersink");
   ret = avfilter_graph_create_filter(&buffersink_ctx, buffersink, "out", NULL, NULL, filter_graph);
   if (ret < 0)
-    throw ffmpegException("Cannot create buffer sink: %s", av_err2str(ret));
+    throw Exception("Cannot create buffer sink: %s", av_err2str(ret));
 
   AVPixelFormat pix_fmts[] = {pix_fmt_rq, AV_PIX_FMT_NONE};
   ret = av_opt_set_int_list(buffersink_ctx, "pix_fmts", pix_fmts, AV_PIX_FMT_NONE, AV_OPT_SEARCH_CHILDREN);
   if (ret < 0)
-    throw ffmpegException("Cannot set output pixel format: %s", av_err2str(ret));
+    throw Exception("Cannot set output pixel format: %s", av_err2str(ret));
 
   if (pix_fmt_rq != AV_PIX_FMT_NONE)
     pix_fmt = pix_fmt_rq;
@@ -203,13 +203,13 @@ void VideoReader::create_filters(const std::string &filter_description, const AV
     AVFilterInOut *in = inputs.release();
     AVFilterInOut *out = outputs.release();
     if ((ret = avfilter_graph_parse_ptr(filter_graph, filter_descr.c_str(), &in, &out, NULL)) < 0)
-      throw ffmpegException("filtering_video:create_filters:avfilter_graph_parse_ptr:error: %s", av_err2str(ret));
+      throw Exception("filtering_video:create_filters:avfilter_graph_parse_ptr:error: %s", av_err2str(ret));
     inputs.reset(in);
     outputs.reset(out);
   }
 
   if (ret = avfilter_graph_config(filter_graph, NULL))
-    throw ffmpegException("filtering_video:create_filters:avfilter_graph_config:error: %s", av_err2str(ret));
+    throw Exception("filtering_video:create_filters:avfilter_graph_config:error: %s", av_err2str(ret));
 
   // use filter output sink's the time-base
   if (buffersink_ctx->inputs[0]->time_base.num)
@@ -219,10 +219,10 @@ void VideoReader::create_filters(const std::string &filter_description, const AV
 void VideoReader::setCurrentTimeStamp(const double val, const bool exact_search)
 {
   if (!isFileOpen())
-    throw ffmpegException("No file open.");
+    throw Exception("No file open.");
 
   // if (val<0.0 || val>getDuration())
-  //   throw ffmpegException("Out-of-range timestamp.");
+  //   throw Exception("Out-of-range timestamp.");
 
   // pause the threads and flush the remaining frames
   pause();
@@ -232,7 +232,7 @@ void VideoReader::setCurrentTimeStamp(const double val, const bool exact_search)
   int64_t seek_timestamp = int64_t(val * AV_TIME_BASE);
   int ret;
   if (ret = avformat_seek_file(fmt_ctx, -1, INT64_MIN, seek_timestamp, seek_timestamp, 0) < 0)
-    throw ffmpegException("Could not seek to position " + std::to_string(val) + " s");
+    throw Exception("Could not seek to position " + std::to_string(val) + " s");
 
   // av_log(NULL,AV_LOG_INFO,"ffmpeg::VideoReader::setCurrentTimeStamp::seeking %d\n",seek_timestamp);
   // av_log(NULL,AV_LOG_INFO,"ffmpeg::VideoReader::setCurrentTimeStamp::avformat_seek_file() returned %d\n",ret);
@@ -249,7 +249,7 @@ void VideoReader::setCurrentTimeStamp(const double val, const bool exact_search)
 void VideoReader::setFilterGraph(const std::string &filter_desc, const AVPixelFormat pix_fmt) // stops
 {
   if (!isFileOpen())
-    throw ffmpegException("No file open.");
+    throw Exception("No file open.");
 
   // pause the threads and flush the remaining frames and load the new filter graph
   pause();
@@ -259,7 +259,7 @@ void VideoReader::setFilterGraph(const std::string &filter_desc, const AVPixelFo
 
   // reset time
   if (avformat_seek_file(fmt_ctx, -1, INT64_MIN, 0, 0, 0) < 0)
-    throw ffmpegException("Could not rewind.");
+    throw Exception("Could not rewind.");
 
   // restart
   resume();
@@ -410,7 +410,7 @@ void VideoReader::read_packets()
           if (ret == AVERROR_EOF) // reached end of the file
             last_frame = true;
           else
-            throw ffmpegException("Error while reading a packet: %s", av_err2str(ret));
+            throw Exception("Error while reading a packet: %s", av_err2str(ret));
         }
 
         // process only the video stream
@@ -446,7 +446,7 @@ void VideoReader::read_packets()
       if (killnow)
         break;
       if (ret < 0 && ret != AVERROR_EOF && ret != AVERROR(EAGAIN))
-        throw ffmpegException("Error while sending a packet to the decoder: %s", av_err2str(ret));
+        throw Exception("Error while sending a packet to the decoder: %s", av_err2str(ret));
 
       // if just completed EOF flushing, done
       if (last_frame)
@@ -505,7 +505,7 @@ void VideoReader::filter_frames()
       if (!last_frame)
       {
         if (ret < 0)
-          throw ffmpegException("Error while receiving a frame from the decoder: %s", av_err2str(ret));
+          throw Exception("Error while receiving a frame from the decoder: %s", av_err2str(ret));
         else
           // set frame PTS to be the best effort timestamp for the frame
           frame->pts = av_frame_get_best_effort_timestamp(frame);
@@ -521,7 +521,7 @@ void VideoReader::filter_frames()
           /* pull filtered frames from the filtergraph */
           ret = av_buffersrc_add_frame_flags(buffersrc_ctx, frame, AV_BUFFERSRC_FLAG_KEEP_REF);
           if (ret < 0)
-            throw ffmpegException("Error occurred while sending a frame to the filter graph: %s", av_err2str(ret));
+            throw Exception("Error occurred while sending a frame to the filter graph: %s", av_err2str(ret));
         }
 
         // try to retrieve the buffer
@@ -538,7 +538,7 @@ void VideoReader::filter_frames()
         if (ret == AVERROR_EOF) // run copy_frame_ts one last time if EOF to let buffer know
           copy_frame_ts(NULL);
         else if (!killnow && ret < 0 && ret != AVERROR(EAGAIN))
-          throw ffmpegException("Error occurred while retrieving filtered frames: %s", av_err2str(ret));
+          throw Exception("Error occurred while retrieving filtered frames: %s", av_err2str(ret));
       }
       else
       {

@@ -27,8 +27,14 @@ class BaseStream : public Base
 
   virtual int getId() const { return st ? st->id : -1; }
 
-  AVMediaType getMediaType() const { return ctx ? ctx->codec_type : AVMEDIA_TYPE_UNKNOWN; }
-  AVRational getTimeBase() const { return (st) ? st->time_base : (ctx) ? ctx->time_base : AVRational({0, 0}); }
+  AVMediaType getMediaType() const
+  {
+    return ctx ? ctx->codec_type : AVMEDIA_TYPE_UNKNOWN;
+  }
+  AVRational getTimeBase() const
+  {
+    return (st) ? st->time_base : (ctx) ? ctx->time_base : AVRational({0, 0});
+  }
   virtual void setTimeBase(const AVRational &tb);
 
   virtual bool ready();
@@ -38,22 +44,29 @@ class BaseStream : public Base
   virtual int reset(); // reset decoder states
 
   const AVCodec *getAVCodec() const { return ctx ? ctx->codec : NULL; }
-  std::string getCodecName() const { return (ctx && ctx->codec && ctx->codec->name) ? ctx->codec->name : ""; }
-  std::string getCodecDescription() const { return (ctx && ctx->codec && ctx->codec->long_name) ? ctx->codec->long_name : ""; }
+  std::string getCodecName() const
+  {
+    return (ctx && ctx->codec && ctx->codec->name) ? ctx->codec->name : "";
+  }
+  std::string getCodecDescription() const
+  {
+    return (ctx && ctx->codec && ctx->codec->long_name) ? ctx->codec->long_name
+                                                        : "";
+  }
   bool getCodecFlags(const int mask) const { return ctx->flags & mask; }
 
   int getCodecFrameSize() const { return ctx ? ctx->frame_size : 0; }
 
   AVStream *getAVStream() const { return st; }
-  int64_t getLastFrameTimeStamp() const { return pts; };
 
-  static const AVPixelFormats get_compliance_unofficial_pix_fmts(AVCodecID codec_id, const AVPixelFormats default_formats);
+  static const AVPixelFormats
+  get_compliance_unofficial_pix_fmts(AVCodecID codec_id,
+                                     const AVPixelFormats default_formats);
   void choose_sample_fmt(); // should be moved to OutputAudioStream when created
 
   protected:
-  AVStream *st;        // stream
-  AVCodecContext *ctx; // stream's codec context
-  int64_t pts;         // pts of the last frame
+  AVStream *st;                 // stream
+  AVCodecContext *ctx;          // stream's codec context
 };
 
 /**
@@ -64,13 +77,16 @@ class VideoStream : virtual public BaseStream, public VideoHandler
   public:
   virtual ~VideoStream() {}
 
-  AVPixelFormat getFormat() const { return ctx ? ctx->pix_fmt : AV_PIX_FMT_NONE; }
+  AVPixelFormat getFormat() const
+  {
+    return ctx ? ctx->pix_fmt : AV_PIX_FMT_NONE;
+  }
 
   void setMediaParams(const MediaParams &new_params);
 
   AVMediaType getMediaType() const { return VideoHandler::getMediaType(); }
   AVRational getTimeBase() const { return VideoHandler::getTimeBase(); }
-  
+
   void setTimeBase(const AVRational &tb) override;
 
   void setFormat(const AVPixelFormat fmt) override;

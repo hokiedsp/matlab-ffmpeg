@@ -3,7 +3,7 @@
 #include "ffmpegAvRedefine.h"
 #include "ffmpegException.h"
 #include "ffmpegPtrs.h"
-
+#include "ffmpegTimeUtil.h"
 extern "C"
 {
 #include <libavutil/mathematics.h>
@@ -14,8 +14,7 @@ extern "C"
 
 using namespace ffmpeg;
 
-InputFormat::InputFormat(const std::string &filename)
-    : fmt_ctx(NULL), pts(AV_NOPTS_VALUE)
+InputFormat::InputFormat(const std::string &filename) : fmt_ctx(NULL), eof(true)
 {
   // initialize to allow preemptive unreferencing
   if (!filename.empty()) openFile(filename);
@@ -35,26 +34,24 @@ InputFormat::~InputFormat()
 
 ////////////////////////////////////////////////////////////////////////////////////////////////
 
-bool InputFormat::isFileOpen() { return fmt_ctx; }
-bool InputFormat::EndOfFile() { return fmt_ctx && pts >= getDuration(); }
-
 void InputFormat::openFile(const std::string &filename)
 {
   int ret;
 
-  if (fmt_ctx)
-    throw ffmpegException("Another file already open. Close it first.");
+  if (fmt_ctx) throw Exception("Another file already open. Close it first.");
 
   if ((ret = avformat_open_input(&fmt_ctx, filename.c_str(), NULL, NULL)) < 0)
-    throw ffmpegException("Cannot open input file");
+    throw Exception("Cannot open input file");
 
   if ((ret = avformat_find_stream_info(fmt_ctx, NULL)) < 0)
-    throw ffmpegException("Cannot find stream information");
+    throw Exception("Cannot find stream information");
 
   // initially set to ignore all other streams (an InputStream object sets it to
   // AVDISCARD_NONE when it opens a stream)
   for (unsigned int i = 0; i < fmt_ctx->nb_streams; ++i)
     fmt_ctx->streams[i]->discard = AVDISCARD_ALL;
+
+  eof = false;
 }
 
 void InputFormat::closeFile()
@@ -78,7 +75,7 @@ void InputFormat::setPixelFormat(const AVPixelFormat pix_fmt,
     dynamic_cast<InputVideoStream &>(getStream(spec)).setPixelFormat(pix_fmt);
   else if (pix_fmt != AV_PIX_FMT_NONE &&
            av_opt_set_pixel_fmt(fmt_ctx, "pix_fmt", pix_fmt, 0) < 0)
-    throw ffmpegException("Invalid pixel format specified.");
+    throw Exception("Invalid pixel format specified.");
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////
@@ -139,6 +136,18 @@ int InputFormat::getStreamId(const AVMediaType type,
                  : AVERROR_STREAM_NOT_FOUND;
 }
 
+int InputFormat::getNextInactiveStream(int last, const AVMediaType type)
+{
+  bool any_media = (type == AVMEDIA_TYPE_UNKNOWN);
+
+  for (++last;
+       last < fmt_ctx->nb_streams && streams.count(last) &&
+       !(any_media || fmt_ctx->streams[last]->codecpar->codec_type == type);
+       ++last)
+    ;
+  return last >= 0 ? last : -1;
+}
+
 InputStream &InputFormat::addStream(const AVMediaType type,
                                     IAVFrameSinkBuffer &buf,
                                     const int related_stream_id)
@@ -190,7 +199,7 @@ InputStream &InputFormat::addStream(const std::string &spec,
 }
 InputStream &InputFormat::add_stream(const int id, IAVFrameSinkBuffer &buf)
 {
-  if (id < 0) throw ffmpegException("Invalid stream ID specified.");
+  if (id < 0) throw InvalidStreamSpecifier(id);
 
   if (streams.find(id) == streams.end())
   {
@@ -206,12 +215,12 @@ InputStream &InputFormat::add_stream(const int id, IAVFrameSinkBuffer &buf)
     case AVMEDIA_TYPE_DATA:
     case AVMEDIA_TYPE_SUBTITLE:
     case AVMEDIA_TYPE_ATTACHMENT:
-    default: throw ffmpegException("Unsupported stream selected."); ;
+    default: throw Exception("Unsupported stream selected."); ;
     }
   }
   else
   {
-    throw ffmpegException("Specified stream has already been activated.");
+    throw Exception("Specified stream has already been activated.");
   }
 }
 
@@ -231,7 +240,7 @@ InputStream &InputFormat::getStream(const int stream_id,
   }
   catch (const std::out_of_range &)
   {
-    throw ffmpegException("Invalid/inactive stream ID");
+    throw InvalidStreamSpecifier(stream_id);
   }
 }
 
@@ -244,7 +253,7 @@ InputStream &InputFormat::getStream(const AVMediaType type,
   }
   catch (const std::out_of_range &)
   {
-    throw ffmpegException("Could not find matching active stream");
+    throw Exception("Could not find matching active stream");
   }
 }
 
@@ -257,8 +266,7 @@ InputStream &InputFormat::getStream(const std::string &spec,
   }
   catch (const std::out_of_range &)
   {
-    throw ffmpegException(
-        "Could not find matching active stream by the given specifier.");
+    throw InvalidStreamSpecifier(spec);
   }
 }
 
@@ -266,7 +274,7 @@ const InputStream &InputFormat::getStream(int stream_id,
                                           int related_stream_id) const
 {
   auto it = streams.find(getStreamId(stream_id, related_stream_id));
-  if (it == streams.end()) throw ffmpegException("Invalid/inactive stream ID");
+  if (it == streams.end()) throw InvalidStreamSpecifier(stream_id);
   return *(it->second);
 }
 
@@ -279,7 +287,7 @@ const InputStream &InputFormat::getStream(AVMediaType type,
   }
   catch (const std::out_of_range &)
   {
-    throw ffmpegException("Could not find matching active stream");
+    throw Exception("Could not find matching active stream");
   }
 }
 
@@ -292,68 +300,13 @@ const InputStream &InputFormat::getStream(const std::string &spec,
   }
   catch (const std::out_of_range &)
   {
-    throw ffmpegException("Could not find matching active stream");
+    throw Exception("Could not find matching active stream");
   }
-}
-
-int64_t InputFormat::getDurationTB() const
-{
-  // defined in us in the format context
-  if (fmt_ctx)
-    return fmt_ctx->duration +
-           (fmt_ctx->duration <= INT64_MAX - 5000 ? 5000 : 0);
-  else
-    return AV_NOPTS_VALUE;
 }
 
 std::string InputFormat::getFilePath() const
 {
   return fmt_ctx ? fmt_ctx->url : "";
-}
-
-AVRational InputFormat::getTimeBase() const
-{
-  return AVRational({AV_TIME_BASE, 1});
-}
-
-int64_t InputFormat::getCurrentTimeStampTB() const
-{
-  return (fmt_ctx) ? pts : AV_NOPTS_VALUE;
-}
-
-void InputFormat::setCurrentTimeStampTB(const int64_t seek_timestamp,
-                                        const bool exact_search)
-{
-  if (!isFileOpen()) throw ffmpegException("No file open.");
-
-  // if (val<0.0 || val>getDuration())
-  //   throw ffmpegException("Out-of-range timestamp.");
-
-  // AV_TIME_BASE
-
-  // set new time
-  // if filter graph changes frame rate -> convert it to the stream time
-  int ret;
-  if (ret = avformat_seek_file(fmt_ctx, -1, INT64_MIN, seek_timestamp,
-                               seek_timestamp, 0) < 0)
-    throw ffmpegException("Could not seek to position " +
-                          std::to_string(seek_timestamp));
-
-  // av_log(NULL,AV_LOG_INFO,"ffmpeg::InputFormat::setCurrentTimeStamp::seeking
-  // %d\n",seek_timestamp);
-  // av_log(NULL,AV_LOG_INFO,"ffmpeg::InputFormat::setCurrentTimeStamp::avformat_seek_file()
-  // returned %d\n",ret);
-
-  // avformat_seek_file() typically under-seeks, if exact_search requested, set
-  // buf_start_ts to the requested timestamp (in output frame's timebase) to
-  // make copy_frame_ts() to ignore all the frames prior to the requested
-  if (exact_search)
-  {
-    std::for_each(streams.begin(), streams.end(), [&](auto pr) {
-      pr.second->setStartTime(av_rescale_q(seek_timestamp, getTimeBase(),
-                                           pr.second->getTimeBase()));
-    });
-  };
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////
@@ -363,7 +316,7 @@ InputStream *InputFormat::readNextPacket()
 {
   int ret;
 
-  if (!fmt_ctx) throw ffmpegException("No file open.");
+  if (!fmt_ctx) throw Exception("No file open.");
 
   // unreference previously read packet
   av_packet_unref(&packet);
@@ -372,6 +325,7 @@ InputStream *InputFormat::readNextPacket()
   ret = av_read_frame(fmt_ctx, &packet);
   if (ret == AVERROR_EOF) // must notify all streams
   {
+    eof = true;
     for (auto i = streams.begin(); i != streams.end(); ++i)
       i->second->processPacket(nullptr);
     return nullptr;
@@ -381,18 +335,9 @@ InputStream *InputFormat::readNextPacket()
     // work only on the registered streams
     InputStream *is = streams[packet.stream_index];
     ret = is->processPacket(&packet);
-    if (ret < 0) throw ffmpegException(ret);
-
-    // update pts
-    // pts = av_rescale_q(is->getLastFrameTimeStamp(),
-    // static_cast<ffmpeg::BaseStream*>(is)->getTimeBase(), AV_TIME_BASE_Q); //
-    // a
-    // * b / c
-    pts = av_rescale_q(is->getLastFrameTimeStamp(), is->getTimeBase(),
-                       AV_TIME_BASE_Q); // a * b / c
-
+    if (ret < 0) throw Exception(ret);
     return is;
   }
   else
-    throw ffmpegException(ret);
+    throw Exception(ret);
 }

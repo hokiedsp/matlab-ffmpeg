@@ -98,8 +98,7 @@ void Graph::parse(const std::string &new_desc)
 {
   // allocate new filter graph
   AVFilterGraph *temp_graph;
-  if (!(temp_graph = avfilter_graph_alloc()))
-    throw ffmpegException(AVERROR(ENOMEM));
+  if (!(temp_graph = avfilter_graph_alloc())) throw Exception(AVERROR(ENOMEM));
 
   // set unique_ptrs to auto delete the pointer when going out of scope
   auto avFilterGraphFree = [](AVFilterGraph *graph) {
@@ -111,7 +110,7 @@ void Graph::parse(const std::string &new_desc)
   // Parse the string to get I/O endpoints
   AVFilterInOut *ins = NULL, *outs = NULL;
   if ((avfilter_graph_parse2(temp_graph, new_desc.c_str(), &ins, &outs)) < 0)
-    throw ffmpegException("Failed to parse the filter graph description.");
+    throw Exception("Failed to parse the filter graph description.");
 
   av_log(NULL, AV_LOG_INFO, "parse success, analyzing input/output nodes...\n");
 
@@ -130,8 +129,8 @@ void Graph::parse(const std::string &new_desc)
     for (AVFilterInOut *cur = ins->next; cur; cur = cur->next)
       if (cur->name) named = true;
     if (!named)
-      throw ffmpegException("All the inputs of multiple-input complex filter "
-                            "graph must be named.");
+      throw Exception("All the inputs of multiple-input complex filter "
+                      "graph must be named.");
   }
 
   // check sinks to be either simple or least 1 ouput named
@@ -141,8 +140,8 @@ void Graph::parse(const std::string &new_desc)
     for (AVFilterInOut *cur = outs->next; cur; cur = cur->next)
       if (cur->name) named = true;
     if (!named)
-      throw ffmpegException("All the outputs of multiple-output complex filter "
-                            "graph must be named.");
+      throw Exception("All the outputs of multiple-output complex filter "
+                      "graph must be named.");
   }
 
   av_log(NULL, AV_LOG_INFO,
@@ -267,13 +266,13 @@ void Graph::connect_nullsources()
 
     AVFilterContext *context;
     if (avfilter_graph_create_filter(&context, filter, "", "", NULL, graph) < 0)
-      throw ffmpegException("[ffmpeg::filter::Graph::connect_nullsink] Failed "
-                            "to create a null source.");
+      throw Exception("[ffmpeg::filter::Graph::connect_nullsink] Failed "
+                      "to create a null source.");
 
     auto conn = in_info.conns.front();
     if (avfilter_link(context, 0, conn.other, conn.otherpad) < 0)
-      throw ffmpegException("[ffmpeg::filter::Graph::connect_nullsink] Failed "
-                            "to link null source to the filter graph.");
+      throw Exception("[ffmpeg::filter::Graph::connect_nullsink] Failed "
+                      "to link null source to the filter graph.");
   }
 }
 
@@ -366,13 +365,13 @@ void Graph::connect_nullsinks()
 
     AVFilterContext *context;
     if (avfilter_graph_create_filter(&context, filter, "", "", NULL, graph) < 0)
-      throw ffmpegException("[ffmpeg::filter::Graph::connect_nullsource] "
-                            "Failed to create a null sink.");
+      throw Exception("[ffmpeg::filter::Graph::connect_nullsource] "
+                      "Failed to create a null sink.");
 
     auto conn = out_info.conn;
     if (avfilter_link(conn.other, conn.otherpad, context, 0) < 0)
-      throw ffmpegException("[ffmpeg::filter::Graph::connect_nullsource] "
-                            "Failed to link null sink to the filter graph.");
+      throw Exception("[ffmpeg::filter::Graph::connect_nullsource] "
+                      "Failed to link null sink to the filter graph.");
   }
 }
 
@@ -384,6 +383,19 @@ SourceBase &Graph::assignSource(IAVFrameSourceBuffer &buf,
                          IAVFrameSourceBuffer>(node.filter, node.type, buf);
   node.buf = &buf;
   return *node.filter;
+}
+
+std::string Graph::getNextUnassignedSink(const std::string &last,
+                                         const AVMediaType type)
+{
+  bool any_media = (type == AVMEDIA_TYPE_UNKNOWN);
+
+  auto out = last.size() ? ++outputs.find(last) : outputs.begin();
+  for (; out != outputs.end() && out->second.buf &&
+         !(any_media || out->second.filter->getMediaType() == type);
+       ++out)
+    ;
+  return out != outputs.end() ? out->first : "";
 }
 
 SinkBase &Graph::assignSink(IAVFrameSinkBuffer &buf, const std::string &name)
@@ -432,9 +444,7 @@ bool Graph::ready()
 
 void Graph::flush()
 {
-  if (!graph)
-    throw ffmpegException(
-        "[ffmpeg::filter::Graph::flush] No filter graph to flush.");
+  if (!graph) return;
 
   av_log(NULL, AV_LOG_INFO,
          "[ffmpeg::filter::Graph::flush] Destroying previously built "
@@ -448,7 +458,7 @@ void Graph::flush()
          "AVFilterGraph\n");
 
   // allocate new filter graph
-  if (!(graph = avfilter_graph_alloc())) throw ffmpegException(AVERROR(ENOMEM));
+  if (!(graph = avfilter_graph_alloc())) throw Exception(AVERROR(ENOMEM));
 
   // Parse the string to get I/O endpoints
   AVFilterInOut *ins = NULL, *outs = NULL;
@@ -577,8 +587,8 @@ void Graph::flush()
     SinkInfo &node = outputs.at(
         outs->name ? outs->name : "out"); // if not named, auto-name as "out"
     if (!node.buf)
-      throw ffmpegException("[ffmpeg::filter::Graph::flush] Filter graph does "
-                            "not have a sink buffer.");
+      throw Exception("[ffmpeg::filter::Graph::flush] Filter graph does "
+                      "not have a sink buffer.");
     node.conn = {outs->filter_ctx, outs->pad_idx};
   }
 
@@ -604,8 +614,8 @@ void Graph::use_src_splitter(SourceBase *src, const ConnectionList &conns)
   if (avfilter_graph_create_filter(&context, filter,
                                    std::to_string(conns.size()).c_str(), "",
                                    NULL, graph) < 0)
-    throw ffmpegException("[ffmpeg::filter::Graph::insert_src_splitter] Failed "
-                          "to create a splitter.");
+    throw Exception("[ffmpeg::filter::Graph::insert_src_splitter] Failed "
+                    "to create a splitter.");
 
   // link splitter to the source
   src->link(context, 0);
@@ -614,8 +624,8 @@ void Graph::use_src_splitter(SourceBase *src, const ConnectionList &conns)
   for (size_t i = 0; i < conns.size(); ++i)
     if (avfilter_link(context, (unsigned int)i, conns[i].other,
                       conns[i].otherpad) < 0)
-      throw ffmpegException("[ffmpeg::filter::Graph::insert_src_splitter] "
-                            "Failed to link splitter to the filter graph.");
+      throw Exception("[ffmpeg::filter::Graph::insert_src_splitter] "
+                      "Failed to link splitter to the filter graph.");
 }
 
 void Graph::configure()
@@ -625,12 +635,12 @@ void Graph::configure()
   {
     SourceBase *src = in->second.filter;
     if (!src) // also check for buffer states
-      throw ffmpegException(
+      throw Exception(
           "[ffmpeg::filter::Graph::configure] Source filter is not set.");
 
     // load media parameters from buffer
     if (!src->updateMediaParameters())
-      throw ffmpegException(
+      throw Exception(
           "[ffmpeg::filter::Graph::configure] Source buffer does not have all "
           "the necessary media parameters to configure source filter.");
 
@@ -651,7 +661,7 @@ void Graph::configure()
   {
     SinkBase *sink = out->second.filter;
     if (!sink)
-      throw ffmpegException(
+      throw Exception(
           "[ffmpeg::filter::Graph::configure] Sink filter is not set.");
 
     // configure filter
@@ -663,8 +673,8 @@ void Graph::configure()
 
   // finalize the graph
   if (avfilter_graph_config(graph, NULL) < 0)
-    throw ffmpegException("[ffmpeg::filter::Graph::configure] Failed to "
-                          "finalize the filter graph.");
+    throw Exception("[ffmpeg::filter::Graph::configure] Failed to "
+                    "finalize the filter graph.");
 }
 
 // used to append filters for autorotate feature
@@ -709,20 +719,19 @@ void Graph::parseSourceStreamSpecs(const std::vector<InputFormat *> fmts)
     {
       file_id = (int)std::stoul(s, &sep_pos);
       if (file_id >= fmts.size())
-        throw ffmpegException(
-            "Filter input link label requests invalid input file.");
+        throw Exception("Filter input link label requests invalid input file.");
       const InputFormat &fmt = *fmts[file_id];
       stream_id = fmt.getStreamId(s.substr(sep_pos + 1));
       if (fmt.isStreamActive(stream_id))
-        throw ffmpegException("Filtergraph cannot use the specified input "
-                              "stream as it has already been taken.");
+        throw Exception("Filtergraph cannot use the specified input "
+                        "stream as it has already been taken.");
       if (in->second.type != fmt.getStreamType(stream_id))
-        throw ffmpegException(
+        throw Exception(
             "Filter input link label does not specify the correct media type.");
       in->second.file_id = file_id;
       in->second.stream_id = stream_id;
     }
-    catch (const ffmpegException &e)
+    catch (const Exception &e)
     {
       throw e;
     }
@@ -753,19 +762,18 @@ void Graph::parseSourceStreamSpecs(const std::vector<InputFormat *> fmts)
         }
       }
     }
-    if (notfound)
-      throw ffmpegException("The filter graph has too many input links.");
+    if (notfound) throw Exception("The filter graph has too many input links.");
   }
 }
 
 std::string Graph::getNextUnassignedSourceLink(int *file_id, int *stream_id,
                                                const std::string &last)
 {
-  auto in = inputs.begin();
-  if (last.size())
-    while (in != inputs.end() && (in++)->first != last)
-      ;
-  while ((++in) != inputs.end() && in->second.buf)
+  auto in = last.size() ? inputs.find(last) : inputs.begin();
+  if (in == inputs.end()) return "";
+
+  if (last.size()) ++in;
+  for (; in != inputs.end() && in->second.buf; ++in)
     ;
 
   // return the name & id's if found
@@ -788,12 +796,11 @@ int Graph::processFrame()
     int ret = src->second.filter
                   ->processFrame(); // calls av_buffersrc_add_frame_flags() if
                                     // frame avail
-    if (ret == 0) // if success, set the flag to indicate the arrival
-      if (noframe)
-        noframe = false;
-      else if (ret != AVERROR(EAGAIN) && ret != AVERROR_EOF)
-        throw ffmpegException("[ffmpeg::filter::Graph::runOnce] Failed to "
-                              "process a filter graph input AVFrame.");
+    if (ret < 0 && ret != AVERROR_EOF && ret != AVERROR(EAGAIN))
+      throw Exception("[ffmpeg::filter::Graph::runOnce] Failed to "
+                      "process a filter graph input AVFrame.");
+    else if (noframe)
+      noframe = false;
   }
 
   // if no frame arrived, nothing else to do
@@ -821,11 +828,51 @@ int Graph::processFrame()
       }
       else if (ret != AVERROR(EAGAIN))
       {
-        throw ffmpegException("[ffmpeg::filter::Graph::runOnce] Failed to "
-                              "process a filter graph output AVFrame.");
+        throw Exception("[ffmpeg::filter::Graph::runOnce] Failed to "
+                        "process a filter graph output AVFrame.");
       }
     }
   } while (!noframe);
 
   return nb_frames;
+}
+
+void Graph::setPixelFormat(const AVPixelFormat pix_fmt, const std::string &spec)
+{
+  if (spec.size()) // for a specific sink, throws if invalid spec/pix_fmt
+  {
+    try
+    {
+      dynamic_cast<VideoSink *>(outputs.at(spec).filter)
+          ->setPixelFormat(pix_fmt);
+    }
+    catch (const std::out_of_range &)
+    {
+      throw InvalidStreamSpecifier(spec);
+    }
+    catch (const std::bad_cast &)
+    {
+      throw UnexpectedMediaType(AVMEDIA_TYPE_VIDEO,
+                                outputs.at(spec).filter->getMediaType());
+    }
+  }
+  else // all video sinks, should throw only if invalid pix_fmt
+  {
+    for (auto out = outputs.begin(); out != outputs.end(); ++out)
+    {
+      auto filter = out->second.filter;
+      if (filter->getMediaType() == AVMEDIA_TYPE_VIDEO)
+        dynamic_cast<VideoSink *>(filter)->setPixelFormat(pix_fmt);
+    }
+  }
+}
+
+std::string Graph::findSourceLink(int file_id, int stream_id)
+{
+  auto in = inputs.begin();
+  for (; in != inputs.end() &&
+         (in->second.file_id != file_id || in->second.file_id != file_id);
+       ++in)
+    ;
+  return (in != inputs.end()) ? in->first : "";
 }

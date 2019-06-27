@@ -13,10 +13,10 @@ AVCodec *find_encoder(const std::string &name, const AVMediaType type)
       codec = avcodec_find_encoder(desc->id);
 
    if (!codec)
-      throw ffmpegException("Unknown encoder " + name + "'");
+      throw Exception("Unknown encoder " + name + "'");
 
    if (codec->type != type)
-      throw ffmpegException("Invalid encoder type '" + name + "'");
+      throw Exception("Invalid encoder type '" + name + "'");
 
    return codec;
 }
@@ -30,10 +30,10 @@ AVCodec *find_decoder(const std::string &name, const AVMediaType type)
       codec = avcodec_find_decoder(desc->id);
 
    if (!codec)
-      throw ffmpegException("Unknown decoder " + name + "'");
+      throw Exception("Unknown decoder " + name + "'");
 
    if (codec->type != type)
-      throw ffmpegException("Invalid decoder type '" + name + "'");
+      throw Exception("Invalid decoder type '" + name + "'");
 
    return codec;
 }
@@ -51,7 +51,7 @@ void remove_avoptions(AVDictionary *&a, AVDictionary *b)
 void assert_avoptions(AVDictionary *m)
 {
    if ((AVDictionaryEntry *t = av_dict_get(m, "", NULL, AV_DICT_IGNORE_SUFFIX)))
-      throw ffmpegException("Option " + t->key + "  not found.");
+      throw Exception("Option " + t->key + "  not found.");
 }
 
 DictPtr strip_specifiers(AVDictionary *dict)
@@ -110,13 +110,13 @@ AVRational duration_max(int64_t tmp, int64_t &duration, AVRational tmp_time_base
 //    {
 //       std::ostringstream msg;
 //       msg << "No filename specified and no 'filename' tag in stream #" << st->index <<".";
-//       throw ffmpegException(msg.str());
+//       throw Exception(msg.str());
 //    }
 
 //    assert_file_overwrite(filename);
 
 //    if ((ret = avio_open2(&out, filename.c_str(), AVIO_FLAG_WRITE, &int_cb, NULL)) < 0)
-//       throw ffmpegException("Could not open file for writing.\n");
+//       throw Exception("Could not open file for writing.\n");
 
 //    avio_write(out, st->codecpar->extradata, st->codecpar->extradata_size);
 //    avio_flush(out);
@@ -126,7 +126,7 @@ AVRational duration_max(int64_t tmp, int64_t &duration, AVRational tmp_time_base
 // void assert_file_overwrite(const std::string &filename)
 // {
 //    if (file_overwrite && no_file_overwrite)
-//       throw ffmpegException("Error, both -y and -n supplied. Exiting.");
+//       throw Exception("Error, both -y and -n supplied. Exiting.");
 
 //    if (!file_overwrite)
 //    {

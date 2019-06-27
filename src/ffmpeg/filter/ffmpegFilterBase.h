@@ -61,7 +61,7 @@ public:
    * \note Derived classes must implement this function with the aid of \ref create_context member
    *       function.
    * 
-   * \throws ffmpegException if failed to create the new context.
+   * \throws Exception if failed to create the new context.
    */
   virtual AVFilterContext *configure(const std::string &name = "") = 0;
 
@@ -83,9 +83,9 @@ public:
    * \param pad[in]  [optional, default:0] The connector pad of this filter
    * \param issrc[in]  [optional, default:true] True if this filter is the source
    * 
-   * \throws ffmpegException if either filter context is not ready.
-   * \throws ffmpegException if filter contexts are not for the same filtergraph.
-   * \throws ffmpegException if failed to link.
+   * \throws Exception if either filter context is not ready.
+   * \throws Exception if filter contexts are not for the same filtergraph.
+   * \throws Exception if failed to link.
    */
   virtual void link(AVFilterContext *other, const unsigned otherpad, const unsigned pad = 0, const bool issrc = true);
 
@@ -99,7 +99,7 @@ public:
    * \param pad[in]  [optional, default:0] The connector pad of this filter
    * \param issrc[in]  [optional, default:true] True if this filter is the source
    * 
-   * \throws ffmpegException see \ref link(AVFilterContext*, const unsigned, const unsigned, const bool)
+   * \throws Exception see \ref link(AVFilterContext*, const unsigned, const unsigned, const bool)
    */
   void link(Base &other, const unsigned otherpad, const unsigned pad = 0, const bool issrc = true);
 
@@ -138,7 +138,7 @@ protected:
    *       and the overloaded function should call this function with the name of the AVFilter under
    *       implementation.
    * 
-   * \throws ffmpegException if \ref context member variable is already non-null or fails to 
+   * \throws Exception if \ref context member variable is already non-null or fails to 
    *         create the new AVFilterContext.
    */
   AVFilterContext *create_context(const std::string &fname, const std::string &name);

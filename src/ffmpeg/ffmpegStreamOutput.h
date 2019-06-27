@@ -33,7 +33,7 @@ public:
     IAVFrameSourceBuffer &getSourceBuffer() const
     {
         if (src) return *src;
-        throw ffmpegException("No buffer.");
+        throw Exception("No buffer.");
     }
     void setSourceBuffer(IAVFrameSourceBuffer &buf)
     {

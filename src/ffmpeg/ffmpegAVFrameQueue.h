@@ -32,7 +32,7 @@ class AVFrameQueue : public IAVFrameBuffer
   const MediaParams &getMediaParams() const
   {
     if (src) return src->getMediaParams();
-    throw ffmpegException("Media parameters could be retrieved only if src is connected.");
+    throw Exception("Media parameters could be retrieved only if src is connected.");
   }
 
   IAVFrameSource &getSrc() const { return *src; };
@@ -161,7 +161,7 @@ class AVFrameQueue : public IAVFrameBuffer
 
   void pop(AVFrame *frame, bool &eof)
   {
-    if (!frame) throw ffmpegException("frame must be non-null pointer.");
+    if (!frame) throw Exception("frame must be non-null pointer.");
     MutexLockType lock(mutex);
     cv_tx.wait(lock, [this] { return readyToPop_threadunsafe(); });
     eof = pop_threadunsafe(frame);
@@ -169,7 +169,7 @@ class AVFrameQueue : public IAVFrameBuffer
 
   bool pop(AVFrame *frame, bool &eof, const std::chrono::milliseconds &rel_time)
   {
-    if (!frame) throw ffmpegException("frame must be non-null pointer.");
+    if (!frame) throw Exception("frame must be non-null pointer.");
     MutexLockType lock(mutex);
     bool success = cv_tx.wait_for(lock, rel_time, [this] { return readyToPop_threadunsafe(); });
     if (success) eof = pop_threadunsafe(frame);
@@ -178,13 +178,13 @@ class AVFrameQueue : public IAVFrameBuffer
 
   void pop_back(AVFrame *frame, bool &eof)
   {
-    if (!frame) throw ffmpegException("frame must be non-null pointer.");
+    if (!frame) throw Exception("frame must be non-null pointer.");
     MutexLockType lock(mutex);
     cv_tx.wait(lock, [this] { return readyToPop_threadunsafe(); });
 
     // pop the last written AVFrame, use with caution
     auto last = (wr == que.begin()) ? (que.end() - 1) : (wr - 1);
-    if (!last->populated) throw ffmpegException("No frame available.");
+    if (!last->populated) throw Exception("No frame available.");
 
     // increment the read pointer and get the frame
     eof = last->eof;
@@ -204,7 +204,7 @@ class AVFrameQueue : public IAVFrameBuffer
   {
     MutexLockType lock(mutex);
     if (!cv_tx.wait_for(lock, rel_time, [this] { return readyToPop_threadunsafe(); }))
-      throw ffmpegException("Timed out while waiting to check for eof.");
+      throw Exception("Timed out while waiting to check for eof.");
     return rd->eof; // true if no more frames in the buffer
   }
 
@@ -245,7 +245,7 @@ class AVFrameQueue : public IAVFrameBuffer
     if (dynamic)
       expand();
     else
-      throw ffmpegException("AVFrameQueue::Buffer overflow.");
+      throw Exception("AVFrameQueue::Buffer overflow.");
   }
   void expand()
   {
@@ -291,7 +291,7 @@ class AVFrameQueue : public IAVFrameBuffer
   void mark_populated_threadunsafe() // declared in AVFrameSinkBase
   {
     // if buffer is not available
-    if (wr->populated) throw ffmpegException("Already populated.");
+    if (wr->populated) throw Exception("Already populated.");
 
     // set the written flag and increment write iterator
     (wr++)->populated = true;

@@ -13,71 +13,154 @@
 
 extern "C"
 {
-// #include <libavutil/imgutils.h>
-#include <libavutil/pixdesc.h>
-#include <libavutil/pixfmt.h>
+#include <libavutil/samplefmt.h>
 }
 
 namespace ffmpeg
 {
 
+// #define AV_NUM_DATA_POINTERS 8
 /**
- * \brief Returns true if pixel format's color components are all within a
- * number of bits.
+ * pointer to the picture/channel planes.
+ * This might be different from the first allocated byte
  *
- * imageCheckComponentSize() returns true if all of its color components takes
- * less then the \ref max number of bits. If \ref max is omitted, it checks to
- * fit in a byte.
+ * Some decoders access areas outside 0,0 - width,height, please
+ * see avcodec_align_dimensions2(). Some filters and swscale can read
+ * up to 16 bytes beyond the planes, if these filters are to be used,
+ * then 16 extra bytes must be allocated.
  *
- * \note It does not support any bit stream format and always returns false for
- * such format
- *
- * @param[in] pix_desc  pointer to the descriptor of the image's pixel format
- * @param[in] max       the maximum number of bits permitted
- * @returns             true if all components fit
- * @throws              Exception null pix_desc
+ * NOTE: Except for hwaccel formats, pointers not needed by the format
+ * MUST be set to NULL.
  */
-inline bool imageCheckComponentSize(const AVPixFmtDescriptor *pix_desc,
-                                    const int max = 8)
-{
-  if (!pix_desc) throw Exception("Invalid pixel format given.");
-
-  if (pix_desc->flags & AV_PIX_FMT_FLAG_BITSTREAM ||
-      pix_desc->log2_chroma_w != 0 ||
-      pix_desc->log2_chroma_h != 0) // invalid format
-    return false;
-
-  // depths of all components must be single-byte
-  for (int i = 0; i < pix_desc->nb_components; ++i)
-    if (pix_desc->comp[i].depth > max) return false;
-
-  return true;
-}
+// uint8_t *data[AV_NUM_DATA_POINTERS];
 
 /**
- * \brief Returns true if pixel format's color components are all within a
- * number of bits.
+ * For audio, size in bytes of each plane.
  *
- * imageCheckComponentSize() returns true if all of its color components takes
- * less then the \ref max number of bits. If \ref max is omitted, it checks to
- * fit in a byte.
+ * For audio, only linesize[0] may be set. For planar audio, each channel
+ * plane must be the same size.
  *
- * \note It does not support any bit stream format and always returns false for
- * such format
- *
- * @param[in] pix_fmt  the pixel format of the image
- * @param[in] max      the maximum number of bits permitted
- * @returns true if all components fit
- * @throws Exception if invalid pixel format
+ * @note The linesize may be larger than the size of usable data -- there
+ * may be extra padding present for performance reasons.
  */
-inline bool imageCheckComponentSize(const AVPixelFormat format,
-                                    const int max = 8)
-{
-  return imageCheckComponentSize(av_pix_fmt_desc_get(format), max);
-}
+// int linesize[AV_NUM_DATA_POINTERS];
 
-// int av_image_get_buffer_size(enum AVPixelFormat pix_fmt, int width, int
-// height, int align);
+/**
+ * pointers to the data planes/channels.
+ *
+ * For planar audio, each channel has a separate data pointer, and
+ * linesize[0] contains the size of each channel buffer.
+ * For packed audio, there is just one data pointer, and linesize[0]
+ * contains the total size of the buffer for all channels.
+ *
+ * Note: Both data and extended_data should always be set in a valid frame,
+ * but for planar audio with more channels that can fit in data,
+ * extended_data must be used in order to access all channels.
+ */
+// uint8_t **extended_data;
+
+/**
+ * number of audio samples (per channel) described by this frame
+ */
+// int nb_samples;
+
+/**
+ * format of the frame, -1 if unknown or unset
+ * Values correspond to enum AVPixelFormat for video frames,
+ * enum AVSampleFormat for audio)
+ */
+// int format;
+
+/**
+ * Presentation timestamp in time_base units (time when frame should be shown to
+ * user).
+ */
+// int64_t pts;
+
+/**
+ * DTS copied from the AVPacket that triggered returning this frame. (if frame
+ * threading isn't used) This is also the Presentation time of this AVFrame
+ * calculated from only AVPacket.dts values without pts values.
+ */
+// int64_t pkt_dts;
+
+/**
+ * Tell user application that palette has changed from previous frame.
+ */
+// int palette_has_changed;
+
+/**
+ * Sample rate of the audio data.
+ */
+// int sample_rate;
+
+/**
+ * Channel layout of the audio data.
+ */
+// uint64_t channel_layout;
+
+/**
+ * AVBuffer references backing the data for this frame. If all elements of
+ * this array are NULL, then this frame is not reference counted. This array
+ * must be filled contiguously -- if buf[i] is non-NULL then buf[j] must
+ * also be non-NULL for all j < i.
+ *
+ * There may be at most one AVBuffer per data plane, so for video this array
+ * always contains all the references. For planar audio with more than
+ * AV_NUM_DATA_POINTERS channels, there may be more buffers than can fit in
+ * this array. Then the extra AVBufferRef pointers are stored in the
+ * extended_buf array.
+ */
+// AVBufferRef *buf[AV_NUM_DATA_POINTERS];
+
+/**
+ * For planar audio which requires more than AV_NUM_DATA_POINTERS
+ * AVBufferRef pointers, this array will hold all the references which
+ * cannot fit into AVFrame.buf.
+ *
+ * Note that this is different from AVFrame.extended_data, which always
+ * contains all the pointers. This array only contains the extra pointers,
+ * which cannot fit into AVFrame.buf.
+ *
+ * This array is always allocated using av_malloc() by whoever constructs
+ * the frame. It is freed in av_frame_unref().
+ */
+// AVBufferRef **extended_buf;
+/**
+ * Number of elements in extended_buf.
+ */
+// int        nb_extended_buf;
+
+/**
+ * frame timestamp estimated using various heuristics, in stream time base
+ * - encoding: unused
+ * - decoding: set by libavcodec, read by user.
+ */
+// int64_t best_effort_timestamp;
+
+/**
+ * duration of the corresponding packet, expressed in
+ * AVStream->time_base units, 0 if unknown.
+ * - encoding: unused
+ * - decoding: Read by user.
+ */
+// int64_t pkt_duration;
+
+/**
+ * decode error flags of the frame, set to a combination of
+ * FF_DECODE_ERROR_xxx flags if the decoder produced a frame, but there
+ * were errors during the decoding.
+ * - encoding: unused
+ * - decoding: set by libavcodec, read by user.
+ */
+// int decode_error_flags;
+
+/**
+ * number of audio channels, only used for audio.
+ * - encoding: unused
+ * - decoding: Read by user.
+ */
+// int channels;
 
 /**
  * \brief Returns the size in bytes of the amount of data required to store an
@@ -99,21 +182,34 @@ inline bool imageCheckComponentSize(const AVPixelFormat format,
  * @throws Exception if any component of the pixel format does not fit in a byte
  * @throws Exception if non-zero dst_linesize < width
  */
-inline int imageGetComponentBufferSize(const AVPixFmtDescriptor *pix_desc,
-                                       const int width, const int height,
-                                       const int dst_linesize = 0)
+inline int audioGetComponentBufferSize(AVSampleFormat sample_fmt,
+                                       int nb_channels, int nb_samples,
+                                       const int dst_linesize = 0,
+                                       bool align = true)
 {
-  if (!pix_desc || !imageCheckComponentSize(pix_desc))
-    throw Exception("[ffmpeg::imageGetComponentBufferSize] Unsupported pixel "
-                    "format (%s) specified.",
-                    pix_desc ? pix_desc->name : "none");
-  if (dst_linesize && dst_linesize < width)
-    throw Exception("[ffmpeg::imageGetComponentBufferSize] Destination "
-                    "linesize (%d) too small for the width (%d)",
+  int linesize;
+  int bufsize = av_samples_get_buffer_size(&linesize, nb_channels, nb_samples,
+                                           sample_fmt, align);
+
+  if (dst_linesize && dst_linesize < linesize)
+    throw Exception("[ffmpeg::audioGetComponentBufferSize] Destination "
+                    "linesize (%d) too small (must %d)",
                     dst_linesize, width);
 
   return (dst_linesize ? dst_linesize : width) * height *
          pix_desc->nb_components;
+
+  /**
+   * Get the required buffer size for the given audio parameters.
+   *
+   * @param[out] linesize calculated linesize, may be NULL
+   * @param nb_channels   the number of channels
+   * @param nb_samples    the number of samples in a single channel
+   * @param sample_fmt    the sample format
+   * @param align         buffer size alignment (0 = default, 1 = no alignment)
+   * @return              required buffer size, or negative error code on
+   * failure
+   */
 }
 
 /**

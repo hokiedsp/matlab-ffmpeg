@@ -34,6 +34,9 @@ namespace filter
 {
 class Graph : public ffmpeg::Base
 {
+  struct SourceInfo;
+  struct SinkInfo;
+
   public:
   Graph(const std::string &filtdesc = "");
   ~Graph();
@@ -79,9 +82,30 @@ class Graph : public ffmpeg::Base
    * \param[in] fmts   Vector of pointers to the input file formats (all
    * pointers must be valid.)
    *
-   * \throws ffmpegException if the stream has already been taken
+   * \throws Exception if the stream has already been taken
    */
   void parseSourceStreamSpecs(const std::vector<InputFormat *> fmts);
+
+  /**
+   * \brief returns the name, its expected file and stream IDs (if assigned and
+   * requested) of filter input link without buffer.
+   *
+   * \param[in] spec      Input link name. If empty string, returns the
+   * first unassigned input link.
+   * \param[out] file_id   InputFormat index in the InputFormat vector provided
+   * in parseSourceStreamSpecs() call
+   * \param[out] stream_id Stream index of the
+   * chosen InputFormat
+   *
+   * \returns the label of the next input link, which is yet has input AVFrame
+   * buffer assigned to it. If all the links have been configured, returns
+   * empty.
+   *
+   * \note file_id & stream_id are -1 unless parseSourceStreamSpecs() was called
+   * beforehand
+   */
+  bool getSourceLink(const std::string &spec, int *file_id = nullptr,
+                     int *stream_id = nullptr);
 
   /**
    * \brief returns the name, its expected file and stream IDs (if assigned and
@@ -103,6 +127,40 @@ class Graph : public ffmpeg::Base
   std::string getNextUnassignedSourceLink(int *file_id = nullptr,
                                           int *stream_id = nullptr,
                                           const std::string &last = "");
+
+  /**
+   * \brief Look up the source link label given file & stream ids as specified
+   *        by parseSourceStreamSpecs() call
+   *
+   * \param[in] file_id   Index of the source file
+   * \param[in] stream_id Index of the stream of the source file
+   * \returns the label name of the matched filter source or empty string if
+   *          none found
+   */
+  std::string findSourceLink(int file_id, int stream_id);
+
+  /**
+   * \brief   Get the name of the next unassigned filter sink
+   *
+   * \param[in] last Pass in the last name returned to go to the next
+   * \param[in] type Specify to limit search to a particular media type
+   *
+   * \returns the name of the next unassigned filter sink. Returns empty if all
+   * have been assigned.
+   */
+  std::string
+  getNextUnassignedSink(const std::string &last = "",
+                        const AVMediaType type = AVMEDIA_TYPE_UNKNOWN);
+
+  /**
+   * \brief set pixel format of video filter sinks
+   *
+   * \param[in] pix_fmt New pixel format
+   * \param[in] spec    Stream specifier string. Empty string (default) set the
+   *                    pixel format for all the video streams
+   */
+  void setPixelFormat(const AVPixelFormat pix_fmt,
+                      const std::string &spec = "");
 
   /**
    * \brief Assign a source buffer to a parsed filtergraph
@@ -137,10 +195,10 @@ class Graph : public ffmpeg::Base
    * \note Not thread-safe. Must be called while the object's thread is paused
    *
    * \param[in] buf  Reference to an AVFrame buffer object, to which the output
-   *                 frames are queued to \param[in] name Name of the output 
+   *                 frames are queued to \param[in] name Name of the output
    *                 label on the filer graph. Default is "out", which is used
-   *                 for a single-output graph with unnamed input. 
-   * 
+   *                 for a single-output graph with unnamed input.
+   *
    * \returns the reference of the created Source filter object
    */
   SinkBase &assignSink(IAVFrameSinkBuffer &buf,
@@ -209,12 +267,21 @@ class Graph : public ffmpeg::Base
    * \returns total number of frames filter output.
    * \returns negative value if no input frame is available
    *
-   * \throws ffmpegException if fails to retrieve any input AVFrame from input
-   * source buffers. \throws ffmpegException if input buffer returns an error
-   * during frame retrieval. \throws ffmpegException if output buffer returns an
+   * \throws Exception if fails to retrieve any input AVFrame from input
+   * source buffers. \throws Exception if input buffer returns an error
+   * during frame retrieval. \throws Exception if output buffer returns an
    * error during frame retrieval.
    */
   int processFrame();
+
+  /**
+   * \brief Returns true if all of its sources reached eof
+   */
+  bool EndOfFile()
+  {
+    return std::all_of(inputs.begin(), inputs.end(),
+                       [](auto &in) { return in.second.filter->EndOfFile(); });
+  }
 
   AVFilterGraph *getAVFilterGraph() const { return graph; }
 
@@ -240,50 +307,55 @@ class Graph : public ffmpeg::Base
       return outputs.at(name).buf;
   }
 
-  template <typename UnaryFunction> void forEachInput(UnaryFunction f)
+  template <typename EP, typename EPInfo> class EPIterator
   {
-    for (auto it = inputs.begin(); it != inputs.end(); ++it)
-      f(it->first, it->second.buf, it->second.filter);
+public:
+    typedef typename std::unordered_map<std::string, EPInfo>::iterator
+        bidir_iterator;
+    typedef typename std::string key_type;
+    typedef typename EP *mapped_type;
+    typedef typename std::pair<key_type, mapped_type> value_type;
+
+    EPIterator(bidir_iterator &map_it) : map_iter(map_it) {}
+    bool operator==(const EPIterator &i) { return i.map_iter == map_iter; }
+    bool operator!=(const EPIterator &i) { return i.map_iter != map_iter; }
+    EPIterator &operator++()
+    {
+      ++map_iter;
+      return *this;
+    }
+    EPIterator &operator--()
+    {
+      --map_iter;
+      return *this;
+    }
+    value_type operator*() const
+    {
+      return std::make_pair(map_iter->first, map_iter->second.filter);
+    }
+
+private:
+    typename std::unordered_map<std::string, EPInfo>::iterator map_iter;
+  };
+
+  EPIterator<SourceBase, SourceInfo> beginInputFilter()
+  {
+    return EPIterator<SourceBase, SourceInfo>(inputs.begin());
   }
 
-  template <typename UnaryFunction> void forEachInputName(UnaryFunction f)
+  EPIterator<SourceBase, SourceInfo> endInputFilter()
   {
-    for (auto it = inputs.begin(); it != inputs.end(); ++it) f(it->first);
+    return EPIterator<SourceBase, SourceInfo>(inputs.end());
   }
 
-  template <typename UnaryFunction> void forEachInputFilter(UnaryFunction f)
+  EPIterator<SinkBase, SinkInfo> beginOutputFilter()
   {
-    for (auto it = inputs.begin(); it != inputs.end(); ++it)
-      f(it->first, it->second.filter);
+    return EPIterator<SinkBase, SinkInfo>(outputs.begin());
   }
 
-  template <typename UnaryFunction> void forEachInputBuffer(UnaryFunction f)
+  EPIterator<SinkBase, SinkInfo> endOutputFilter()
   {
-    for (auto it = inputs.begin(); it != inputs.end(); ++it)
-      f(it->first, it->second.buf);
-  }
-
-  template <typename UnaryFunction> void forEachOutput(UnaryFunction f)
-  {
-    for (auto it = outputs.begin(); it != outputs.end(); ++it)
-      f(it->first, it->second.buf, it->second.filter);
-  }
-
-  template <typename UnaryFunction> void forEachOutputName(UnaryFunction f)
-  {
-    for (auto it = outputs.begin(); it != outputs.end(); ++it) f(it->first);
-  }
-
-  template <typename UnaryFunction> void forEachOutputFilter(UnaryFunction f)
-  {
-    for (auto it = outputs.begin(); it != outputs.end(); ++it)
-      f(it->first, it->second.filter);
-  }
-
-  template <typename UnaryFunction> void forEachOutputBuffer(UnaryFunction f)
-  {
-    for (auto it = outputs.begin(); it != outputs.end(); ++it)
-      f(it->first, it->second.buf);
+    return EPIterator<SinkBase, SinkInfo>(outputs.end());
   }
 
   bool isSimple() const { return inputs.size() == 1 && outputs.size() == 1; }
@@ -293,9 +365,19 @@ class Graph : public ffmpeg::Base
     return inputs.find(name) != inputs.end();
   }
 
+  SourceBase &getSource(const std::string &name)
+  {
+    return *inputs.at(name).filter;
+  }
+
   bool isSink(const std::string &name)
   {
     return outputs.find(name) != outputs.end();
+  }
+
+  SinkBase &getSink(const std::string &name)
+  {
+    return *outputs.at(name).filter;
   }
 
   // avfilter_graph_send_command, avfilter_graph_queue_command
@@ -316,26 +398,26 @@ class Graph : public ffmpeg::Base
     case AVMEDIA_TYPE_AUDIO: ep = new AEP(*this, buf); break;
     default:
       ep = NULL;
-      throw ffmpegException(
+      throw Exception(
           "Only video and audio filters are supported at this time.");
     }
     if (!ep)
-      throw ffmpegException("[ffmpeg::filter::Graph::assign_endpoint] Failed "
-                            "to allocate a new filter endpoint.");
+      throw Exception("[ffmpeg::filter::Graph::assign_endpoint] Failed "
+                      "to allocate a new filter endpoint.");
   }
 
   private:
   AVFilterGraph *graph;
   std::string graph_desc;
 
-  typedef struct
+  struct ConnectTo
   {
     AVFilterContext *other;
     int otherpad;
-  } ConnectTo;
+  };
   typedef std::vector<ConnectTo> ConnectionList;
 
-  typedef struct
+  struct SourceInfo
   {
     AVMediaType type;
     int file_id;
@@ -343,8 +425,8 @@ class Graph : public ffmpeg::Base
     IAVFrameSourceBuffer *buf;
     SourceBase *filter;
     ConnectionList conns;
-  } SourceInfo;
-  typedef struct
+  };
+  struct SinkInfo
   {
     AVMediaType type;
     int file_id;
@@ -352,7 +434,7 @@ class Graph : public ffmpeg::Base
     IAVFrameSinkBuffer *buf;
     SinkBase *filter;
     ConnectTo conn;
-  } SinkInfo;
+  };
   std::unordered_map<std::string, SourceInfo> inputs;
   std::unordered_map<std::string, SinkInfo> outputs;
 

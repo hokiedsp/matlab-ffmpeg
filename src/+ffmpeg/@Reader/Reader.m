@@ -81,12 +81,14 @@ classdef Reader < matlab.mixin.SetGet & matlab.mixin.CustomDisplay
    end
    
    properties(GetAccess='public', SetAccess='private')
+      Streams = 'auto'    % Activated streams (excluding those consumed by filters)
       FrameRate = []      % Frame rate of the video in frames per second.
       Height = []         % Height of the video frame in pixels.
       Width = []          % Width of the video frame in pixels.
-      PixelAspectRatio = []
-      VideoFormat = ''    % Video format as it is represented in MATLAB.
-      VideoFilter = '' % FFmpeg Video filter chain description
+      dPixelAspectRatio = []
+      VideoFormat = 'auto' % Video format as it is represented in MATLAB.
+      VideoFilter = ''     % FFmpeg Video filter chain description
+      AudioFilter = ''     % FFmpeg Video filter chain description
       SampleRate = []
       NumberOfAudioChannels = []
       ReadMode = 'components' % 'components'(default if pixel is byte size) |'planes' (default if pixel is sub-byte size)
@@ -190,7 +192,7 @@ classdef Reader < matlab.mixin.SetGet & matlab.mixin.CustomDisplay
          if (nargin == 1)
             c = varargin{1};
          else
-            error(message('ffmpeg:VideoReader:noconcatenation'));
+            error(message('ffmpeg:Reader:noconcatenation'));
          end
       end
       function c = vertcat(varargin)
@@ -200,7 +202,7 @@ classdef Reader < matlab.mixin.SetGet & matlab.mixin.CustomDisplay
          if (nargin == 1)
             c = varargin{1};
          else
-            error(message('ffmpeg:VideoReader:noconcatenation'));
+            error(message('ffmpeg:Reader:noconcatenation'));
          end
       end
       function c = cat(varargin)
@@ -210,7 +212,7 @@ classdef Reader < matlab.mixin.SetGet & matlab.mixin.CustomDisplay
          if (nargin == 1)
             c = varargin{1};
          else
-            error(message('ffmpeg:VideoReader:noconcatenation'));
+            error(message('ffmpeg:Reader:noconcatenation'));
          end
       end
    end
@@ -245,67 +247,40 @@ classdef Reader < matlab.mixin.SetGet & matlab.mixin.CustomDisplay
          validateattributes( value, {'char'}, {}, 'set', 'Tag');
          obj.Tag = value;
       end
-      
-      % Properties that are dependent on underlying object.
-      function value = get.Duration(obj)
-         value = ffmpeg.VideoReader.mex_backend(obj.backend,'getDuration');
+            
+%       function set.FrameRate(obj,value)
+%          validateattributes(value,{'double'},{'scalar','real','positive','finite'});
+%          obj.FrameRate = value;
+%       end
+%       function set.Height(obj,value)
+%          % If the width or w value is 0, the input width is used for the output. If
+%          % the height or h value is 0, the input height is used for the output. 
+%          % 
+%          % If one and only one of the values is -n with n >= 1, the scale filter
+%          % will use a value that maintains the aspect ratio of the input image,
+%          % calculated from the other specified dimension. After that it will,
+%          % however, make sure that the calculated dimension is divisible by n and
+%          % adjust the value if necessary.
+%          % 
+%          % If both values are -n with n >= 1, the behavior will be identical to both
+%          % values being set to 0 as previously detailed. 
+%          validateattributes(value,{'double'},{'scalar','real','integer'});
+%          obj.Height = value;
+%       end
+%       function set.Width(obj,value)
+%          validateattributes(value,{'double'},{'scalar','real','integer'});
+%          obj.Width = value;
+%       end
+%       function set.PixelAspectRatio(obj,value)
+%          validateattributes(value,{'double'},{'vector','numel',2,'positive','finite'});
+%          obj.PixelAspectRatio = value;
+%       end
+      function set.Streams(obj,value)
          
-         % Duration property is set to empty if it cannot be determined
-         % from the video. Generate a warning to indicate this.
-         if isempty(value)
-            warnState=warning('off','backtrace');
-            c = onCleanup(@()warning(warnState));
-            warning(message('ffmpeg:VideoReader:unknownDuration'));
-         end
-      end
-      
-      function value = get.BitsPerPixel(obj)
-         value = ffmpeg.VideoReader.mex_backend(obj.backend,'getBitsPerPixel');
-      end
-      function value = get.NumberOfFrames(obj)
-         value = ffmpeg.VideoReader.mex_backend(obj.backend,'getNumberOfFrames');
-         
-         % NumberOfFrames property is set to empty if it cannot be
-         % determined by from the video. Generate a warning in this
-         % case.
-         if isempty(value)
-            warnState=warning('off','backtrace');
-            c = onCleanup(@()warning(warnState));
-            warning(message('ffmpeg:VideoReader:unknownNumFrames'));
-         end
-      end
-      
-      function set.FrameRate(obj,value)
-         validateattributes(value,{'double'},{'scalar','real','positive','finite'});
-         obj.FrameRate = value;
-      end
-      function set.Height(obj,value)
-         % If the width or w value is 0, the input width is used for the output. If
-         % the height or h value is 0, the input height is used for the output. 
-         % 
-         % If one and only one of the values is -n with n >= 1, the scale filter
-         % will use a value that maintains the aspect ratio of the input image,
-         % calculated from the other specified dimension. After that it will,
-         % however, make sure that the calculated dimension is divisible by n and
-         % adjust the value if necessary.
-         % 
-         % If both values are -n with n >= 1, the behavior will be identical to both
-         % values being set to 0 as previously detailed. 
-         validateattributes(value,{'double'},{'scalar','real','integer'});
-         obj.Height = value;
-      end
-      function set.Width(obj,value)
-         validateattributes(value,{'double'},{'scalar','real','integer'});
-         obj.Width = value;
-      end
-      function set.PixelAspectRatio(obj,value)
-         validateattributes(value,{'double'},{'vector','numel',2,'positive','finite'});
-         obj.PixelAspectRatio = value;
       end
       function set.VideoFormat(obj,value)
          try
-            value = validatestring(value,{'grayscale'});
-            %value = validatestring(value,{'rgb24','Grayscale'});
+            value = validatestring(value,{'rgb24','Grayscale','custom'});
          catch
            value = lower(value);
             validateattributes(value,{'char'},{'row'});
@@ -317,13 +292,18 @@ classdef Reader < matlab.mixin.SetGet & matlab.mixin.CustomDisplay
          value = validateattributes(value,{'char','row'},mfilename,'VideoFilter');
          obj.VideoFilter = value;
       end
-      function set.BufferSize(obj,value)
-         validateattributes(value,{'double'},{'scalar','real','positive','integer'});
-         obj.BufferSize = value;
+      function set.AudioFilter(obj,value)
+         value = validateattributes(value,{'char','row'},mfilename,'AudioFilter');
+         obj.AudioFilter = value;
       end
-      function set.Direction(obj,value)
-         obj.Direction = validatestring(value,{'forward','backward'},mfilename,'Direction');
-      end
+      
+%       function set.BufferSize(obj,value)
+%          validateattributes(value,{'double'},{'scalar','real','positive','integer'});
+%          obj.BufferSize = value;
+%       end
+%       function set.Direction(obj,value)
+%          obj.Direction = validatestring(value,{'forward','backward'},mfilename,'Direction');
+%       end
 
       %%%%%%%%%%%%%%%%%%%%%%%%%%
       
@@ -368,10 +348,10 @@ classdef Reader < matlab.mixin.SetGet & matlab.mixin.CustomDisplay
          propGroups(3) = PropertyGroup( {'BufferSize', 'VideoFilter'});
          
          %          propGroups(1) = PropertyGroup( {'Name', 'Path', 'Duration', 'CurrentTime', 'Tag', 'UserData'}, ...
-         %             getString( message('ffmpeg:VideoReader:GeneralProperties') ) );
+         %             getString( message('ffmpeg:Reader:GeneralProperties') ) );
          %
          %          propGroups(2) = PropertyGroup( {'Width', 'Height', 'FrameRate', 'BitsPerPixel', 'VideoFormat'}, ...
-         %             getString( message('ffmpeg:VideoReader:VideoProperties') ) );
+         %             getString( message('ffmpeg:Reader:VideoProperties') ) );
       end
    end
    

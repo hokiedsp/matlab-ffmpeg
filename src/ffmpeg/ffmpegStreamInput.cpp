@@ -1,5 +1,6 @@
 #include "ffmpegStreamInput.h"
 #include "ffmpegException.h"
+#include "ffmpegFormatInput.h"
 
 extern "C"
 {
@@ -16,13 +17,14 @@ using namespace ffmpeg;
  */
 InputStream::InputStream(InputFormat &rdr, int stream_id,
                          IAVFrameSinkBuffer &buf)
-    : reader(&rdr), sink(&buf), buf_start_ts(0)
+    : reader(&rdr), sink(&buf)
 {
+  frame = av_frame_alloc();
   AVStream *st = reader->_get_stream(stream_id);
   if (st) open(st);
 }
 
-InputStream::~InputStream() {}
+InputStream::~InputStream() { av_frame_free(&frame); }
 
 void InputStream::open(AVStream *s)
 {
@@ -34,18 +36,18 @@ void InputStream::open(AVStream *s)
 
   AVCodecParameters *par = s->codecpar;
   AVCodec *dec = avcodec_find_decoder(par->codec_id);
-  if (!dec) throw ffmpegException("Failed to find a codec");
+  if (!dec) throw Exception("Failed to find a codec");
 
   // create decoding context if not already created
   AVCodecContext *dec_ctx = avcodec_alloc_context3(dec);
-  if (!dec_ctx) throw ffmpegException("Failed to allocate a decoder context");
+  if (!dec_ctx) throw Exception("Failed to allocate a decoder context");
 
   avcodec_parameters_to_context(dec_ctx, par);
   av_opt_set_int(dec_ctx, "refcounted_frames", 1, 0);
 
   /* open the codec */
   if (avcodec_open2(dec_ctx, dec, NULL) < 0)
-    throw ffmpegException("Cannot open the decoder");
+    throw Exception("Cannot open the decoder");
 
   // all successful, update member variables
   st = s;
@@ -53,15 +55,9 @@ void InputStream::open(AVStream *s)
   st->discard = AVDISCARD_NONE;
 }
 
-void InputStream::setStartTime(const int64_t timestamp)
-{
-  buf_start_ts = timestamp;
-}
-
 int InputStream::processPacket(AVPacket *packet)
 {
   int ret; // FFmpeg return error code
-  AVFrame *frame = NULL;
 
   // send packet to the decoder
   if (packet) ret = avcodec_send_packet(ctx, packet);
@@ -72,15 +68,12 @@ int InputStream::processPacket(AVPacket *packet)
     ret = avcodec_receive_frame(ctx, frame);
 
     // if end-of-file, let sink know it
-    if (ret == AVERROR_EOF)
+    if (sink)
     {
-      if (sink) sink->push(NULL);
-    }
-    else if (ret >= 0)
-    {
-      pts = av_rescale_q(frame->best_effort_timestamp, st->time_base,
-                         AV_TIME_BASE_Q); // a * b / c
-      if (sink && frame->pts >= buf_start_ts) sink->push(frame);
+      if (ret == AVERROR_EOF)
+        sink->push(NULL);
+      else if (ret >= 0)
+        sink->push(frame);
     }
   }
 
@@ -94,6 +87,6 @@ int InputStream::processPacket(AVPacket *packet)
 void InputVideoStream::setPixelFormat(const AVPixelFormat pix_fmt)
 {
   if (pix_fmt == AV_PIX_FMT_NONE) return;
-  if (spec.size() && av_opt_set_pixel_fmt(ctx, "pix_fmt", pix_fmt, 0) > 0)
-    throw ffmpegException("Invalid pixel format specified.");
+  if (av_opt_set_pixel_fmt(ctx, "pix_fmt", pix_fmt, 0) > 0)
+    throw Exception("Invalid pixel format specified.");
 }

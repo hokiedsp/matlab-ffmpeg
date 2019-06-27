@@ -40,7 +40,7 @@ class SinkBase : public EndpointBase, public IAVFrameSource
   IAVFrameSinkBuffer &getSinkBuffer() const
   {
     if (sink) return *sink;
-    throw ffmpegException("No buffer.");
+    throw Exception("No buffer.");
   }
   void setSinkBuffer(IAVFrameSinkBuffer &buf)
   {
@@ -69,10 +69,10 @@ class SinkBase : public EndpointBase, public IAVFrameSource
    * \param pad[in]  [ignore, default:0] The connector pad of this filter
    * \param issrc[in]  [ignore, default:false] Must be false (no output pad)
    *
-   * \throws ffmpegException if either \ref pad or \ref issrc arguments are
-   * incorrectly given. \throws ffmpegException if either filter context is not
-   * ready. \throws ffmpegException if filter contexts are not for the same
-   * filtergraph. \throws ffmpegException if failed to link.
+   * \throws Exception if either \ref pad or \ref issrc arguments are
+   * incorrectly given. \throws Exception if either filter context is not
+   * ready. \throws Exception if filter contexts are not for the same
+   * filtergraph. \throws Exception if failed to link.
    */
   void link(AVFilterContext *other, const unsigned otherpad,
             const unsigned pad = 0, const bool issrc = false);
@@ -115,8 +115,6 @@ class SinkBase : public EndpointBase, public IAVFrameSource
   using IMediaHandler::setMediaParams;
   using IMediaHandler::setTimeBase;
 };
-
-typedef std::vector<SinkBase *> Sinks;
 
 class VideoSink : public SinkBase, public VideoHandler
 {
@@ -165,5 +163,6 @@ class AudioSink : public SinkBase, public AudioHandler
   using AudioHandler::setFormat;
   using AudioHandler::setSampleRate;
 };
+
 } // namespace filter
 } // namespace ffmpeg

@@ -95,10 +95,10 @@ public:
   int64_t write(const uint8_t *pdata, const int pdata_size, const int linesize = 0, const int compsize = 0)
   {
     if (has_eof)
-      throw ffmpegException("[ffmpeg::AVFrameVideoComponentSource::write] Cannot add any more frames as end-of-stream has already been marked.");
+      throw Exception("[ffmpeg::AVFrameVideoComponentSource::write] Cannot add any more frames as end-of-stream has already been marked.");
     std::unique_lock<std::mutex> l_tx(m);
     if (frame_queue.size() == nb_frames)
-      throw ffmpegException("[ffmpeg::AVFrameVideoComponentSource::write] Frame buffer is full.");
+      throw Exception("[ffmpeg::AVFrameVideoComponentSource::write] Frame buffer is full.");
     l_tx.unlock();
 
     AVFrame *new_frame = NULL;
@@ -106,14 +106,14 @@ public:
     {
       new_frame = av_frame_alloc();
       if (!new_frame)
-        throw ffmpegException("[ffmpeg::AVFrameVideoComponentSource::write] Could not allocate video frame.");
+        throw Exception("[ffmpeg::AVFrameVideoComponentSource::write] Could not allocate video frame.");
       new_frame->format = pixfmt;
       new_frame->width = width;
       new_frame->height = height;
       if (av_frame_get_buffer(new_frame, 0) < 0)
-        throw ffmpegException("[ffmpeg::AVFrameVideoComponentSource::write] Could not allocate the video frame data.");
+        throw Exception("[ffmpeg::AVFrameVideoComponentSource::write] Could not allocate the video frame data.");
       if (av_frame_make_writable(new_frame) < 0)
-        throw ffmpegException("[ffmpeg::AVFrameVideoComponentSource::write] Could not make the video frame writable.");
+        throw Exception("[ffmpeg::AVFrameVideoComponentSource::write] Could not make the video frame writable.");
 
       imageCopyFromComponentBuffer(pdata, pdata_size, new_frame->data, new_frame->linesize,
                                    (AVPixelFormat)new_frame->format, new_frame->width, new_frame->height,
@@ -178,16 +178,16 @@ private:
     std::for_each(other.frame_queue.begin(), other.frame_queue.end(), [&](const AVFrame *src) {
       AVFrame *frame = av_frame_alloc();
       if (!frame)
-        throw ffmpegException("[ffmpeg::AVFrameVideoComponentSource::copy_queue] Could not allocate video frame.");
+        throw Exception("[ffmpeg::AVFrameVideoComponentSource::copy_queue] Could not allocate video frame.");
       frame->format = src->pixfmt;
       frame->width = src->width;
       frame->height = src->height;
       if (av_frame_get_buffer(frame, 0) < 0)
-        throw ffmpegException("[ffmpeg::AVFrameVideoComponentSource::copy_queue] Could not allocate the video frame data.");
+        throw Exception("[ffmpeg::AVFrameVideoComponentSource::copy_queue] Could not allocate the video frame data.");
       if (av_frame_make_writable(frame) < 0)
-        throw ffmpegException("[ffmpeg::AVFrameVideoComponentSource::copy_queue] Could not make the video frame writable.");
+        throw Exception("[ffmpeg::AVFrameVideoComponentSource::copy_queue] Could not make the video frame writable.");
       if (av_frame_copy(frame, src) < 0)
-        throw ffmpegException("[ffmpeg::AVFrameVideoComponentSource::copy_queue] Could not copy the data from the source frame.");
+        throw Exception("[ffmpeg::AVFrameVideoComponentSource::copy_queue] Could not copy the data from the source frame.");
     })
   }
 

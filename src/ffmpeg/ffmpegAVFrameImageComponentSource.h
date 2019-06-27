@@ -93,23 +93,23 @@ public:
 
       int total_size = imageGetComponentBufferSize(params.format, params.width, params.height);
       if (!total_size)
-        throw ffmpegException("[ffmpeg::AVFrameImageComponentSource::load] Critical image parameters missing.");
+        throw Exception("[ffmpeg::AVFrameImageComponentSource::load] Critical image parameters missing.");
       if (pdata_size < total_size)
-        throw ffmpegException("[ffmpeg::AVFrameImageComponentSource::load] Not enough data (%d bytes) given to fill the image buffers (%d bytes).", pdata_size, total_size);
+        throw Exception("[ffmpeg::AVFrameImageComponentSource::load] Not enough data (%d bytes) given to fill the image buffers (%d bytes).", pdata_size, total_size);
 
       auto avFrameFree = [](AVFrame *frame) { av_frame_free(&frame); };
       std::unique_ptr<AVFrame, decltype(avFrameFree)> new_frame(av_frame_alloc(), avFrameFree);
       if (!new_frame)
-        throw ffmpegException("[ffmpeg::AVFrameImageComponentSource::load] Could not allocate video frame.");
+        throw Exception("[ffmpeg::AVFrameImageComponentSource::load] Could not allocate video frame.");
       new_frame->format = params.format;
       new_frame->width = params.width;
       new_frame->height = params.height;
       new_frame->sample_aspect_ratio = params.sample_aspect_ratio;
 
       if (av_frame_get_buffer(new_frame.get(), 0) < 0)
-        throw ffmpegException("[ffmpeg::AVFrameImageComponentSource::load] Could not allocate the video frame data.");
+        throw Exception("[ffmpeg::AVFrameImageComponentSource::load] Could not allocate the video frame data.");
       if (av_frame_make_writable(new_frame.get()) < 0)
-        throw ffmpegException("[ffmpeg::AVFrameImageComponentSource::load] Could not make the video frame writable.");
+        throw Exception("[ffmpeg::AVFrameImageComponentSource::load] Could not make the video frame writable.");
 
       imageCopyFromComponentBuffer(pdata, pdata_size, new_frame->data, new_frame->linesize,
                                    (AVPixelFormat)new_frame->format, new_frame->width, new_frame->height,
@@ -184,7 +184,7 @@ protected:
     if (status > 0) // if data available
     {
       if (av_frame_ref(outgoing_frame, frame) < 0)
-        throw ffmpegException("[ffmpeg::AVFrameImageComponentSource::pop_threadunsafe] Failed to copy AVFrame.");
+        throw Exception("[ffmpeg::AVFrameImageComponentSource::pop_threadunsafe] Failed to copy AVFrame.");
       outgoing_frame->pts = next_time++;
     }
     else //if (status < 0)

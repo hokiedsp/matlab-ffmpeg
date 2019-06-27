@@ -7,8 +7,7 @@ extern "C"
   // #include <libavutil/avutil.h>
   // #include <libavutil/channel_layout.h>
   // #include <libavutil/frame.h>
-  // #include <libavutil/pixdesc.h>
-  // #include <libavutil/pixfmt.h>
+  #include <libavutil/pixdesc.h>
   // #include <libavutil/rational.h>
   // #include <libavutil/samplefmt.h>
 }
@@ -37,6 +36,7 @@ class IVideoHandler : virtual public IMediaHandler
   public:
   virtual AVPixelFormat getFormat() const = 0;
   virtual std::string getFormatName() const = 0;
+  virtual const AVPixFmtDescriptor &getFormatDescriptor() const = 0;
   virtual int getWidth() const = 0;
   virtual int getHeight() const = 0;
   virtual AVRational getSAR() const = 0;

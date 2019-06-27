@@ -322,11 +322,11 @@ public:
       : FrameBufferBase(w, h, fmt)
   {
     if (nframes == 0)
-      throw ffmpegException("Frame buffer size must be non-zero.");
+      throw Exception("Frame buffer size must be non-zero.");
 
     // check to see if PixelFormat is compatible
     if (!supportedPixelFormat(fmt))
-      throw ffmpegException("Specified AVPixelFormat is not supported by ComponentBuffer.");
+      throw Exception("Specified AVPixelFormat is not supported by ComponentBuffer.");
 
     reset(nframes);
   }
@@ -355,7 +355,7 @@ public:
     if (pixfmt == AV_PIX_FMT_NONE) // default-constructed unusable empty buffer
     {
       if (nframes > 0)
-        throw ffmpegException("This buffer is default-constructed and thus unusable.");
+        throw Exception("This buffer is default-constructed and thus unusable.");
       return;
     }
 

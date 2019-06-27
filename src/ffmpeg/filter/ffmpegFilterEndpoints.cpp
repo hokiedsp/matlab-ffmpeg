@@ -28,7 +28,7 @@ const std::string &EndpointBase::setPrefilter() { return prefilter_desc; }
    * graph to verify that it is a SISO graph.
    * 
    * \param[in] desc Prefilter chain description
-   * \thrpws ffmpegException if fails to parse
+   * \thrpws Exception if fails to parse
    */
 void EndpointBase::setPrefilter(const std::string &desc)
 {
@@ -37,7 +37,7 @@ void EndpointBase::setPrefilter(const std::string &desc)
     // allocate new filter graph
     AVFilterGraph *temp_graph;
     if (!(temp_graph = avfilter_graph_alloc()))
-      throw ffmpegException(AVERROR(ENOMEM));
+      throw Exception(AVERROR(ENOMEM));
 
     // set unique_ptrs to auto delete the pointer when going out of scope
     auto avFilterGraphFree = [](AVFilterGraph *graph) { avfilter_graph_free(&graph); };
@@ -46,13 +46,13 @@ void EndpointBase::setPrefilter(const std::string &desc)
     // Parse the string to get I/O endpoints
     AVFilterInOut *ins = NULL, *outs = NULL;
     if ((avfilter_graph_parse2(temp_graph, desc.c_str(), &ins, &outs)) < 0)
-      throw ffmpegException("[ffmpeg::filter::EndpointBase::setPrefilter] Failed to parse the prefilter chain description: %s.", desc.c_str());
+      throw Exception("[ffmpeg::filter::EndpointBase::setPrefilter] Failed to parse the prefilter chain description: %s.", desc.c_str());
 
     bool fail = !(ins && !ins->next && outs && !outs->next);
     avfilter_inout_free(&ins);
     avfilter_inout_free(&outs);
     if (fail)
-      throw ffmpegException("[ffmpeg::filter::EndpointBase::setPrefilter] Failed to parse the prefilter chain description.");
+      throw Exception("[ffmpeg::filter::EndpointBase::setPrefilter] Failed to parse the prefilter chain description.");
 
     av_log(NULL, AV_LOG_INFO, "[ffmpeg::filter::EndpointBase::setPrefilter] Prefilter successfully set: %s.\n", desc.c_str());
   }
@@ -88,7 +88,7 @@ AVFilterContext *EndpointBase::configure_prefilter(bool issrc)
   // Parse the filter chain to the actual filter graph
   AVFilterInOut *ins = NULL, *outs = NULL;
   if ((avfilter_graph_parse2(context->graph, prefilter_desc.c_str(), &ins, &outs)) < 0)
-    throw ffmpegException("[ffmpeg::filter::EndpointBase::configure_prefilter] Failed to parse the prefilter chain description.");
+    throw Exception("[ffmpeg::filter::EndpointBase::configure_prefilter] Failed to parse the prefilter chain description.");
 
   // set unique_ptrs to auto delete the pointer when going out of scope
   auto avFilterInOutFree = [](AVFilterInOut *ptr) { avfilter_inout_free(&ptr); };
@@ -97,14 +97,14 @@ AVFilterContext *EndpointBase::configure_prefilter(bool issrc)
   if (issrc) // link its input to ep's output and return the input
   {
     if (avfilter_link(context, 0, ins->filter_ctx, ins->pad_idx) < 0)
-      throw ffmpegException("[ffmpeg::filter::EndpointBase::configure_prefilter] Failed to link prefilter to source.");
+      throw Exception("[ffmpeg::filter::EndpointBase::configure_prefilter] Failed to link prefilter to source.");
     prefilter_context = outs->filter_ctx;
     prefilter_pad = outs->pad_idx;
   }
   else // link its ouptut to ep's input and return the output
   {
     if (avfilter_link(outs->filter_ctx, outs->pad_idx, context, 0) < 0)
-      throw ffmpegException("[ffmpeg::filter::EndpointBase::configure_prefilter] Failed to link prefilter to sink.");
+      throw Exception("[ffmpeg::filter::EndpointBase::configure_prefilter] Failed to link prefilter to sink.");
     prefilter_context = ins->filter_ctx;
     prefilter_pad = ins->pad_idx;
   }
@@ -114,11 +114,11 @@ AVFilterContext *EndpointBase::configure_prefilter(bool issrc)
 void EndpointBase::link(AVFilterContext *other, const unsigned otherpad, const unsigned pad, const bool issrc)
 {
   if (!prefilter_context)
-    throw ffmpegException("Filter context has not been configured.");
+    throw Exception("Filter context has not been configured.");
   if (!other)
-    throw ffmpegException("The other filter context not given (NULL).");
+    throw Exception("The other filter context not given (NULL).");
   if (prefilter_context->graph != other->graph)
-    throw ffmpegException("Filter contexts must be for the same AVFilterGraph.");
+    throw Exception("Filter contexts must be for the same AVFilterGraph.");
 
   int ret;
   if (issrc)
@@ -128,10 +128,10 @@ void EndpointBase::link(AVFilterContext *other, const unsigned otherpad, const u
   if (ret < 0)
   {
     if (ret == AVERROR(EINVAL))
-      throw ffmpegException("Failed to link filters (invalid parameter).");
+      throw Exception("Failed to link filters (invalid parameter).");
     else if (ret == AVERROR(ENOMEM))
-      throw ffmpegException("Failed to link filters (could not allocate memory).");
+      throw Exception("Failed to link filters (could not allocate memory).");
     else
-      throw ffmpegException("Failed to link filters.");
+      throw Exception("Failed to link filters.");
   }
 }

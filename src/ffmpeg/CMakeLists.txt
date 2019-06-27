@@ -3,7 +3,11 @@ add_library(ffmpeg OBJECT FFmpegMxProbe.cpp ffmpeg_utils.cpp avexception.cpp mxu
 set(ffmpeg ${ffmpeg} PARENT_SCOPE) # make the library target available at the root level
 
 set(LIBFFMPEG "libffmpeg")
-add_library(LIBFFMPEG OBJECT ffmpegBase.cpp ffmpegStream.cpp ffmpegFormatInput.cpp ffmpegDump.cpp ffmpegReader.cpp)
+add_library(${LIBFFMPEG} OBJECT ffmpegBase.cpp ffmpegStream.cpp ffmpegStreamInput.cpp 
+                                ffmpegFormatInput.cpp ffmpegDump.cpp ffmpegReader.cpp)
+
+add_subdirectory(filter) # adds additional gather source file lists in LIBFFMPEG_FILTERSRCS
+
 set(LIBFFMPEG ${LIBFFMPEG} PARENT_SCOPE)
 
 # if(TARGET ${LIBFFMPEG})
@@ -25,7 +29,5 @@ set(LIBFFMPEG ${LIBFFMPEG} PARENT_SCOPE)
   
 #   set(LIBFFMPEG ${LIBFFMPEG} PARENT_SCOPE)
 
-  add_subdirectory(filter)
-#   set(LIBFFMPEGFILTER ${LIBFFMPEGFILTER} PARENT_SCOPE)
   
 # endif()

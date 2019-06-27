@@ -6,7 +6,7 @@ using namespace ffmpeg;
 /**
  * \brief Class to manage AVStream
  */
-BaseStream::BaseStream() : st(NULL), ctx(NULL), pts(-1)
+BaseStream::BaseStream() : st(NULL), ctx(NULL)
 {
 }
 
@@ -20,7 +20,7 @@ BaseStream::~BaseStream()
 void BaseStream::setTimeBase(const AVRational &tb)
 {
   if (!st)
-    ffmpegException("Cannot set time base; no AVStream open.");
+    Exception("Cannot set time base; no AVStream open.");
   st->time_base = tb;
   if (ctx)
     ctx->time_base = tb;

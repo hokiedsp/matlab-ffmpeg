@@ -39,7 +39,7 @@ public:
   {
     if (sink)
       return *sink;
-    throw ffmpegException("No buffer.");
+    throw Exception("No buffer.");
   }
   void setSinkBuffer(IAVFrameSinkBuffer &buf)
   {
@@ -60,13 +60,11 @@ public:
 
   // virtual int reset(); // reset decoder states
   virtual int processPacket(AVPacket *packet);
-  void setStartTime(const int64_t timestamp); // ignores all frames before this time
 
 protected:
   InputFormat *reader;
   AVFrame *frame;
   IAVFrameSinkBuffer *sink;
-  int64_t buf_start_ts; // if non-zero, frames with pts less than this number are ignored, used to seek to exact pts
 };
 
 typedef std::vector<InputStream *> InputStreamPtrs;

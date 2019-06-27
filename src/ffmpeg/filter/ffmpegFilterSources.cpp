@@ -24,7 +24,7 @@ SourceBase::~SourceBase() { av_log(NULL, AV_LOG_INFO, "destroyed SourceBase\n");
 void SourceBase::link(AVFilterContext *other, const unsigned otherpad, const unsigned pad, const bool issrc)
 {
   if (!issrc || pad > 0)
-    throw ffmpegException("[SourceBase::link] Source filter does not have an input pad and has only 1 output pad.");
+    throw Exception("[SourceBase::link] Source filter does not have an input pad and has only 1 output pad.");
 
   EndpointBase::link(other, otherpad, prefilter_pad, issrc);
 }
@@ -54,14 +54,14 @@ AVFilterContext *VideoSource::configure(const std::string &name)
   // // also send in the hw_frame_ctx  (if given)
   // AVBufferSrcParameters *par = av_buffersrc_parameters_alloc();
   // if (!par)
-  //   throw ffmpegException("[ffmpeg::filter::VideoSource::configure] Failed during av_buffersrc_parameters_alloc() call.");
+  //   throw Exception("[ffmpeg::filter::VideoSource::configure] Failed during av_buffersrc_parameters_alloc() call.");
   // memset(par, 0, sizeof(*par));
   // par->format = AV_PIX_FMT_NONE;
   // // par->hw_frames_ctx = hw_frames_ctx;
   // int ret = av_buffersrc_parameters_set(context, par);
   // av_freep(&par);
   // if (ret < 0)
-  //   throw ffmpegException("[ffmpeg::filter::VideoSource::configure] Failed to call av_buffersrc_parameters_set().");
+  //   throw Exception("[ffmpeg::filter::VideoSource::configure] Failed to call av_buffersrc_parameters_set().");
 
   // av_log(NULL, AV_LOG_ERROR, "video source parameters created...");
 
@@ -115,7 +115,7 @@ std::string VideoSource::generate_args()
 //   {
 //     hw_frames_ctx = av_buffer_ref(frame->hw_frames_ctx);
 //     if (!hw_frames_ctx)
-//       throw ffmpegException(AVERROR(ENOMEM));
+//       throw Exception(AVERROR(ENOMEM));
 //   }
 // }
 /**
@@ -136,7 +136,7 @@ bool VideoSource::updateMediaParameters()
   // if filter context has already been set, propagate the parameters to it as well
   std::unique_ptr<AVBufferSrcParameters, decltype(av_free) *> par(av_buffersrc_parameters_alloc(), av_free);
   if (!par)
-    throw ffmpegException("[ffmpeg::filter::VideoSource::updateMediaParameters] Could not allocate AVBufferSrcParameters.");
+    throw Exception("[ffmpeg::filter::VideoSource::updateMediaParameters] Could not allocate AVBufferSrcParameters.");
   par->format = p.format;
   par->time_base = p.time_base;
   par->width = p.width;
@@ -146,7 +146,7 @@ bool VideoSource::updateMediaParameters()
   par->hw_frames_ctx = NULL; // AVBufferRef *
 
   if (av_buffersrc_parameters_set(context, par.get()) < 0)
-    throw ffmpegException("[ffmpeg::filter::VideoSource::updateMediaParameters] AVFilterContext could not accept parameters.");
+    throw Exception("[ffmpeg::filter::VideoSource::updateMediaParameters] AVFilterContext could not accept parameters.");
 
   return true;
 };
@@ -193,14 +193,14 @@ bool AudioSource::updateMediaParameters()
   {
     std::unique_ptr<AVBufferSrcParameters, decltype(av_free) *> par(av_buffersrc_parameters_alloc(), av_free);
     if (!par)
-      throw ffmpegException("[ffmpeg::filter::AudioSource::updateMediaParameters] Could not allocate AVBufferSrcParameters.");
+      throw Exception("[ffmpeg::filter::AudioSource::updateMediaParameters] Could not allocate AVBufferSrcParameters.");
 
     par->format = p.format;
     par->time_base = p.time_base;
     par->sample_rate = p.sample_rate;
     par->channel_layout = p.channel_layout;
     if (av_buffersrc_parameters_set(context, par.get()) < 0)
-      throw ffmpegException("[ffmpeg::filter::VideoSource::updateMediaParameters] AVFilterContext could not accept parameters.");
+      throw Exception("[ffmpeg::filter::VideoSource::updateMediaParameters] AVFilterContext could not accept parameters.");
   }
   return true;
 };
