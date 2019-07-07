@@ -25,7 +25,7 @@ class BaseStream : public Base
   BaseStream();
   virtual ~BaseStream();
 
-  virtual int getId() const { return st ? st->id : -1; }
+  virtual int getId() const { return st ? st->index : -1; }
 
   AVMediaType getMediaType() const
   {
@@ -77,6 +77,14 @@ class VideoStream : virtual public BaseStream, public VideoHandler
   public:
   virtual ~VideoStream() {}
 
+  /**
+   * \brief Synchronize object's MediaParams to AVStream parameters
+   * 
+   * \note Intended to be called when an input stream is opened
+   * \note Use open() for setting up an output stream
+   */
+  void syncMediaParams();
+
   AVPixelFormat getFormat() const
   {
     return ctx ? ctx->pix_fmt : AV_PIX_FMT_NONE;
@@ -93,12 +101,15 @@ class VideoStream : virtual public BaseStream, public VideoHandler
   void setWidth(const int w) override;
   void setHeight(const int h) override;
   void setSAR(const AVRational &sar) override;
+  void setFrameRate(const AVRational &fs) override;
 };
 
 class AudioStream : virtual public BaseStream, public AudioHandler
 {
   public:
   virtual ~AudioStream() {}
+
+  void syncMediaParams();
 
   using AudioHandler::getMediaType;
   AVRational getTimeBase() const { return AudioHandler::getTimeBase(); }

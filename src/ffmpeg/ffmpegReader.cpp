@@ -22,19 +22,41 @@ Reader::Reader(const std::string &url)
 
 Reader::~Reader() {} // may need to clean up filtergraphs
 
-bool Reader::EndOfFile()
+bool Reader::hasFrame()
 {
-  return file.endOfFile() &&
-         std::all_of(bufs.begin(), bufs.end(),
-                     [](auto buf) { return buf.second.empty(); }) &&
-         std::all_of(filter_outbufs.begin(), filter_outbufs.end(),
-                     [](auto buf) { return buf.second.empty(); });
+  // buffer has a frame if not empty and at least one is a non-eof entry
+  auto pred = [](auto &buf) {
+    AVFrameQueueST &que = buf.second;
+    return que.size() && !que.eof();
+  };
+  return std::any_of(bufs.begin(), bufs.end(), pred) &&
+         std::any_of(filter_outbufs.begin(), filter_outbufs.end(), pred);
 }
 
-bool Reader::EndOfStream(const std::string &spec)
+bool Reader::hasFrame(const std::string &spec)
 {
-  if (!file.endOfFile()) return false;
-  return get_buf(spec).empty();
+  if (!file.atEndOfFile()) return false;
+  auto &buf = get_buf(spec);
+  return buf.size() && !buf.eof();
+}
+
+// returns true if all open streams have been exhausted
+bool Reader::atEndOfFile()
+{
+  auto pred = [](auto &buf) {
+    AVFrameQueueST &que = buf.second;
+    return que.size() && que.eof();
+  };
+  return file.atEndOfFile() && std::all_of(bufs.begin(), bufs.end(), pred) &&
+         std::all_of(filter_outbufs.begin(), filter_outbufs.end(), pred);
+}
+
+bool Reader::atEndOfStream(const std::string &spec)
+{
+  if (!file.atEndOfFile()) return false; // not eos if more to read from file
+  // if file is at eof, eos if spec's buffer is exhausted
+  auto &buf = get_buf(spec);
+  return buf.size() && buf.eof();
 }
 
 IAVFrameSource &Reader::getStream(std::string spec, int related_stream_id)
@@ -61,7 +83,7 @@ int Reader::addStream(const std::string &spec, int related_stream_id)
   // check the input stream
   int id = file.getStreamId(spec, related_stream_id);
   if (id == AVERROR_STREAM_NOT_FOUND || file.isStreamActive(id))
-    throw Exception("Invalid stream or output filter link label.");
+    throw InvalidStreamSpecifier(spec);
   return add_stream(id);
 }
 
@@ -84,7 +106,7 @@ bool Reader::get_frame(AVFrameQueueST &buf)
 bool Reader::get_frame(AVFrame *frame, AVFrameQueueST &buf, const bool getmore)
 {
   // if reached eof, nothing to do
-  if (EndOfFile()) return true;
+  if (atEndOfFile()) return true;
 
   // read the next frame (read multile packets until the target buffer is
   // filled)
@@ -189,13 +211,13 @@ int Reader::setFilterGraph(const std::string &desc)
 
 std::string Reader::getNextInactiveStream(const std::string &last,
                                           const AVMediaType type,
-                                          const int stream_sel)
+                                          const StreamSource stream_sel)
 {
   std::string spec;
-  if (filter_graph &&
+  if (stream_sel != StreamSource::Decoder && filter_graph &&
       (spec = filter_graph->getNextUnassignedSink(last, type)).size())
     return spec;
-  if (stream_sel > 0) return "";
+  if (stream_sel == StreamSource::FilterSink) return "";
 
   int id = file.getStreamId(spec);
   return (id != AVERROR_STREAM_NOT_FOUND)
@@ -207,7 +229,7 @@ void Reader::activate()
 {
   if (active) return;
 
-  if (file.ready()) throw Exception("Reader is not ready.");
+  if (!file.ready()) throw Exception("Reader is not ready.");
 
   if (filter_graph)
   {
@@ -217,13 +239,23 @@ void Reader::activate()
   }
 
   // read frames until all the buffers have at least one frame
-  while (!file.EndOfFile() &&
+  while (!file.atEndOfFile() &&
          std::any_of(bufs.begin(), bufs.end(),
-                     [](auto buf) { return buf.second.empty(); }))
+                     [](const auto &buf) { return buf.second.empty(); }))
   {
     file.readNextPacket();
     if (filter_graph) filter_graph->processFrame();
   }
 
+  if (filter_graph)
+  {
+    while (!file.atEndOfFile() &&
+           std::any_of(filter_outbufs.begin(), filter_outbufs.end(),
+                       [](const auto &buf) { return buf.second.empty(); }))
+    {
+      file.readNextPacket();
+      if (filter_graph) filter_graph->processFrame();
+    }
+  }
   active = true;
 }

@@ -85,6 +85,7 @@ struct VideoHandler : public MediaHandler, public IVideoHandler
   int getWidth() const override { return vparams.width; };
   int getHeight() const override { return vparams.height; };
   AVRational getSAR() const override { return vparams.sample_aspect_ratio; }
+  AVRational getFrameRate() const override { return vparams.frame_rate; }
 
   virtual void setFormat(const AVPixelFormat fmt) override
   {
@@ -96,13 +97,19 @@ struct VideoHandler : public MediaHandler, public IVideoHandler
   {
     vparams.sample_aspect_ratio = sar;
   }
+  virtual void setFrameRate(const AVRational &fs) override
+  {
+    vparams.sample_aspect_ratio = fs;
+  }
 
   virtual bool ready() const override
   {
     return MediaHandler::ready() && vparams.format != AV_PIX_FMT_NONE &&
            vparams.width != 0 && vparams.height != 0 &&
            vparams.sample_aspect_ratio.den != 0 &&
-           vparams.sample_aspect_ratio.num != 0;
+           vparams.sample_aspect_ratio.num != 0 &&
+           vparams.frame_rate.den != 0 &&
+           vparams.frame_rate.num != 0;
   }
 
   private:

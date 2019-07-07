@@ -2,13 +2,13 @@
 
 #include "ffmpegStream.h"
 // #include "ffmpegAvRedefine.h"
-#include "ffmpegAVFrameEndpointInterfaces.h"
 #include "ffmpegAVFrameBufferInterfaces.h"
+#include "ffmpegAVFrameEndpointInterfaces.h"
 
 extern "C"
 {
-#include <libavformat/avformat.h>
 #include <libavcodec/avcodec.h>
+#include <libavformat/avformat.h>
   // #include <libavutil/pixdesc.h>
 }
 
@@ -22,7 +22,7 @@ class InputFormat;
  */
 class InputStream : virtual public BaseStream, public IAVFrameSource
 {
-public:
+  public:
   InputStream() = default; // only for the use with stl containers
   InputStream(InputFormat &reader, int stream_id, IAVFrameSinkBuffer &buf);
   virtual ~InputStream();
@@ -37,14 +37,12 @@ public:
   // Implementing IAVFrameSource interface
   IAVFrameSinkBuffer &getSinkBuffer() const
   {
-    if (sink)
-      return *sink;
+    if (sink) return *sink;
     throw Exception("No buffer.");
   }
   void setSinkBuffer(IAVFrameSinkBuffer &buf)
   {
-    if (sink)
-      sink->clrSrc();
+    if (sink) sink->clrSrc();
     sink = &buf;
     sink->setSrc(*this);
   }
@@ -61,7 +59,7 @@ public:
   // virtual int reset(); // reset decoder states
   virtual int processPacket(AVPacket *packet);
 
-protected:
+  protected:
   InputFormat *reader;
   AVFrame *frame;
   IAVFrameSinkBuffer *sink;
@@ -69,13 +67,26 @@ protected:
 
 typedef std::vector<InputStream *> InputStreamPtrs;
 
-class InputVideoStream : public VideoStream, public InputStream
+class InputVideoStream : public InputStream, public VideoStream
 {
-public:
-  InputVideoStream(InputFormat &reader, int stream_id, IAVFrameSinkBuffer &buf) : InputStream(reader, stream_id, buf) {}
+  public:
+  InputVideoStream(InputFormat &reader, int stream_id, IAVFrameSinkBuffer &buf)
+      : InputStream(reader, stream_id, buf)
+  {
+    if (st) syncMediaParams();
+  }
   virtual ~InputVideoStream() {}
 
-  AVRational getAvgFrameRate() const { return st ? st->avg_frame_rate : AVRational({0, 0}); }
+  void open(AVStream *st)
+  {
+    InputStream::open(st);
+    syncMediaParams();
+  }
+
+  AVRational getAvgFrameRate() const
+  {
+    return st ? st->avg_frame_rate : AVRational({0, 0});
+  }
 
   void setPixelFormat(const AVPixelFormat pix_fmt);
 
@@ -85,18 +96,25 @@ public:
   // size_t getNbPixelComponents() const;
 
   // size_t getFrameSize() const;
-private:
+  private:
 };
 
-class InputAudioStream : public AudioStream, public InputStream
+class InputAudioStream : public InputStream, public AudioStream
 {
-public:
-  InputAudioStream(InputFormat &reader, int stream_id, IAVFrameSinkBuffer &buf);
-  virtual ~InputAudioStream();
+  public:
+  InputAudioStream(InputFormat &reader, int stream_id, IAVFrameSinkBuffer &buf)
+      : InputStream(reader, stream_id, buf)
+  {
+    if (st) syncMediaParams();
+  }
+  virtual ~InputAudioStream() {}
 
-  void open(AVStream *st);
-  void close();
+  void open(AVStream *st)
+  {
+    InputStream::open(st);
+    syncMediaParams();
+  }
 
-private:
+  private:
 };
 } // namespace ffmpeg

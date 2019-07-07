@@ -16,5 +16,8 @@ end
 
 ffmpegdir = fileparts(which(mfilename));
 bindir = fullfile(ffmpegdir,'private');
+p = getenv('PATH');
 
-setenv('PATH',[getenv('PATH') pathsep bindir]);
+if ~contains(p,bindir)
+    setenv('PATH',[p pathsep bindir]);
+end

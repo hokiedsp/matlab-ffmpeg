@@ -6,24 +6,19 @@ using namespace ffmpeg;
 /**
  * \brief Class to manage AVStream
  */
-BaseStream::BaseStream() : st(NULL), ctx(NULL)
-{
-}
+BaseStream::BaseStream() : st(NULL), ctx(NULL) {}
 
 BaseStream::~BaseStream()
 {
-  if (ctx)
-    close();
+  if (ctx) close();
 }
 
 // IMediaHandler interface functions
 void BaseStream::setTimeBase(const AVRational &tb)
 {
-  if (!st)
-    Exception("Cannot set time base; no AVStream open.");
+  if (!st) Exception("Cannot set time base; no AVStream open.");
   st->time_base = tb;
-  if (ctx)
-    ctx->time_base = tb;
+  if (ctx) ctx->time_base = tb;
 }
 
 bool BaseStream::ready() { return ctx; }
@@ -31,8 +26,7 @@ bool BaseStream::ready() { return ctx; }
 void BaseStream::close()
 {
   // if no stream is associated, nothing to do
-  if (!ctx)
-    return;
+  if (!ctx) return;
 
   // free up the context
   avcodec_free_context(&ctx);
@@ -41,31 +35,25 @@ void BaseStream::close()
   ctx = NULL;
 }
 
-int BaseStream::reset()
-{
-  return avcodec_send_packet(ctx, NULL);
-}
+int BaseStream::reset() { return avcodec_send_packet(ctx, NULL); }
 
 ////////////////////////////
 
 // following comes from ffmpeg_filter.c
 
-const AVPixelFormats BaseStream::get_compliance_unofficial_pix_fmts(AVCodecID codec_id, const AVPixelFormats default_formats)
+const AVPixelFormats BaseStream::get_compliance_unofficial_pix_fmts(
+    AVCodecID codec_id, const AVPixelFormats default_formats)
 {
   static const AVPixelFormats mjpeg_formats(
       {AV_PIX_FMT_YUVJ420P, AV_PIX_FMT_YUVJ422P, AV_PIX_FMT_YUVJ444P,
        AV_PIX_FMT_YUV420P, AV_PIX_FMT_YUV422P, AV_PIX_FMT_YUV444P,
        AV_PIX_FMT_NONE});
   static const AVPixelFormats ljpeg_formats(
-      {AV_PIX_FMT_BGR24, AV_PIX_FMT_BGRA, AV_PIX_FMT_BGR0,
-       AV_PIX_FMT_YUVJ420P, AV_PIX_FMT_YUVJ444P, AV_PIX_FMT_YUVJ422P,
-       AV_PIX_FMT_YUV420P, AV_PIX_FMT_YUV444P, AV_PIX_FMT_YUV422P,
-       AV_PIX_FMT_NONE});
+      {AV_PIX_FMT_BGR24, AV_PIX_FMT_BGRA, AV_PIX_FMT_BGR0, AV_PIX_FMT_YUVJ420P,
+       AV_PIX_FMT_YUVJ444P, AV_PIX_FMT_YUVJ422P, AV_PIX_FMT_YUV420P,
+       AV_PIX_FMT_YUV444P, AV_PIX_FMT_YUV422P, AV_PIX_FMT_NONE});
 
-  if (codec_id == AV_CODEC_ID_MJPEG)
-  {
-    return mjpeg_formats;
-  }
+  if (codec_id == AV_CODEC_ID_MJPEG) { return mjpeg_formats; }
   else if (codec_id == AV_CODEC_ID_LJPEG)
   {
     return ljpeg_formats;
@@ -78,8 +66,7 @@ const AVPixelFormats BaseStream::get_compliance_unofficial_pix_fmts(AVCodecID co
 
 void BaseStream::choose_sample_fmt()
 {
-  if (!st)
-    return;
+  if (!st) return;
   const AVCodec *codec = getAVCodec();
 
   if (codec && codec->sample_fmts)
@@ -87,19 +74,20 @@ void BaseStream::choose_sample_fmt()
     const enum AVSampleFormat *p = codec->sample_fmts;
     for (; *p != -1; p++)
     {
-      if (*p == st->codecpar->format)
-        break;
+      if (*p == st->codecpar->format) break;
     }
     if (*p == -1)
     {
-      if ((codec->capabilities & AV_CODEC_CAP_LOSSLESS) && av_get_sample_fmt_name((AVSampleFormat)st->codecpar->format) > av_get_sample_fmt_name(codec->sample_fmts[0]))
+      if ((codec->capabilities & AV_CODEC_CAP_LOSSLESS) &&
+          av_get_sample_fmt_name((AVSampleFormat)st->codecpar->format) >
+              av_get_sample_fmt_name(codec->sample_fmts[0]))
         av_log(NULL, AV_LOG_ERROR, "Conversion will not be lossless.\n");
       if (av_get_sample_fmt_name((AVSampleFormat)st->codecpar->format))
         av_log(NULL, AV_LOG_WARNING,
-               "Incompatible sample format '%s' for codec '%s', auto-selecting format '%s'\n",
+               "Incompatible sample format '%s' for codec '%s', auto-selecting "
+               "format '%s'\n",
                av_get_sample_fmt_name((AVSampleFormat)st->codecpar->format),
-               codec->name,
-               av_get_sample_fmt_name(codec->sample_fmts[0]));
+               codec->name, av_get_sample_fmt_name(codec->sample_fmts[0]));
       st->codecpar->format = codec->sample_fmts[0];
     }
   }
@@ -107,9 +95,21 @@ void BaseStream::choose_sample_fmt()
 
 // VIDEOSTREAM
 
+void VideoStream::syncMediaParams()
+{
+  VideoParams &p = *dynamic_cast<VideoParams *>(params);
+  p.time_base = st->time_base;
+  p.format = ctx->pix_fmt;
+  p.width = ctx->width;
+  p.height = ctx->height;
+  p.sample_aspect_ratio = ctx->sample_aspect_ratio;
+  p.frame_rate = st->avg_frame_rate;
+}
+
 void VideoStream::setMediaParams(const MediaParams &new_params)
 {
-  VideoHandler::setMediaParams(new_params); // may throw if type mismatch detected
+  VideoHandler::setMediaParams(
+      new_params); // may throw if type mismatch detected
   VideoParams &p = *dynamic_cast<VideoParams *>(params);
 
   BaseStream::setTimeBase(p.time_base);
@@ -119,6 +119,7 @@ void VideoStream::setMediaParams(const MediaParams &new_params)
   ctx->width = p.width;
   ctx->height = p.height;
   ctx->sample_aspect_ratio = p.sample_aspect_ratio;
+  st->r_frame_rate = p.frame_rate;
 }
 
 void VideoStream::setTimeBase(const AVRational &tb)
@@ -148,13 +149,30 @@ void VideoStream::setSAR(const AVRational &sar)
   if (ctx) ctx->sample_aspect_ratio = sar;
 }
 
+void VideoStream::setFrameRate(const AVRational &fs)
+{
+  VideoHandler::setFrameRate(fs);
+  if (st) st->avg_frame_rate = fs;
+}
+
 ///////////////////////////////////////////////////////////////////////////////
 
 // AUDIOSTREAM
 
+void AudioStream::syncMediaParams()
+{
+  if (!ctx) return;
+  AudioParams &p = *dynamic_cast<AudioParams *>(params);
+  p.time_base = st->time_base;
+  p.format = ctx->sample_fmt;
+  p.channel_layout = ctx->channel_layout;
+  p.sample_rate = ctx->sample_rate;
+}
+
 void AudioStream::setMediaParams(const MediaParams &new_params)
 {
-  AudioHandler::setMediaParams(new_params); // may throw if type mismatch detected
+  AudioHandler::setMediaParams(
+      new_params); // may throw if type mismatch detected
   AudioParams &p = *dynamic_cast<AudioParams *>(params);
 
   BaseStream::setTimeBase(p.time_base);
@@ -179,12 +197,14 @@ void AudioStream::setFormat(const AVSampleFormat fmt)
 void AudioStream::setChannelLayout(const uint64_t layout)
 {
   AudioHandler::setChannelLayout(layout);
-  if (ctx) ctx->channel_layout = dynamic_cast<AudioParams *>(params)->channel_layout;
+  if (ctx)
+    ctx->channel_layout = dynamic_cast<AudioParams *>(params)->channel_layout;
 }
 void AudioStream::setChannelLayoutByName(const std::string &name)
 {
   AudioHandler::setChannelLayoutByName(name);
-  if (ctx) ctx->channel_layout = dynamic_cast<AudioParams *>(params)->channel_layout;
+  if (ctx)
+    ctx->channel_layout = dynamic_cast<AudioParams *>(params)->channel_layout;
 }
 void AudioStream::setSampleRate(const int fs)
 {

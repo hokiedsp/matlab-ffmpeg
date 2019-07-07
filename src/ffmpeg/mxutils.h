@@ -51,3 +51,8 @@ std::vector<std::string> mxParseStringArgs(const int narg, const mxArray *args[]
  * @returns a string
  */
 std::string mxArrayToStdString(const mxArray *array, bool lower = false);
+
+/**
+ * 
+ */
+// void mxArrayFromAVFrame(mxArray *array, AVFrame *frame);

@@ -20,8 +20,8 @@ InputStream::InputStream(InputFormat &rdr, int stream_id,
     : reader(&rdr), sink(&buf)
 {
   frame = av_frame_alloc();
-  AVStream *st = reader->_get_stream(stream_id);
-  if (st) open(st);
+  open(reader->_get_stream(stream_id));
+  buf.setSrc(*this);
 }
 
 InputStream::~InputStream() { av_frame_free(&frame); }

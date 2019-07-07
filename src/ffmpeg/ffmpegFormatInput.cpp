@@ -141,7 +141,7 @@ int InputFormat::getNextInactiveStream(int last, const AVMediaType type)
   bool any_media = (type == AVMEDIA_TYPE_UNKNOWN);
 
   for (++last;
-       last < fmt_ctx->nb_streams && streams.count(last) &&
+       last < (int)fmt_ctx->nb_streams && streams.count(last) &&
        !(any_media || fmt_ctx->streams[last]->codecpar->codec_type == type);
        ++last)
     ;
@@ -173,18 +173,20 @@ int InputFormat::getStreamId(const std::string &spec,
       program = p->stream_index;
       nb_streams = p->nb_stream_indexes;
     }
-    for (int i = 0; ret < 0 && i < nb_streams; ++i)
+    for (int i = 0; i < nb_streams; ++i)
     {
       int real_stream_index = program[i];
       AVStream *st = fmt_ctx->streams[real_stream_index];
-      ret = avformat_match_stream_specifier(fmt_ctx, st, spec_str);
+      if (avformat_match_stream_specifier(fmt_ctx, st, spec_str) > 0)
+        return real_stream_index;
     }
   }
   else
   {
-    for (int i = 0; ret < 0 && i < fmt_ctx->nb_streams; ++i)
-      ret = avformat_match_stream_specifier(fmt_ctx, fmt_ctx->streams[i],
-                                            spec_str);
+    for (int i = 0; i < (int)fmt_ctx->nb_streams; ++i)
+      if (avformat_match_stream_specifier(fmt_ctx, fmt_ctx->streams[i],
+                                          spec_str) > 0)
+        return i;
   }
 
   return ret;
@@ -212,6 +214,9 @@ InputStream &InputFormat::add_stream(const int id, IAVFrameSinkBuffer &buf)
                    .first->second);
       break;
     case AVMEDIA_TYPE_AUDIO:
+      return *(streams.try_emplace(id, new InputAudioStream(*this, id, buf))
+                   .first->second);
+      break;
     case AVMEDIA_TYPE_DATA:
     case AVMEDIA_TYPE_SUBTITLE:
     case AVMEDIA_TYPE_ATTACHMENT:
@@ -330,7 +335,7 @@ InputStream *InputFormat::readNextPacket()
       i->second->processPacket(nullptr);
     return nullptr;
   }
-  else if (ret > 0) // should not return EAGAIN
+  else if (ret >= 0) // should not return EAGAIN
   {
     // work only on the registered streams
     InputStream *is = streams[packet.stream_index];

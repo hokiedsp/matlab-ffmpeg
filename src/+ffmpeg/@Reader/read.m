@@ -97,7 +97,7 @@ function varargout = read(obj, varargin)
 [varargout{1:nargout}] = obj.mex_backend(obj.backend,'read',varargin{:});
 
 % if length(obj) > 1
-%     error(message('FFmpeg:VideoReader:nonscalar'));
+%     error(message('ffmpeg:Reader:nonscalar'));
 % end
 % 
 % % ensure that we pass in 1, 2 or 3 arguments only
@@ -130,10 +130,10 @@ function varargout = read(obj, varargin)
 % end
 % 
 % if obj.IsStreamingBased
-%     error( message('FFmpeg:VideoReader:ReadNotAllowed') );
+%     error( message('ffmpeg:Reader:ReadNotAllowed') );
 % end
 % 
-% warnState = warning('off', 'FFmpeg:VideoReader:unknownNumFrames');
+% warnState = warning('off', 'ffmpeg:Reader:unknownNumFrames');
 % oc = onCleanup( @() warning(warnState) );
 % 
 % % Frame-based operations need to know the NumberOfFrames before reading.
@@ -186,7 +186,7 @@ function varargout = read(obj, varargin)
 % function checkIncompleteRead(actNum, index)
 % expNum = index(2) - index(1) + 1;
 % if actNum < expNum
-%     warning(message('FFmpeg:VideoReader:incompleteRead', ...
+%     warning(message('ffmpeg:Reader:incompleteRead', ...
 %         index(1), index(1)+actNum-1));
 % end
 % end

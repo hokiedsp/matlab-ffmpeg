@@ -40,14 +40,16 @@ class Exception : public std::exception
 
   void print_error(const std::string &filename, int err)
   {
-    message.reserve(AV_ERROR_MAX_STRING_SIZE + 128);
-
-    if (av_strerror(err, &message.front(), message.size()) < 0 ||
-        message.empty())
+    char msg[AV_ERROR_MAX_STRING_SIZE];
+    if (av_strerror(err, msg, AV_ERROR_MAX_STRING_SIZE) < 0 )
     {
       message = "Unknown error has occurred [AVERROR code = ";
       message += std::to_string(err);
       message += "].";
+    }
+    else
+    {
+      message = msg;
     }
   }
 };
@@ -66,6 +68,10 @@ class InvalidStreamSpecifier : public Exception
       : Exception(std::string("Invalid stream ID: ") + std::to_string(id))
   {
   }
+  InvalidStreamSpecifier(const AVMediaType type)
+      : Exception(std::string("Invalid stream type: ") + std::string(av_get_media_type_string(type)))
+  {
+  }  
 };
 
 /**

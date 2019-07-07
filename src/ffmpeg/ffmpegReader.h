@@ -5,6 +5,7 @@
 #include "ffmpegAVFrameBufferInterfaces.h"
 #include "ffmpegAVFrameQueue.h"
 #include "ffmpegFormatInput.h"
+#include "ffmpegTimeUtil.h"
 #include "filter/ffmpegFilterGraph.h"
 
 #include "syncpolicies.h"
@@ -28,12 +29,28 @@ class Reader
   bool isFileOpen() { return file.isFileOpen(); }
 
   /**
+   * \brief Returns true if there is any AVFrame in its output buffers
+   */
+  bool hasFrame();
+
+  /**
+   * \brief Returns true if there is any AVFrame in its output buffers
+   */
+  bool hasFrame(const std::string &spec);
+
+  /**
    * \brief Returns true if all streams have reached end-of-file
    */
-  bool EndOfFile();
+  bool atEndOfFile();
 
-  bool EndOfStream(const std::string &spec);
+  bool atEndOfStream(const std::string &spec);
 
+  /**
+   * \brief Open a file at the given URL
+   * \param[in] url
+   * \throws if cannot open the specified URL
+   * \throws if cannot retrieve stream info
+   */
   void openFile(const std::string &url)
   {
     if (file.isFileOpen()) closeFile();
@@ -64,6 +81,8 @@ class Reader
   void setPixelFormat(const AVPixelFormat pix_fmt,
                       const std::string &spec = "");
 
+  size_t getStreamCount() { return file.getNumberOfStreams(); }
+
   int getStreamId(const int stream_id, const int related_stream_id = -1) const
   {
     int id = file.getStreamId(stream_id, related_stream_id);
@@ -91,20 +110,25 @@ class Reader
   /**
    * \brief Activate a stream to read
    *
-   * \param[in] spec              Input stream specifier or filter output link
-   * label \param[in] related_stream_id Specifies related stream of the same
-   * program (only relevant on input stream)
+   * \param[in] spec              Input stream specifier or filter
+   *                              output link label
+   * \param[in] related_stream_id Specifies related stream of the same
+   *                              program (only relevant on input stream)
+   * \returns the stream id if decoder output
    */
   int addStream(const std::string &spec, int related_stream_id = -1);
 
   int addStream(const int wanted_stream_id, int related_stream_id = -1)
   {
     int id = file.getStreamId(wanted_stream_id, related_stream_id);
+    if (id < 0 || file.isStreamActive(id))
+      throw InvalidStreamSpecifier(wanted_stream_id);
     return add_stream(id);
   }
   int addStream(const AVMediaType type, int related_stream_id = -1)
   {
     int id = file.getStreamId(type, related_stream_id);
+    if (id < 0 || file.isStreamActive(id)) throw InvalidStreamSpecifier(type);
     return add_stream(id);
   }
 
@@ -141,22 +165,31 @@ class Reader
     return file.getStream(type, related_stream_id);
   }
 
+  enum StreamSource
+  {
+    FilterSink = -1,
+    Unspecified,
+    Decoder
+  };
+
   /**
    * \brief   Get the specifier of the next inactive output streams or filter
    * graph sink.
    *
    * \param[in] last Pass in the last name returned to go to the next
    * \param[in] type Specify to limit search to a particular media type
-   * \param[in] stream_sel Specify to select from unfiltered (>0) or filtered
-   *            (<0) or both types of inactive streams.
+   * \param[in] stream_sel Specify to stream source:
+   *                          StreamSource::Decoder
+   *                          StreamSource::FilterSink
+   *                          StreamSource::Unspecified (default)
    *
    * \returns the name of the next unassigned stream specifier/output filter
    * label. Returns empty if all have been assigned.
    */
-  std::string
-  getNextInactiveStream(const std::string &last = "",
-                        const AVMediaType type = AVMEDIA_TYPE_UNKNOWN,
-                        const int stream_sel = 0);
+  std::string getNextInactiveStream(
+      const std::string &last = "",
+      const AVMediaType type = AVMEDIA_TYPE_UNKNOWN,
+      const StreamSource stream_sel = StreamSource::Unspecified);
 
   /**
    * \brief Empty all the buffers and filter graph states
@@ -165,6 +198,13 @@ class Reader
 
   /**
    * \brief   Get next frame of the specified stream
+   *
+   * \param[out] frame     Pointer to a pre-allocated AVFrame object.
+   * \param[in]  stream_id Media stream ID to read
+   * \param[in]  getmore   (Optional) Set true to read more packets if no frame
+   *                       is in buffer.
+   * \returns true if failed to acquire the frame, either due to eof or empty
+   *          buffer.
    */
   bool readNextFrame(AVFrame *frame, const int stream_id,
                      const bool getmore = true)
@@ -175,96 +215,132 @@ class Reader
   bool readNextFrame(AVFrame *frame, const std::string &spec,
                      const bool getmore = true);
 
-  template <class Chrono_t>
-  void seek(const Chrono_t val, const bool exact_search = true)
+  /**
+   * \brief Get the youngest time stamp in the queues
+   */
+  template <class Chrono_t> Chrono_t getTimeStamp()
   {
-    flush();
-    file.seek<Chrono_t>(val);
-    if (exact_search)
+    if (!active) throw Exception("Activate before read a frame.");
+
+    Chrono_t T = getDuration();
+
+    // get the timestamp of the next frame and return the smaller of it or the
+    // smallest so far
+    auto reduce_op = [T](const Chrono_t &t,
+                         const std::pair<std::string, AVFrameQueueST> &buf) {
+      auto que = buf.second;
+      if (que.empty()) return t; // no data
+
+      AVFrame *frame = que.peekToPop();
+      return std::min(T, (frame) ? get_timestamp(frame->best_effort_timestamp,
+                                                 que.getSrc().getTimeBase())
+                                 : T);
+    };
+    Chrono_t t =
+        std::reduce(bufs.begin(), bufs.end(), Chrono_t::max(), reduce_op);
+    t = std::reduce(filter_outbufs.begin(), filter_outbufs.end(), t, reduce_op);
+
+    // if no frame avail (the initial value unchanged), read the next frame
+    if (t == Chrono_t::max())
     {
-      // read more packets/frames until
-      auto buf = read_next_packet();
-      AVFrame *frame = buf.peekToPop();
-      while (get_timestamp(frame->best_effort_timestamp,
-                           buf.getSrc().getTimeBase()) < val)
-      {
-        buf.pop();
-        buf = read_next_packet();
-        frame = buf.peekToPop();
-      }
-      // if filter graph is assigned, make sure all the filter sinks
-      if (filter_graph)
-      {
-        auto check_bufs = [val](auto buf) {
-          bool do_check;
-          while ((do_check =
-                      buf.size() &&
-                      (buf.get_timestamp(buf.peekToPop()->best_effort_timestamp,
-                                         buf.getSrc().getTimeBase()) < val)))
-            buf.pop();
-          return !buf.empty();
-        };
-      }
-      auto while (std::all_of(filter_outbufs.begin(), filter_outbufs.end(), ))
-      {
-        read_next_packet();
-      }
+      auto que = read_next_packet();
+      return que.eof() ? T
+                       : get_timestamp(que.peekToPop()->best_effort_timestamp,
+                                       que.getSrc().getTimeBase());
     }
   }
-}
 
-std::string
-getFilePath() const
-{
-  return file.getFilePath();
-}
+  /**
+   * \brief Get the youngest time stamp of the specified stream
+   */
+  template <class Chrono_t> Chrono_t getTimeStamp(const std::string &spec)
+  {
+    if (!active) throw Exception("Activate before read a frame.");
 
-template <typename Chrono_t = InputFormat::av_duration>
-Chrono_t getDuration() const
-{
-  return file.getDuration<Chrono_t>();
-}
+    AVFrameQueueST &buf = get_buf(spec);
+    while (buf.empty()) read_next_packet();
+    AVFrame *frame = buf.peekToPop();
+    return (frame) ? get_timestamp<Chrono_t>(frame->best_effort_timestamp,
+                                             buf.getSrc().getTimeBase())
+                   : getDuration();
+  }
 
-private:
-typedef AVFrameQueue<NullMutex, NullConditionVariable<NullMutex>,
-                     NullUniqueLock<NullMutex>>
-    AVFrameQueueST;
+  template <class Chrono_t>
+  void seek(const Chrono_t t0, const bool exact_search = true)
+  {
+    flush();
+    file.seek<Chrono_t>(t0);
+    if (exact_search)
+    {
+      // purge all premature frames from all the output buffers. Read more
+      // packets as needed to verify the time
+      auto purge = [this, t0](AVFrameQueueST &que) {
+        AVFrame *frame;
+        while (que.empty() ||
+               (frame = que.peekToPop()) &&
+                   get_timestamp<Chrono_t>(frame->best_effort_timestamp,
+                                           que.getSrc().getTimeBase()) < t0)
+        {
+          if (que.size())
+            que.pop();
+          else
+            read_next_packet();
+        }
+      };
+      for (auto buf : bufs) purge(buf.second);
+      for (auto buf : filter_outbufs) purge(buf.second);
+    }
+  }
 
-// activate and adds buffer to an input stream by its id
-int add_stream(const int stream_id)
-{
-  return file.addStream(stream_id, bufs[stream_id]).getId();
-}
+  std::string getFilePath() const { return file.getFilePath(); }
 
-AVFrameQueueST &get_buf(const std::string &spec);
+  template <typename Chrono_t = InputFormat::av_duration>
+  Chrono_t getDuration() const
+  {
+    return file.getDuration<Chrono_t>();
+  }
 
-// reads next set of packets from file/stream and push the decoded frame to
-// the stream's sink
-bool get_frame(AVFrame *frame, AVFrameQueueST &buf, const bool getmore);
+  private:
+  typedef AVFrameQueue<NullMutex, NullConditionVariable<NullMutex>,
+                       NullUniqueLock<NullMutex>>
+      AVFrameQueueST;
 
-/**
- * \brief Read file until buf has a frame
- */
-bool get_frame(AVFrameQueueST &buf);
+  // activate and adds buffer to an input stream by its id
+  int add_stream(const int stream_id)
+  {
+    return file.addStream(stream_id, bufs[stream_id]).getId();
+  }
 
-/**
- * \brief Read next packet and return the populated frame queue
- */
-AVFrameQueueST &read_next_packet();
+  AVFrameQueueST &get_buf(const std::string &spec);
 
-InputFormat file;
-std::unordered_map<int, AVFrameQueueST>
-    bufs; // output frame buffers (one for each active stream)
+  // reads next set of packets from file/stream and push the decoded frame
+  // to the stream's sink
+  bool get_frame(AVFrame *frame, AVFrameQueueST &buf, const bool getmore);
 
-bool active; // true to lock down the configuring interface, set by activate()
-             // function
-std::chrono::nanoseconds pts;
+  /**
+   * \brief Read file until buf has a frame
+   */
+  bool get_frame(AVFrameQueueST &buf);
 
-filter::Graph *filter_graph; // filter graphs
-std::unordered_map<std::string, AVFrameQueueST>
-    filter_inbufs; // filter output frame buffers (one for each active stream)
-std::unordered_map<std::string, AVFrameQueueST>
-    filter_outbufs; // filter output frame buffers (one for each active
-                    // stream)
-};                  // namespace ffmpeg
+  /**
+   * \brief Read next packet and return the populated frame queue
+   */
+  AVFrameQueueST &read_next_packet();
+
+  InputFormat file;
+  std::unordered_map<int, AVFrameQueueST>
+      bufs; // output frame buffers (one for each active stream)
+
+  bool active; // true to lock down the configuring interface, set by
+               // activate() function
+  std::chrono::nanoseconds pts;
+
+  filter::Graph *filter_graph; // filter graphs
+  std::unordered_map<std::string, AVFrameQueueST>
+      filter_inbufs; // filter output frame buffers (one for each active
+                     // stream)
+  std::unordered_map<std::string, AVFrameQueueST>
+      filter_outbufs; // filter output frame buffers (one for each active
+                      // stream)
+};                    // namespace ffmpeg
 } // namespace ffmpeg

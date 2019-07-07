@@ -1,8 +1,8 @@
 function formats = getVideoFormats()
-%FFMPEG.VIDEOREADER.GETVIDEOFORMATS   Get supported video pixel formats
-%   FORMATS = FFMPEG.VIDEOREADER.GETVIDEOFORMATS() returns a struct
+%ffmpeg.Reader.GETVIDEOFORMATS   Get supported video pixel formats
+%   FORMATS = ffmpeg.Reader.GETVIDEOFORMATS() returns a struct
 %   array of supported video formats (FFmpeg's PixelFormat). Any of the
-%   listed format could be used for a ffmpeg.VideoReader object by
+%   listed format could be used for a ffmpeg.Reader object by
 %   specifying 'VideoFormat' option in the constructor argument.
 %
 %   The fields of the returned struct array are:
@@ -19,12 +19,12 @@ function formats = getVideoFormats()
 %   Log2ChromaW        - Amount to shift the luma width right to find the chroma width
 %   Log2ChromaH        - Amount to shift the luma height right to find the chroma height
 %   
-%   See also: ffmpeg.VideoReader.getFileFormats,
-%             ffmpeg.VideoReader.getVideoCompressions
+%   See also: ffmpeg.Reader.getFileFormats,
+%             ffmpeg.Reader.getVideoCompressions
 
 
 ffmpegsetenv();
-formats = ffmpeg.VideoReader.mex_backend([], 'static', mfilename);
+formats = ffmpeg.Reader.mex_backend([], 'static', mfilename);
 
 if nargout==0
    display(struct2table(formats));

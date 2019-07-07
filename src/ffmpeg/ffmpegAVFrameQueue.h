@@ -14,25 +14,28 @@ class AVFrameQueue : public IAVFrameBuffer
   public:
   AVFrameQueue(size_t N = 0) : dynamic(N <= 1), src(nullptr), dst(nullptr)
   {
+    // set read/write pointers to the beginning
+    wr = rd = que.begin();
+
     // insert the first frame
     expand();
     if (!dynamic) // if fixed queue size, expand to the desired size
       for (int i = 1; i < N; ++i) expand();
 
-    // set read/write pointers to the beginning
-    wr = rd = que.begin();
   } // queue size
 
   virtual ~AVFrameQueue()
   {
     // release allocated memory for all the AVFrames
-    for (auto it = que.begin(); it != que.end(); ++it) av_frame_free(&(it->frame));
+    for (auto buf : que)
+      if (buf.frame) av_frame_free(&buf.frame);
   }
 
   const MediaParams &getMediaParams() const
   {
     if (src) return src->getMediaParams();
-    throw Exception("Media parameters could be retrieved only if src is connected.");
+    throw Exception(
+        "Media parameters could be retrieved only if src is connected.");
   }
 
   IAVFrameSource &getSrc() const { return *src; };
@@ -61,12 +64,13 @@ class AVFrameQueue : public IAVFrameBuffer
   size_t size() const noexcept
   {
     MutexLockType lock(mutex);
-    return (wr - rd) + (wr < rd) ? que.size() : 0;
+    return (wr - rd) + ((wr < rd) ? que.size() : 0);
   }
   bool empty() const noexcept
   {
     MutexLockType lock(mutex);
-    return (wr != que.begin()) ? (wr - 1)->populated : que.back().populated;
+    return !((que.size() > 1 && wr != que.begin()) ? (wr - 1)->populated
+                                                  : que.back().populated);
   }
   bool full() const noexcept
   {
@@ -92,14 +96,16 @@ class AVFrameQueue : public IAVFrameBuffer
   bool blockTillReadyToPush(const std::chrono::milliseconds &rel_time)
   {
     MutexLockType lock(mutex);
-    return cv_rx.wait_for(lock, rel_time, [this] { return readyToPush_threadunsafe(); });
+    return cv_rx.wait_for(lock, rel_time,
+                          [this] { return readyToPush_threadunsafe(); });
   }
 
   AVFrame *peekToPush()
   {
     MutexLockType lock(mutex);
     cv_rx.wait(lock, [this] { return readyToPush_threadunsafe(); });
-    if (wr->populated) throw_or_expand(); // expand if allowed or throws overflow exception
+    if (wr->populated)
+      throw_or_expand(); // expand if allowed or throws overflow exception
     return wr->frame;
   }
 
@@ -120,7 +126,8 @@ class AVFrameQueue : public IAVFrameBuffer
   bool push(AVFrame *frame, const std::chrono::milliseconds &rel_time)
   {
     MutexLockType lock(mutex);
-    bool success = cv_rx.wait_for(lock, rel_time, [this] { return readyToPush_threadunsafe(); });
+    bool success = cv_rx.wait_for(
+        lock, rel_time, [this] { return readyToPush_threadunsafe(); });
     if (success) push_threadunsafe(frame);
     return success;
   }
@@ -156,7 +163,8 @@ class AVFrameQueue : public IAVFrameBuffer
   bool blockTillReadyToPop(const std::chrono::milliseconds &rel_time)
   {
     MutexLockType lock(mutex);
-    return cv_tx.wait_for(lock, rel_time, [this] { return readyToPop_threadunsafe(); });
+    return cv_tx.wait_for(lock, rel_time,
+                          [this] { return readyToPop_threadunsafe(); });
   }
 
   void pop(AVFrame *frame, bool &eof)
@@ -171,7 +179,8 @@ class AVFrameQueue : public IAVFrameBuffer
   {
     if (!frame) throw Exception("frame must be non-null pointer.");
     MutexLockType lock(mutex);
-    bool success = cv_tx.wait_for(lock, rel_time, [this] { return readyToPop_threadunsafe(); });
+    bool success = cv_tx.wait_for(lock, rel_time,
+                                  [this] { return readyToPop_threadunsafe(); });
     if (success) eof = pop_threadunsafe(frame);
     return success;
   }
@@ -195,6 +204,7 @@ class AVFrameQueue : public IAVFrameBuffer
 
   bool eof()
   {
+    if (empty()) return false;
     MutexLockType lock(mutex);
     cv_tx.wait(lock, [this] { return readyToPop_threadunsafe(); });
     return rd->eof;
@@ -202,8 +212,10 @@ class AVFrameQueue : public IAVFrameBuffer
 
   bool eof(const std::chrono::milliseconds &rel_time)
   {
+    if (empty()) return false;
     MutexLockType lock(mutex);
-    if (!cv_tx.wait_for(lock, rel_time, [this] { return readyToPop_threadunsafe(); }))
+    if (!cv_tx.wait_for(lock, rel_time,
+                        [this] { return readyToPop_threadunsafe(); }))
       throw Exception("Timed out while waiting to check for eof.");
     return rd->eof; // true if no more frames in the buffer
   }
@@ -253,7 +265,7 @@ class AVFrameQueue : public IAVFrameBuffer
     int64_t Ird = rd - que.begin();
     if (rd > wr) ++Ird;
 
-    if (wr == que.end() - 1)
+    if (que.empty() || wr == que.end() - 1)
       que.push_back({av_frame_alloc(), false, false});
     else
       que.insert(wr, {av_frame_alloc(), false, false});
@@ -262,17 +274,19 @@ class AVFrameQueue : public IAVFrameBuffer
     rd = que.begin() + Ird;
   }
 
-  bool readyToPush_threadunsafe() // declared in AVFrameSinkBase
-  {
-    return dynamic || !wr->populated;
-  }
+  bool readyToPush_threadunsafe() { return dynamic || !wr->populated; }
   bool readyToPop_threadunsafe() // declared in AVFrameSourceBase
   {
     return rd->populated;
   }
-  void push_threadunsafe(AVFrame *frame) // declared in AVFrameSinkBase
+
+  /**
+   * \brief Implements enquing of the new frame onto the queue
+   * \param[in] frame pointer to the frame data. If null, eof is pushed.
+   */
+  void push_threadunsafe(AVFrame *frame)
   {
-    // if buffer is not available
+    // if buffer is not available (not yet read, caught up with rd ptr)
     if (wr->populated)
       throw_or_expand(); // expand if allowed or throws overflow exception
 
@@ -288,7 +302,7 @@ class AVFrameQueue : public IAVFrameBuffer
     cv_tx.notify_one();
   }
 
-  void mark_populated_threadunsafe() // declared in AVFrameSinkBase
+  void mark_populated_threadunsafe()
   {
     // if buffer is not available
     if (wr->populated) throw Exception("Already populated.");
@@ -305,21 +319,24 @@ class AVFrameQueue : public IAVFrameBuffer
   {
     // guaranteed readyToPop() returns true
 
-    // increment the read pointer then
-    bool eof = (++rd)->eof;
+    // grab the eof flag
+    bool eof = rd->eof;
 
-    // get the frame
+    // get the frame if not eof
     if (!eof)
     {
       if (frame)
         av_frame_move_ref(frame, rd->frame);
       else
-        av_frame_unref(rd->frame); // just in case
+        av_frame_unref(rd->frame);
       rd->populated = false;
     }
 
     // notify the sink-end for slot opening
     cv_rx.notify_one();
+
+    // increment the read pointer
+    if (++rd == que.end()) rd = que.begin();
 
     return eof;
   }

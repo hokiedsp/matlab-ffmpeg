@@ -26,6 +26,7 @@ classdef Reader < matlab.mixin.SetGet & matlab.mixin.CustomDisplay
    %   Properties:
    %     Name             - Name of the file to be read.
    %     Path             - Path of the file to be read.
+   %     Streams          - Names of active streams.
    %     Duration         - Total length of file in seconds.
    %     CurrentTime      - Location from the start of the file of the current
    %                        frame to be read in seconds.
@@ -41,12 +42,13 @@ classdef Reader < matlab.mixin.SetGet & matlab.mixin.CustomDisplay
    %   (If contains an audio stream)
    %     SampleRate       - Audio stream's sampling rate
    %     NumChannels      - Number of channels
+   %     ChannelLayout    - Channel layout
    %     AudioFormat      - Video format as it is represented in MATLAB.
    %
    %   Example:
    %       % Construct a multimedia reader object associated with file
    %       % 'xylophone.mp4'.
-   %       vidObj = FFmpeg.VideoReader('xylophone.mp4');
+   %       vidObj = ffmpeg.Reader('xylophone.mp4');
    %
    %       % Specify that reading should start at 0.5 seconds from the
    %       % beginning.
@@ -69,10 +71,13 @@ classdef Reader < matlab.mixin.SetGet & matlab.mixin.CustomDisplay
    properties(GetAccess='public', SetAccess='private')
       Name            % Name of the file to be read.
       Path            % Path of the file to be read.
+      Streams             % Activated streams (excluding those consumed by filters)
+      Duration        % Total length of file in seconds.
    end
    
-   properties(GetAccess='public', SetAccess='private', Dependent)
-      Duration        % Total length of file in seconds.
+   properties(Access='public', Dependent)
+      CurrentTime     % Location, in seconds, from the start of the
+      % file of the current frame to be read.
    end
    
    properties(GetAccess='public', SetAccess='public')
@@ -81,17 +86,17 @@ classdef Reader < matlab.mixin.SetGet & matlab.mixin.CustomDisplay
    end
    
    properties(GetAccess='public', SetAccess='private')
-      Streams = 'auto'    % Activated streams (excluding those consumed by filters)
       FrameRate = []      % Frame rate of the video in frames per second.
       Height = []         % Height of the video frame in pixels.
       Width = []          % Width of the video frame in pixels.
-      dPixelAspectRatio = []
-      VideoFormat = 'auto' % Video format as it is represented in MATLAB.
-      VideoFilter = ''     % FFmpeg Video filter chain description
-      AudioFilter = ''     % FFmpeg Video filter chain description
+      PixelAspectRatio = []
+      VideoFormat = ''     % Video format as it is represented in MATLAB.
+      AudioFormat = ''
+      FilterGraph = ''     % FFmpeg Video filter chain description
       SampleRate = []
       NumberOfAudioChannels = []
-      ReadMode = 'components' % 'components'(default if pixel is byte size) |'planes' (default if pixel is sub-byte size)
+      ChannelLayout = ''
+      % ReadMode = 'components' % 'components'(default if pixel is byte size) |'planes' (default if pixel is sub-byte size)
       % Direction = 'forward'
       % BufferSize = 4  % Underlying frame buffer size
    end
@@ -101,11 +106,6 @@ classdef Reader < matlab.mixin.SetGet & matlab.mixin.CustomDisplay
    %------------------------------------------------------------------
    properties(GetAccess='public', SetAccess='private', Dependent)
       BitsPerPixel    % Bits per pixel of the video data.
-   end
-   
-   properties(Access='public', Dependent)
-      CurrentTime     % Location, in seconds, from the start of the
-      % file of the current frame to be read.
    end
    
    %------------------------------------------------------------------
@@ -126,44 +126,44 @@ classdef Reader < matlab.mixin.SetGet & matlab.mixin.CustomDisplay
       varargout = mex_backend(varargin)   % mex function
    end
    methods
-      function obj = Reader(varargin)
+      function obj = Reader(url,varargin)
          
+         % just in case
+         ffmpeginit;
+         
+         % First create the backend object for the given file
          narginchk(1,inf);
-         validateattributes(varargin{1},{'char'},{'row'},mfilename,'FILENAME');
-         try
-            filename = which(varargin{1});
-            if isempty(filename)
-               if exist(varargin{1},'file')
-                  filename = varargin{1};
-               else
-                  error('bad file name.');
-               end
-            end
-         catch
-            error('Could not found the specified file: %s',varargin{1});
+         validateattributes(url,{'char'},{'row'},mfilename,'FILENAME');
+         url = which(url);
+         if isempty(url)
+            error('Could not found the specified file: %s',url);
          end
-         
-         if nargin>1
-            set(obj,varargin{2:end});
-            
-            % validate requested video frame dimension change
-            moddim = [obj.Width~=0 obj.Height~=0 ~isempty(obj.PixelAspectRatio)]*[1;2;4];
-            switch moddim
-               case 4 % only PAR changed
-                  warning('Only PixelAspectRatio set. Maintains the original height.');
-               case 7 % all 3
-                  error('Cannot set all 3 of Width, Height, and PixelAspectRatio. Pick 2.');
-            end
-            
-         end
+         [obj.Path, obj.Name, ext] = fileparts(url);
+         obj.Name = [obj.Name ext];
 
          % instantiate the MEX backend
-         obj.backend = ffmpeg.VideoReader.mex_backend(obj,filename);
+         ffmpeg.Reader.mex_backend(obj,url);
+         
+         % set all the arguments: Streams, VideoFormat, AudioFormat,
+         % FilterGraph
+         if nargin>1
+            set(obj,varargin{2:end});
+         end
+
+         % complete configuration & activate the engine
+         % -> this sets all the properties if success
+         try
+            ffmpeg.Reader.mex_backend(obj,'activate');
+         catch ME % if fails, clean up
+            ffmpeg.Reader.mex_backend(obj, 'delete');
+            obj.backend = [];
+            rethrow(ME);
+         end
       end
       
       function delete(obj)
          if ~isempty(obj.backend)
-            ffmpeg.VideoReader.mex_backend(obj.backend, 'delete');
+            ffmpeg.Reader.mex_backend(obj, 'delete');
          end
       end
    end
@@ -179,14 +179,14 @@ classdef Reader < matlab.mixin.SetGet & matlab.mixin.CustomDisplay
       %       inspect(obj)
       
       varargout = readFrame(obj, varargin)
-      varargout = readBuffer(obj)
+      % varargout = readBuffer(obj)
       eof = hasFrame(obj)
       
       %------------------------------------------------------------------
       % Overrides of builtins
       %------------------------------------------------------------------
       function c = horzcat(varargin)
-         %HORZCAT Horizontal concatenation of FFMPEG.VIDEOREADER objects.
+         %HORZCAT Horizontal concatenation of ffmpeg.Reader objects.
          %
          %    See also FFMPEG/VIDEOREADER/VERTCAT, FFMPEG/VIDEOREADER/CAT.
          if (nargin == 1)
@@ -196,7 +196,7 @@ classdef Reader < matlab.mixin.SetGet & matlab.mixin.CustomDisplay
          end
       end
       function c = vertcat(varargin)
-         %VERTCAT Vertical concatenation of FFMPEG.VIDEOREADER objects.
+         %VERTCAT Vertical concatenation of ffmpeg.Reader objects.
          %
          %    See also FFMPEG/VIDEOREADER/HORZCAT, FFMPEG/VIDEOREADER/CAT.
          if (nargin == 1)
@@ -206,7 +206,7 @@ classdef Reader < matlab.mixin.SetGet & matlab.mixin.CustomDisplay
          end
       end
       function c = cat(varargin)
-         %CAT Concatenation of FFMPEG.VIDEOREADER objects.
+         %CAT Concatenation of ffmpeg.Reader objects.
          %
          %    See also FFMPEG/VIDEOREADER/VERTCAT, FFMPEG/VIDEOREADER/HORZCAT.
          if (nargin == 1)
@@ -276,25 +276,45 @@ classdef Reader < matlab.mixin.SetGet & matlab.mixin.CustomDisplay
 %          obj.PixelAspectRatio = value;
 %       end
       function set.Streams(obj,value)
-         
+         % String, numbers, or combination thereof as a cell array. 
+         % Maybe empty or 'auto' to pick automatically: one video stream
+         % and one audio stream.
+         if ~isempty(value)
+            if strcmpi(value,'auto')
+               value = '';
+            else
+               Nst = ffmpeg.Reader.mex_backend(obj, 'get_nb_streams');
+               if ~iscell(value)
+                  value = {value};
+               end
+               isnum = false(1,numel(value));
+               for i = 1:numel(value)
+                  if ischar(value{i})
+                     validateattributes(value{i},{'char'},{'row','nonempty'});
+                  else
+                     validateattributes(value{i},{'numeric'},...
+                        {'row','nonnegative','<',Nst,'integer','nonempty'});
+                     isnum(i) = ~isscalar(value{i});
+                  end
+               end
+               value(isnum) = arrayfun(@(val)num2cell(val),value(isnum),'UniformOutput',false);
+            end
+         end
+         obj.Streams = value;
       end
       function set.VideoFormat(obj,value)
          try
-            value = validatestring(value,{'rgb24','Grayscale','custom'});
+            value = validatestring(value,{'rgb24','Grayscale'});
          catch
            value = lower(value);
             validateattributes(value,{'char'},{'row'});
-            ffmpeg.VideoReader.mex_backend([], 'static', 'validate_pixfmt',value);   
+            ffmpeg.Reader.mex_backend('validate_pixfmt',value);   
          end
          obj.VideoFormat = value;
       end
-      function set.VideoFilter(obj,value)
+      function set.FilterGraph(obj,value)
          value = validateattributes(value,{'char','row'},mfilename,'VideoFilter');
          obj.VideoFilter = value;
-      end
-      function set.AudioFilter(obj,value)
-         value = validateattributes(value,{'char','row'},mfilename,'AudioFilter');
-         obj.AudioFilter = value;
       end
       
 %       function set.BufferSize(obj,value)
@@ -307,28 +327,23 @@ classdef Reader < matlab.mixin.SetGet & matlab.mixin.CustomDisplay
 
       %%%%%%%%%%%%%%%%%%%%%%%%%%
       
-      function value = get.AudioCompression(obj)
-         value = ffmpeg.VideoReader.mex_backend(obj.backend,'getAudioCompression');
-      end
+%       function value = get.AudioCompression(obj)
+%          value = ffmpeg.Reader.mex_backend(obj,'getAudioCompression');
+%       end
+%       
       
-      function value = get.NumberOfAudioChannels(obj)
-         value = ffmpeg.VideoReader.mex_backend(obj.backend,'getNumberOfAudioChannels');
-      end
-      
-      function value = get.VideoCompression(obj)
-         value = ffmpeg.VideoReader.mex_backend(obj.backend,'getVideoCompression');
-      end
+%       function value = get.VideoCompression(obj)
+%          value = ffmpeg.Reader.mex_backend(obj,'getVideoCompression');
+%       end
       
       function value = get.CurrentTime(obj)
-         value = ffmpeg.VideoReader.mex_backend(obj.backend,'getCurrentTime');
+         value = ffmpeg.Reader.mex_backend(obj,'getCurrentTime');
       end
       
       function set.CurrentTime(obj, value)
-         if isempty(obj.backend) % if set during initialization
-            obj.backend.CurrentTime = value;
-         else
-            ffmpeg.VideoReader.mex_backend(obj.backend,'setCurrentTime',value);
-         end
+         validateattributes(value,{'numeric'},...
+            {'scalar','nonnegative','<',obj.Duration,'nonempty'});
+         ffmpeg.Reader.mex_backend(obj,'setCurrentTime',value);
       end
    end
    
@@ -343,9 +358,10 @@ classdef Reader < matlab.mixin.SetGet & matlab.mixin.CustomDisplay
             error('Non-scalar object not supported.');
          end
          
-         propGroups(1) = PropertyGroup( {'Name', 'Path', 'Duration', 'CurrentTime', 'Tag', 'UserData'});
-         propGroups(2) = PropertyGroup( {'Width', 'Height', 'PixelAspectRatio','FrameRate', 'BitsPerPixel', 'VideoFormat','VideoCompression'});
-         propGroups(3) = PropertyGroup( {'BufferSize', 'VideoFilter'});
+         propGroups(1) = PropertyGroup( {'Name', 'Path', 'FilterGraph','Streams','Duration', 'CurrentTime'});
+         propGroups(2) = PropertyGroup( {'Width', 'Height', 'PixelAspectRatio','FrameRate', 'VideoFormat'});
+         propGroups(3) = PropertyGroup( {'NumberOfAudioChannels', 'ChannelLayout', 'SampleRate','AudioFormat'});
+         propGroups(4) = PropertyGroup( {'Tag', 'UserData'});
          
          %          propGroups(1) = PropertyGroup( {'Name', 'Path', 'Duration', 'CurrentTime', 'Tag', 'UserData'}, ...
          %             getString( message('ffmpeg:Reader:GeneralProperties') ) );
@@ -373,11 +389,11 @@ classdef Reader < matlab.mixin.SetGet & matlab.mixin.CustomDisplay
       % Operations
       %------------------------------------------------------------------
       function result = hasAudio(obj)
-         result = ffmpeg.VideoReader.mex_backend(obj.backend,'hasAudio');
+         result = ffmpeg.Reader.mex_backend(obj,'hasAudio');
       end
       
       function result = hasVideo(obj)
-         result = ffmpeg.VideoReader.mex_backend(obj.backend,'hasVideo');
+         result = ffmpeg.Reader.mex_backend(obj,'hasVideo');
       end
    end
 end

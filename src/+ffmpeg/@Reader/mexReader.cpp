@@ -8,10 +8,9 @@
 // #include "getMediaCompressions.h"
 // #include "getVideoFormats.h"
 
-// #include <algorithm>
-
 extern "C"
 {
+#include <libavutil/rational.h>
 #include <libavutil/samplefmt.h>
   // #include <libavutil/frame.h> // for AVFrame
   // #include <libavutil/pixfmt.h>
@@ -19,6 +18,7 @@ extern "C"
   // #include <libswscale/swscale.h>
 }
 
+#include <algorithm>
 // #include <cstdarg>
 // #include <locale>
 // #include <experimental/filesystem> // C++-standard header file name
@@ -51,18 +51,15 @@ void mexFunction(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[])
 
 //////////////////////////////////////////////////////////////////////////////////
 
-// mexFFmpegReader(mobj) (all arguments  pre-validated)
+// mexFFmpegReader(mobj, filename) (all arguments  pre-validated)
 mexFFmpegReader::mexFFmpegReader(const mxArray *mxObj, int nrhs,
                                  const mxArray *prhs[])
 {
-  // get absolute path to the file
-  fs::path p(mexGetString(mxGetProperty(mxObj, 0, "Path")));
-
-  // open the video file
-  reader.openFile(p.string());
-
   // reserve one temp frame
   add_frame();
+
+  // open the video file
+  reader.openFile(mexGetString(prhs[0]));
 }
 
 mexFFmpegReader::~mexFFmpegReader()
@@ -81,24 +78,27 @@ bool mexFFmpegReader::action_handler(const mxArray *mxObj,
       throw 0;
 
     // get new time
-    double t = mxGetScalar(prhs[0]);
-    setCurrentTime(t);
+    setCurrentTime(prhs[0]);
   }
   else if (command == "getCurrentTime")
   {
-    double t(NAN);
-    plhs[0] = mxCreateDoubleScalar(t);
+    plhs[0] = getCurrentTime();
   }
-  else if (command == "addStreams")
-    addStreams(mxObj);
+  else if (command == "get_nb_streams")
+    plhs[0] = mxCreateDoubleScalar((double)reader.getStreamCount());
   else if (command == "activate")
-    activate(mxObj);
+    activate((mxArray *)mxObj);
   else if (command == "readFrame")
     readFrame(nlhs, plhs, nrhs, prhs);
   else if (command == "read")
     read(nlhs, plhs, nrhs, prhs);
   else if (command == "hasFrame")
-    plhs[0] = mxCreateLogicalScalar(hasFrame());
+
+    plhs[0] = hasFrame();
+  else if (command == "hasVideo")
+    plhs[0] = hasMediaType(AVMEDIA_TYPE_VIDEO);
+  else if (command == "hasVideo")
+    plhs[0] = hasMediaType(AVMEDIA_TYPE_AUDIO);
   return true;
 }
 
@@ -137,7 +137,7 @@ bool mexFFmpegReader::static_handler(const std::string &command, int nlhs,
 
     std::string pixfmt = mexGetString(prhs[0]);
     if (av_get_pix_fmt(pixfmt.c_str()) == AV_PIX_FMT_NONE)
-      mexErrMsgIdAndTxt("ffmpeg:VideoReader:validate_pixfmt:invalidFormat",
+      mexErrMsgIdAndTxt("ffmpeg:Reader:validate_pixfmt:invalidFormat",
                         "%s is not a valid FFmpeg Pixel Format",
                         pixfmt.c_str());
   }
@@ -148,9 +148,33 @@ bool mexFFmpegReader::static_handler(const std::string &command, int nlhs,
 
 ////////////////////////////////////////////////////////////////////////////////////////
 
-void mexFFmpegReader::setCurrentTime(double t, const bool reset_buffer) {}
+void mexFFmpegReader::setCurrentTime(const mxArray *mxTime)
+{
+  mex_duration_t time(mxGetScalar(mxTime));
+  reader.seek(time);
+}
 
-bool mexFFmpegReader::hasFrame() { return !reader.EndOfStream(streams[0]); }
+mxArray *mexFFmpegReader::getCurrentTime()
+{
+  mex_duration_t t = reader.getTimeStamp<mex_duration_t>(streams[0]);
+  return mxCreateDoubleScalar(t.count());
+}
+
+mxArray *mexFFmpegReader::hasFrame()
+{
+  return mxCreateLogicalScalar(!reader.atEndOfStream(streams[0]));
+}
+
+mxArray *mexFFmpegReader::hasMediaType(const AVMediaType type)
+{
+  for (auto spec : streams)
+  {
+    if (dynamic_cast<ffmpeg::IMediaHandler &>(reader.getStream(spec))
+            .getMediaType() == type)
+      return mxCreateLogicalScalar(true);
+  }
+  return mxCreateLogicalScalar(false);
+}
 
 //[frame1,frame2,...] = readFrame(obj, varargin);
 void mexFFmpegReader::readFrame(int nlhs, mxArray *plhs[], int nrhs,
@@ -160,15 +184,12 @@ void mexFFmpegReader::readFrame(int nlhs, mxArray *plhs[], int nrhs,
     mexErrMsgIdAndTxt("ffmpeg:Reader:EndOfFile",
                       "No more frames available to read from file.");
 
-  AVFrame *frame = av_frame_alloc();
-  ffmpeg::AVFramePtr frame_cleanup(frame, &ffmpeg::delete_av_frame);
+  // read the next frame of primary stream
+  plhs[0] = read_frame();
 
-  // read the first stream
-  ts = read_frame(plhs[0]);
-
-  // for each stream outputs
-  for (int i = 1; i < streams.size(); ++i)
-    read_frame((i < nlhs) ? plhs[i] : nullptr, streams[i]);
+  // for each stream outputs, read the next frame(s) until
+  for (int i = 1; i < std::min<size_t>(nlhs, streams.size()); ++i)
+    plhs[i] = read_frame(streams[i]);
 
   // std::unique_lock<std::mutex> buffer_guard(buffer_lock);
   // if (!rd_buf->available()) buffer_ready.wait(buffer_guard);
@@ -179,105 +200,151 @@ void mexFFmpegReader::readFrame(int nlhs, mxArray *plhs[], int nrhs,
   // if (nlhs > 1) plhs[1] = mxCreateDoubleScalar(t);
 }
 
-double mexFFmpegReader::read_frame(mxArray *mxData)
+// read frame from the primary stream
+mxArray *mexFFmpegReader::read_frame()
 {
+  // get primary stream specifier string
   const std::string &spec = streams[0];
 
-  auto frame = frames[0];
+  // temp frame storage
+  AVFrame *frame = frames[0];
 
-  // read next frame for the primary stream
-  reader.readNextFrame(frame, spec, true);
+  // read next frame for the primary stream (this effectively populates frames
+  // buffer)
+  bool eof = reader.readNextFrame(frame, spec);
 
-  // automatically unreference frame when getting out of this function
-  std::unique_ptr<AVFrame, decltype(&av_frame_unref)> auto_unref_frame(
-      frame, &av_frame_unref);
+  // if the stream has already reached the end, return an empty matrix
+  if (eof) return mxCreateNumericMatrix(0, 0, mxUINT8_CLASS, mxREAL);
+
+  // automatically unreference frame when exiting this function
+  purge_frames purger(frames);
 
   ffmpeg::IAVFrameSource &src = reader.getStream(spec);
   if (src.getMediaType() == AVMEDIA_TYPE_VIDEO)
+    return read_video_frame(1);
+  else if (src.getMediaType() == AVMEDIA_TYPE_AUDIO)
+    return read_audio_frame(1);
+  else
+    throw ffmpeg::Exception("Encountered data from an unexpected stream.");
+}
+
+// returns mxArray containing the specified secondary stream data
+mxArray *mexFFmpegReader::read_frame(const std::string &spec)
+{
+  // first, get the time stamp of hte next primary stream frame
+  auto ts = reader.getTimeStamp<mex_duration_t>(streams[0]);
+
+  // automatically unreference frame when exiting this function
+  purge_frames purger(frames, 0);
+
+  // read frames with ts less than the next primary stream frame
+  bool eof = false;
+  while (!eof && reader.getTimeStamp<mex_duration_t>(spec) < ts)
   {
-    ffmpeg::IVideoHandler &vsrc = dynamic_cast<ffmpeg::IVideoHandler &>(src);
-    int width = frame->width;
-    int height = frame->height;
-    AVPixelFormat format = (AVPixelFormat)frame->format;
+    if (frames.size() <= purger.nfrms) add_frame();
+    AVFrame *frame = frames[purger.nfrms];
+    eof = reader.readNextFrame(frame, spec);
+    if (!eof) ++purger.nfrms;
+  }
 
-    int frame_data_sz =
-        ffmpeg::imageGetComponentBufferSize(format, width, height);
+  ffmpeg::IAVFrameSource &src = reader.getStream(spec);
+  if (src.getMediaType() == AVMEDIA_TYPE_VIDEO)
+    return read_video_frame(purger.nfrms);
+  else if (src.getMediaType() == AVMEDIA_TYPE_AUDIO)
+    return read_audio_frame(purger.nfrms);
+  else
+    throw ffmpeg::Exception("Encountered data from an unexpected stream.");
+}
 
-    mwSize dims[3] = {(mwSize)width, (mwSize)height,
-                      (mwSize)frame_data_sz / (width * height)};
-    mxData = mxCreateNumericArray(3, dims, mxUINT8_CLASS, mxREAL);
-    uint8_t *data = (uint8_t *)mxGetData(mxData);
+// convert data in the first nframes AVFrames in the frames vector
+mxArray *mexFFmpegReader::read_video_frame(size_t nframes)
+{
+  AVFrame *frame = frames[0];
 
+  // ffmpeg::IVideoHandler &vsrc = dynamic_cast<ffmpeg::IVideoHandler &>(src);
+  int width = frame->width;
+  int height = frame->height;
+  AVPixelFormat format = (AVPixelFormat)frame->format;
+
+  int frame_data_sz =
+      ffmpeg::imageGetComponentBufferSize(format, width, height);
+
+  mwSize dims[4] = {(mwSize)width, (mwSize)height,
+                    (mwSize)frame_data_sz / (width * height), nframes};
+  mxArray *mxData = mxCreateNumericArray(3, dims, mxUINT8_CLASS, mxREAL);
+  uint8_t *data = (uint8_t *)mxGetData(mxData);
+
+  for (size_t i = 0; i < nframes; ++i)
+  {
     ffmpeg::imageCopyToComponentBuffer(data, frame_data_sz, frame->data,
                                        frame->linesize, format, frame->width,
                                        frame->height);
+    data += frame_data_sz;
   }
-  else if (src.getMediaType() == AVMEDIA_TYPE_AUDIO)
+  return mxData;
+}
+
+// convert data in the first nframes AVFrames in the frames vector
+mxArray *mexFFmpegReader::read_audio_frame(size_t nframes)
+{
+  // ffmpeg::IAudioHandler &asrc = dynamic_cast<ffmpeg::IAudioHandler &>(src);
+
+  AVFrame *frame = frames[0];
+
+  AVSampleFormat fmt = av_get_packed_sample_fmt((AVSampleFormat)frame->format);
+  mxClassID mx_class;
+  switch (fmt)
   {
-    ffmpeg::IAudioHandler &asrc = dynamic_cast<ffmpeg::IAudioHandler &>(src);
-    AVSampleFormat fmt =
-        av_get_packed_sample_fmt((AVSampleFormat)frame->format);
-    mxClassID mx_class;
-    switch (fmt)
-    {
-    case AV_SAMPLE_FMT_U8: ///< unsigned 8 bits
-      mx_class = mxUINT8_CLASS;
-      break;
-    case AV_SAMPLE_FMT_S16: ///< signed 16 bits
-      mx_class = mxINT16_CLASS;
-      break;
-    case AV_SAMPLE_FMT_S32: ///< signed 32 bits
-      mx_class = mxINT32_CLASS;
-      break;
-    case AV_SAMPLE_FMT_FLT: ///< float
-      mx_class = mxSINGLE_CLASS;
-      break;
-    case AV_SAMPLE_FMT_DBL: ///< double
-      mx_class = mxDOUBLE_CLASS;
-      break;
-    case AV_SAMPLE_FMT_S64: ///< signed 64 bits
-      mx_class = mxINT64_CLASS;
-      break;
-    default: throw ffmpeg::Exception("Unknown audio sample format.");
-    }
+  case AV_SAMPLE_FMT_U8: ///< unsigned 8 bits
+    mx_class = mxUINT8_CLASS;
+    break;
+  case AV_SAMPLE_FMT_S16: ///< signed 16 bits
+    mx_class = mxINT16_CLASS;
+    break;
+  case AV_SAMPLE_FMT_S32: ///< signed 32 bits
+    mx_class = mxINT32_CLASS;
+    break;
+  case AV_SAMPLE_FMT_FLT: ///< float
+    mx_class = mxSINGLE_CLASS;
+    break;
+  case AV_SAMPLE_FMT_DBL: ///< double
+    mx_class = mxDOUBLE_CLASS;
+    break;
+  case AV_SAMPLE_FMT_S64: ///< signed 64 bits
+    mx_class = mxINT64_CLASS;
+    break;
+  default: throw ffmpeg::Exception("Unknown audio sample format.");
+  }
 
-    bool is_planar = (fmt != (AVSampleFormat)frame->format);
-    mwSize dims[2] = {(mwSize)frame->nb_samples, (mwSize)frame->channels};
-    if (is_planar) std::swap(dims[0], dims[1]);
-    mxData = mxCreateNumericArray(2, dims, mx_class, mxREAL);
-    uint8_t *data = (uint8_t *)mxGetData(mxData);
+  bool is_planar = (fmt != (AVSampleFormat)frame->format);
+  // if planar, line/channel (samplesxchannel), if packed, line/frame
+  // (channelxsamples)
 
-    int linesize;
-    av_samples_get_buffer_size(&linesize, frame->channels, frame->nb_samples,
-                               fmt, false);
-    uint8_t *dst[AV_NUM_DATA_POINTERS];
-    for (int i = 0; i < frame->channels; ++i) dst[i] = data + i * linesize;
+  mwSize dims[3] = {(mwSize)frame->nb_samples, (mwSize)frame->channels,
+                    nframes};
+  if (is_planar) std::swap(dims[0], dims[1]);
+
+  mxArray *mxData = mxCreateNumericArray(3, dims, mx_class, mxREAL);
+  uint8_t *data = (uint8_t *)mxGetData(mxData);
+
+  int linesize;
+  av_samples_get_buffer_size(&linesize, frame->channels, frame->nb_samples, fmt,
+                             false);
+  uint8_t *dst[AV_NUM_DATA_POINTERS];
+  dst[0] = data;
+  dst[frame->channels] = nullptr;
+
+  for (int j = 0; j < nframes; ++j)
+  {
+    if (is_planar)
+      for (int i = 1; i < frame->channels; ++i) dst[i] = dst[i - 1] + linesize;
 
     av_samples_copy(dst, frame->data, 0, 0, frame->nb_samples, frame->channels,
                     fmt);
-  }
-  else
-  {
-    throw ffmpeg::Exception("Encountered data from an unexpected stream.");
+    dst[0] = dst[frame->channels - 1] + linesize;
   }
 
-  return reader.getNextTimeStamp(spec);
-}
-void mexFFmpegReader::read_frame(mxArray *mxData, const std::string &spec)
-{
-  // int nframes = 0;
-  // auto unref_frames = [&nframes](std::vector<AVFrame *> *frames) {
-  //   for (int i = 0; i < nframes; ++i) av_frame_unref((*frames)[i]);
-  // };
-  // std::unique_ptr<std::vector<AVFrame *>, decltype(&unref_frames)> auto_unref(
-  //     &frames, &unref_frames);
-
-  // while (reader.getNextTimeStamp(spec) < ts)
-  // {
-  //   if (frames.size() < nframes) add_frame();
-  //   reader.readNextFrame(frames[nframes], spec, true);
-  //   ++nframes;
-  // }
+  return mxData;
 }
 
 void mexFFmpegReader::read(
@@ -290,161 +357,196 @@ void mexFFmpegReader::read(
 
 ////////////////////////////////////////////////////////////////////////////////////////////
 // Private member functions
-
-void mexFFmpegReader::addStreams(const mxArray *mxObj)
+// finalize the configuration and activate the reader
+void mexFFmpegReader::activate(mxArray *mxObj)
 {
-  // validation lambda for VideoFilter & AudioFilter options
-  auto validate_fg = [](std::string desc, AVMediaType type) {
-    ffmpeg::filter::Graph fg(desc);
-    return std::any_of(
-        fg.beginOutputFilter(), fg.endOutputFilter(),
-        [&](auto out) { return out.second->getMediaType() != type; });
-  };
-
-  // validate video filter graph
-  std::string vdesc(mexGetString(mxGetProperty(mxObj, 0, "VideoFilter")));
-  if (vdesc.size())
-  {
-    if (validate_fg(vdesc, AVMEDIA_TYPE_VIDEO))
-      throw ffmpeg::Exception("VideoFilter must only output video streams.");
-
-    // filter validated,
-    filt_desc = vdesc;
-  }
-
-  std::string adesc(mexGetString(mxGetProperty(mxObj, 0, "AudioFilter")));
-  if (adesc.size())
-  {
-    if (validate_fg(adesc, AVMEDIA_TYPE_AUDIO))
-      throw ffmpeg::Exception("AudioFilter must only output audio streams.");
-    if (vdesc.size()) filt_desc += ';';
-    filt_desc += adesc;
-  }
-
-  // all clear, add the filter graph to the reader
+  // set filter graph if specified
+  filt_desc = mexGetString(mxGetProperty(mxObj, 0, "FilterGraph"));
   if (filt_desc.size()) reader.setFilterGraph(filt_desc);
 
-  ///////
+  // set streams to read based on Streams property value
+  set_streams(mxObj);
 
-  mxArray *mxStreams = mxGetProperty(mxObj, 0, "Streams");
-  bool auto_select[2] = {
-      false, false}; // true if streams are to be selected automatically
-  auto get_streams = // lambda to validate & get stream specs
-      [&](const mxArray *mxStream) {
-        if (mxIsChar(mxStream))
-        {
-          std::string spec = mexGetString(mxStream);
-          if (reader.getStreamId(spec) == AVERROR_STREAM_NOT_FOUND) throw;
-          streams.push_back(spec);
-        }
-        else // pre-validated to be double array
-        {
-          double *d_list = mxGetPr(mxStream);
-          for (int i = 0; i < mxGetNumberOfElements(mxStream); ++i)
-          {
-            int id = (int)d_list[i];
-            if (reader.getStreamId(id) == AVERROR_STREAM_NOT_FOUND) throw;
-            streams.push_back(std::to_string(id));
-          }
-        }
-      };
-  try
+  // activate the reader (fills all buffers with at least one frame)
+  reader.activate();
+
+  // set Matlab class properties
+  mxArray *mxData;
+  mxData = mxCreateCellMatrix(1, streams.size());
+  for (int i = 0; i < streams.size(); ++i)
+    mxSetCell(mxData, i, mxCreateString(streams[i].c_str()));
+  mxSetProperty(mxObj, 0, "Streams", mxData);
+
+  mxSetProperty(
+      mxObj, 0, "Duration",
+      mxCreateDoubleScalar(reader.getDuration<mex_duration_t>().count()));
+
+  // populate video properties with the first video stream info (if available)
+  auto spec =
+      std::find_if(streams.begin(), streams.end(), [this](const auto &spec) {
+        return dynamic_cast<ffmpeg::IVideoHandler &>(reader.getStream(spec))
+                   .getMediaType() == AVMEDIA_TYPE_VIDEO;
+      });
+  if (spec != streams.end())
   {
-    if (mxIsCell(mxStreams))
-    {
-      for (int i = 0; i < mxGetNumberOfElements(mxStreams); ++i)
-        get_streams(mxGetCell(mxStreams, i));
-    }
-    else
-    {
-      if (!mxIsChar(mxStreams))
-        get_streams(mxStreams);
-      else
-      {
-        auto label = mexGetString(mxStreams);
-        bool both = (label == "auto");
-        if (both || label == "noaudio")
-          auto_select[0] = true;
-        else if (both || label == "novideo")
-          auto_select[1] = true;
-        else
-          get_streams(mxStreams);
-      }
-    }
-  }
-  catch (...)
-  {
-    throw ffmpeg::Exception(
-        "Specified Streams property contains invalid stream specifier.");
+    auto p = dynamic_cast<const ffmpeg::VideoParams &>(
+        reader.getStream(*spec).getMediaParams());
+
+    mxSetProperty(mxObj, 0, "Height", mxCreateDoubleScalar(p.height));
+    mxSetProperty(mxObj, 0, "Width", mxCreateDoubleScalar(p.width));
+    mxSetProperty(mxObj, 0, "FrameRate",
+                  mxCreateDoubleScalar(av_q2d(p.frame_rate)));
+    mxSetProperty(mxObj, 0, "PixelAspectRatio",
+                  mxCreateDoubleScalar(av_q2d(p.sample_aspect_ratio)));
+    mxSetProperty(mxObj, 0, "VideoFormat", mxCreateFileFormatName(p.format));
   }
 
-  // auto-configure video streams if so specified
-  if (auto_select[0])
+  // populate audio properties with the first audio stream info (if available)
+  spec = std::find_if(streams.begin(), streams.end(), [this](const auto &spec) {
+    return dynamic_cast<ffmpeg::IVideoHandler &>(reader.getStream(spec))
+               .getMediaType() == AVMEDIA_TYPE_AUDIO;
+  });
+  if (spec != streams.end())
   {
-    if (vdesc.size()) // get all video filter output
-    {
-      std::string spec;
-      while ((spec = reader.getNextInactiveStream(spec, AVMEDIA_TYPE_VIDEO, -1))
-                 .size())
-      {
-        reader.addStream(spec);
-        streams.push_back(spec);
-      }
-    }
-    else // get the best stream
-    {
-      streams.push_back(std::to_string(reader.addStream(AVMEDIA_TYPE_VIDEO)));
-    }
-  }
+    ffmpeg::IAudioHandler &ahdl =
+        dynamic_cast<ffmpeg::IAudioHandler &>(reader.getStream(*spec));
 
-  // auto-configure audio streams if so specified
-  if (auto_select[1])
-  {
-    if (adesc.size()) // get all audio filter output
-    {
-      std::string spec;
-      while ((spec = reader.getNextInactiveStream(spec, AVMEDIA_TYPE_AUDIO, -1))
-                 .size())
-      {
-        reader.addStream(spec);
-        streams.push_back(spec);
-      }
-    }
-    else // get the best stream
-    {
-      streams.push_back(std::to_string(reader.addStream(AVMEDIA_TYPE_AUDIO)));
-    }
+    mxSetProperty(mxObj, 0, "NumberOfAudioChannels",
+                  mxCreateDoubleScalar(ahdl.getChannels()));
+    mxSetProperty(mxObj, 0, "SampleRate",
+                  mxCreateDoubleScalar(ahdl.getSampleRate()));
+    mxSetProperty(mxObj, 0, "ChannelLayout",
+                  mxCreateString(ahdl.getChannelLayoutName().c_str()));
+    mxSetProperty(mxObj, 0, "AudioFormat",
+                  mxCreateString(ahdl.getFormatName().c_str()));
   }
 }
 
-void mexFFmpegReader::activate(const mxArray *mxObj)
+void mexFFmpegReader::set_streams(const mxArray *mxObj)
 {
-  // activate the reader
-  reader.activate();
+  std::string spec;
+  mxArray *mxStreams = mxGetProperty(mxObj, 0, "Streams");
+  // Matlab object's Streams property is pre-formatted to be either:
+  // * Empty      - auto select
+  // * Cell array - user specified, consisting of specifier strings or a vector
+  // of stream id's
 
-  // fill until all streams have at least one frame in the buffer
+  if (mxIsEmpty(mxStreams)) // auto-select streams
+  {
+    // auto-selection rules:
+    // * No filtergraph: pick one video and one audio, video first
+    // * Filtergraph: pick all the filter outputs
+    if (filt_desc.empty())
+    {
+      auto add = [this](const AVMediaType type, const std::string &prefix) {
+        // add the best stream (throws InvalidStreamSpecifier if invalid)
+        int id = reader.addStream(type);
 
-  // fill the buffers
+        // use the "prefix + #" format specifier for the ease of type id
+        bool notfound = true;
+        for (int i = 0; notfound && i < reader.getStreamCount(); ++i)
+        {
+          std::string spec = prefix + std::to_string(i);
+          if (reader.getStreamId(spec) == id)
+          {
+            streams.push_back(spec);
+            notfound = false;
+          }
+        }
+      };
 
-  // set Matlab class properties
-  // mxSetProperty((mxArray *)prhs[0], 0, "Name",
-  //               mxCreateString(p.filename().string().c_str()));
-  // mxSetProperty((mxArray *)prhs[0], 0, "Path",
-  //               mxCreateString(p.parent_path().string().c_str()));
-  // mxSetProperty((mxArray *)prhs[0], 0, "FrameRate",
-  //               mxCreateDoubleScalar((double)reader.getFrameRate()));
-  // mxSetProperty((mxArray *)prhs[0], 0, "Width",
-  //               mxCreateDoubleScalar((double)reader.getHeight()));
-  // mxSetProperty((mxArray *)prhs[0], 0, "Height",
-  //               mxCreateDoubleScalar((double)reader.getWidth()));
-  // mxArray *sar = mxCreateDoubleMatrix(1, 2, mxREAL);
-  // *mxGetPr(sar) = (double)reader.getSAR().den;
-  // *(mxGetPr(sar) + 1) = (double)reader.getSAR().num;
-  // mxSetProperty((mxArray *)prhs[0], 0, "PixelAspectRatio", sar);
+      try // to get the best video stream
+      {
+        add(AVMEDIA_TYPE_VIDEO, "v:");
+      }
+      catch (ffmpeg::InvalidStreamSpecifier &)
+      { // ignore
+      }
+
+      try // to get the best audio stream
+      {
+        add(AVMEDIA_TYPE_AUDIO, "a:");
+      }
+      catch (ffmpeg::InvalidStreamSpecifier &)
+      { // ignore
+      }
+
+      if (streams.empty())
+        mexErrMsgIdAndTxt("ffmpeg:Reader:InvalidFile",
+                          "Specified media file does not have either video or "
+                          "audio streams.");
+    }
+    else
+    {
+      // add all the filtered streams
+      while ((spec = reader.getNextInactiveStream(
+                  "", AVMEDIA_TYPE_UNKNOWN,
+                  ffmpeg::Reader::StreamSource::FilterSink))
+                 .size())
+      {
+        reader.addStream(spec);
+        streams.push_back(spec);
+      }
+    }
+  }
+  else // user specified streams
+  {
+    for (int i = 0; i < mxGetNumberOfElements(mxStreams); ++i)
+    {
+      mxArray *mxStream = mxGetCell(mxStreams, i);
+      if (mxIsChar(mxStream))
+      {
+        try // to get the best audio stream
+        {
+          reader.addStream(mexGetString(mxStream));
+        }
+        catch (ffmpeg::InvalidStreamSpecifier &)
+        {
+          mexErrMsgIdAndTxt(
+              "ffmpeg:Reader:InvalidStream",
+              "Specified stream specifier (\"%s\") does not yield a stream or "
+              "the specified stream has already been selected.",
+              mexGetString(mxStream).c_str());
+        }
+        streams.push_back(spec);
+      }
+      else // if mxIsDouble(mxStream))
+      {
+        double *ids = mxGetPr(mxStream);
+        for (int j = 0; j < mxGetNumberOfElements(mxStream); ++j)
+        {
+          int id = (int)ids[j];
+          try
+          {
+            reader.addStream(id);
+          }
+          catch (ffmpeg::InvalidStreamSpecifier &)
+          {
+            mexErrMsgIdAndTxt(
+                "ffmpeg:Reader:InvalidStream",
+                "Specified stream id (\"%d\") does not yield a stream or the "
+                "specified stream has already been selected.",
+                id);
+          }
+          streams.push_back(std::to_string(id));
+        }
+      }
+    }
+  }
 }
 
 /////////////////////////////////////////////////////////////////////////////////
 // Static private member functions
+
+mxArray *mexFFmpegReader::mxCreateFileFormatName(AVPixelFormat fmt)
+{
+  if (fmt == AV_PIX_FMT_RGB24)
+    return mxCreateString("RGB24");
+  else if (fmt == AV_PIX_FMT_GRAY8)
+    return mxCreateString("Grayscale");
+  else
+    return mxCreateString(av_get_pix_fmt_name(fmt));
+}
 
 mxArray *mexFFmpegReader::getFileFormats() // formats = getFileFormats();
 {
@@ -473,7 +575,8 @@ mxArray *mexFFmpegReader::getVideoFormats() // formats = getVideoFormats();
 
   // std::sort(
   //     pix_descs.begin(), pix_descs.end(),
-  //     [](const AVPixFmtDescriptor *a, const AVPixFmtDescriptor *b) -> bool {
+  //     [](const AVPixFmtDescriptor *a, const AVPixFmtDescriptor *b) -> bool
+  //     {
   //       return strcmp(a->name, b->name) < 0;
   //     });
 
@@ -508,7 +611,8 @@ mxArray *mexFFmpegReader::getVideoFormats() // formats = getVideoFormats();
   //                                ? "pseudo"
   //                                : "off"));
   //   mxSetField(plhs[0], j, "HWAccel",
-  //              mxCreateString((pix_fmt_desc->flags & AV_PIX_FMT_FLAG_HWACCEL)
+  //              mxCreateString((pix_fmt_desc->flags &
+  //              AV_PIX_FMT_FLAG_HWACCEL)
   //                                 ? "on"
   //                                 : "off"));
   //   mxSetField(plhs[0], j, "RGB",
@@ -527,11 +631,13 @@ mxArray *mexFFmpegReader::getVideoFormats() // formats = getVideoFormats();
 }
 
 // mxArray *
-// mexFFmpegReader::getVideoCompressions() // formats = getVideoCompressions();
+// mexFFmpegReader::getVideoCompressions() // formats =
+// getVideoCompressions();
 // {
 //   return ::getMediaCompressions([](const AVCodecDescriptor *desc) -> bool)
 //   {
-//     return avcodec_find_decoder(desc->id) && desc->type == AVMEDIA_TYPE_VIDEO
+//     return avcodec_find_decoder(desc->id) && desc->type ==
+//     AVMEDIA_TYPE_VIDEO
 //     &&
 //            !strstr(desc->name, "_deprecated");
 //   });

@@ -76,7 +76,7 @@ function varargout = readBuffer(obj)
 [varargout{1:nargout}] = obj.mex_backend(obj.backend,'readBuffer');
 
 % if length(obj) > 1
-%     error(message('FFmpeg:VideoReader:nonscalar'));
+%     error(message('ffmpeg:Reader:nonscalar'));
 % end
 % 
 % % ensure that we pass in 1 or 2 arguments only
@@ -96,13 +96,13 @@ function varargout = readBuffer(obj)
 % end
 % 
 % if obj.IsFrameBased
-%     error( message('FFmpeg:VideoReader:NotSupportedFramesCounted', 'READBUFFER', 'READBUFFER') );
+%     error( message('ffmpeg:Reader:NotSupportedFramesCounted', 'READBUFFER', 'READBUFFER') );
 % end
 % 
 % readFrameOC = onCleanup( @() set(obj, 'IsStreamingBased', 'true') );
 % 
 % if ~hasFrame(obj)
-%     error(message('FFmpeg:VideoReader:EndOfFile'));
+%     error(message('ffmpeg:Reader:EndOfFile'));
 % end
 % 
 % try

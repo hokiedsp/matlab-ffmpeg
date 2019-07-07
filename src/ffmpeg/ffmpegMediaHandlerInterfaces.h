@@ -40,11 +40,13 @@ class IVideoHandler : virtual public IMediaHandler
   virtual int getWidth() const = 0;
   virtual int getHeight() const = 0;
   virtual AVRational getSAR() const = 0;
+  virtual AVRational getFrameRate() const = 0;
 
   virtual void setFormat(const AVPixelFormat fmt) = 0;
   virtual void setWidth(const int w) = 0;
   virtual void setHeight(const int h) = 0;
   virtual void setSAR(const AVRational &sar) = 0;
+  virtual void setFrameRate(const AVRational &fs) = 0;
 };
 
 class IAudioHandler : virtual public IMediaHandler

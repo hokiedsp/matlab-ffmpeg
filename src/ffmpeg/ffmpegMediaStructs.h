@@ -8,7 +8,7 @@
 
 extern "C"
 {
-#include <libavutil/avutil.h> // AVMediaType
+#include <libavutil/avutil.h>    // AVMediaType
 #include <libavutil/pixfmt.h>    // AVPixelFormat
 #include <libavutil/rational.h>  //AVRational
 #include <libavutil/samplefmt.h> // AVSampleFormat
@@ -32,13 +32,14 @@ struct VideoParams : public MediaParams
   int width;
   int height;
   AVRational sample_aspect_ratio;
-  // AVRational frame_rate;
+  AVRational frame_rate;
 
   VideoParams(const AVRational &tb = {0, 0},
               const AVPixelFormat fmt = AV_PIX_FMT_NONE, const int w = 0,
-              const int h = 0, const AVRational &sar = {0, 0})
+              const int h = 0, const AVRational &sar = {0, 0},
+              const AVRational &fs = {0, 0})
       : MediaParams(AVMEDIA_TYPE_VIDEO, tb), format(fmt), width(w), height(h),
-        sample_aspect_ratio(sar){};
+        sample_aspect_ratio(sar), frame_rate(fs){};
 };
 
 struct AudioParams : public MediaParams

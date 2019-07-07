@@ -22,10 +22,16 @@ class InputFormat : public Base
   virtual ~InputFormat();
 
   bool isFileOpen() { return fmt_ctx; }
-  bool endOfFile() { return eof; }
+  bool atEndOfFile() { return eof; }
   bool ready() { return fmt_ctx && streams.size(); }
 
-  void openFile(const std::string &filename);
+  /**
+   * \brief Open a file at the given URL
+   * \param[in] url
+   * \throws if cannot open the specified URL
+   * \throws if cannot retrieve stream info
+   */
+  void openFile(const std::string &url);
   void closeFile();
 
   // setting input options

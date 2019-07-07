@@ -12,6 +12,7 @@
 #include <mexAllocator.h>
 #include <mexObjectHandler.h>
 
+#include <chrono>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -32,11 +33,14 @@ typedef ffmpeg::AVFrameQueue<NullMutex, NullConditionVariable<NullMutex>,
 class mexFFmpegReader
 {
   public:
+
+  typedef std::chrono::duration<double> mex_duration_t;
+
   mexFFmpegReader(const mxArray *mxObj, int nrhs, const mxArray *prhs[]);
   ~mexFFmpegReader();
   static std::string get_classname()
   {
-    return "ffmpeg.VideoReader"; // associated matlab class name
+    return "ffmpeg.Reader"; // associated matlab class name
   }
   bool action_handler(const mxArray *mxObj, const std::string &command,
                       int nlhs, mxArray *plhs[], int nrhs,
@@ -46,15 +50,18 @@ class mexFFmpegReader
 
   private:
   // "quasi-public" as directly called by action_handler or static_handler
-  void addStreams(const mxArray *mxObj);
-  void activate(const mxArray *mxObj);
-  bool hasFrame();
-  void
-  readFrame(int nlhs, mxArray *plhs[], int nrhs,
-            const mxArray *prhs[]); //    varargout = readFrame(obj, varargin);
+  void activate(mxArray *mxObj);
+  mxArray* hasFrame();
+  mxArray* hasMediaType(const AVMediaType type);
+  
+  //    varargout = readFrame(obj, varargin);
+  void readFrame(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[]);
   void read(int nlhs, mxArray *plhs[], int nrhs,
             const mxArray *prhs[]); // varargout = read(obj, varargin);
-  void setCurrentTime(double time, const bool reset_buffer = true);
+  void setCurrentTime(const mxArray *mxTime);
+  mxArray *getCurrentTime();
+
+  static mxArray *mxCreateFileFormatName(AVPixelFormat fmt);  // formats = getFileFormats();
 
   static mxArray *getFileFormats();  // formats = getFileFormats();
   static mxArray *getVideoFormats(); // formats = getVideoFormats();
@@ -63,29 +70,64 @@ class mexFFmpegReader
 
   double ts;
 
-  std::string filt_desc; // actual filter graph description
-
+  std::string filt_desc;            // actual filter graph description
   std::vector<std::string> streams; /// names of active video streams
 
   /**
-   * \brief Read the next primary straem
+   * \brief Setup filter graph & streams according to the Matlab class object
+   *        properties
    */
-  double read_frame(mxArray *mxData);
+  void set_streams(const mxArray *mxObj);
+
+  /**
+   * \brief Read the next primary stream
+   *
+   * \returns mxArray containing the received frame
+   */
+  mxArray *read_frame();
 
   /**
    * \brief Read the next frame(s) of the specified secondary stream
+   *
+   * \param[in]  spec   Name of the stream to retrieve (must not be the primary
+   * spec, unchecked) \returns mxArray containing the received frame(s).
    */
-  void read_frame(mxArray *mxData, const std::string &spec);
+  mxArray *read_frame(const std::string &spec);
+
+  mxArray *read_video_frame(size_t nframes);
+  mxArray *read_audio_frame(size_t nframes);
 
   static std::string get_video_format_filter(const mxArray *mxObj);
 
-  std::vector<AVFrame *> frames; // temp frame storage
-  void add_frame()
+  // temp frame storage & management
+  std::vector<AVFrame *> frames;
+  void add_frame();
+  class purge_frames
   {
-    AVFrame *frame = av_frame_alloc();
-    if (!frame)
-      mexErrMsgIdAndTxt("ffmpeg:Reader:NoMemory",
-                        "Failed to allocate memory for an AVFrame.");
-    frames.push_back(frame);
-  }
+public:
+    purge_frames(std::vector<AVFrame *> &frms) : frames(frms), nfrms(1) {}
+    purge_frames(std::vector<AVFrame *> &frms, size_t n)
+        : frames(frms), nfrms(n)
+    {
+    }
+    ~purge_frames()
+    {
+      for (auto f = frames.begin(); f < frames.begin() + nfrms; ++f)
+        av_frame_unref(*f);
+    }
+    size_t nfrms;
+
+private:
+    std::vector<AVFrame *> &frames;
+  };
 };
+
+// inlines & template member function implementations
+inline void mexFFmpegReader::add_frame()
+{
+  AVFrame *frame = av_frame_alloc();
+  if (!frame)
+    mexErrMsgIdAndTxt("ffmpeg:Reader:NoMemory",
+                      "Failed to allocate memory for an AVFrame.");
+  frames.push_back(frame);
+}
