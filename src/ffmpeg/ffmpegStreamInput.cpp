@@ -57,13 +57,11 @@ void InputStream::open(AVStream *s)
 
 int InputStream::processPacket(AVPacket *packet)
 {
-  int ret; // FFmpeg return error code
-
-  // send packet to the decoder
-  if (packet) ret = avcodec_send_packet(ctx, packet);
+  // send packet to the decoder (if not eos)
+  int ret = avcodec_send_packet(ctx, packet);
 
   // receive all the frames (could be more than one)
-  while (ret >= 0)
+  while (!ret || ret == AVERROR_EOF)
   {
     ret = avcodec_receive_frame(ctx, frame);
 
@@ -71,15 +69,17 @@ int InputStream::processPacket(AVPacket *packet)
     if (sink)
     {
       if (ret == AVERROR_EOF)
+      {
         sink->push(NULL);
+        return 0; // EOF is a valid outcome
+      }
       else if (ret >= 0)
         sink->push(frame);
     }
   }
 
-  if (ret == AVERROR_EOF || ret == AVERROR(EAGAIN)) ret = 0;
-
-  return ret;
+  // EAGAIN is a valid outcome
+  return (ret == AVERROR(EAGAIN)) ? 0 : ret;
 }
 
 ///////////////////////////////////////////////////////////////////////////////

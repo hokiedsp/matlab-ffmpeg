@@ -16,7 +16,10 @@ using namespace ffmpeg;
 using namespace ffmpeg::filter;
 
 ///////////////////////////////////////////////////////////
-SinkBase::SinkBase(Graph &fg, IAVFrameSinkBuffer &buf) : EndpointBase(fg), sink(&buf), ena(false), synced(false) {}
+SinkBase::SinkBase(Graph &fg, IAVFrameSinkBuffer &buf)
+    : EndpointBase(fg), sink(&buf), ena(false), synced(false)
+{
+}
 SinkBase::~SinkBase()
 {
   av_log(NULL, AV_LOG_INFO, "destroying SinkBase\n");
@@ -29,25 +32,30 @@ AVFilterContext *SinkBase::configure(const std::string &name)
   return configure_prefilter(false);
 }
 
-void SinkBase::link(AVFilterContext *other, const unsigned otherpad, const unsigned pad, const bool issrc)
+void SinkBase::link(AVFilterContext *other, const unsigned otherpad,
+                    const unsigned pad, const bool issrc)
 {
   if (issrc || pad > 0)
-    throw Exception("Sink filter does not have a input pad and has only one output pad.");
+    throw Exception(
+        "Sink filter does not have a input pad and has only one output pad.");
 
   EndpointBase::link(other, otherpad, prefilter_pad, issrc);
 }
 
 int SinkBase::processFrame()
 {
-  if (!ena)
-    return AVERROR_EOF;
+  if (!ena) return AVERROR_EOF;
   AVFrame *frame = sink->peekToPush();
   int ret = av_buffersink_get_frame(context, frame);
-  ena = (ret != AVERROR_EOF);
-  if (ena)
-    sink->push(); // new frame already placed, complete the transaction
-  else
-    sink->push(nullptr); // push EOF
+
+  if (ret != AVERROR(EAGAIN)) // only push if frame was ready
+  {
+    ena = (ret != AVERROR_EOF);
+    if (ena)
+      sink->push(); // new frame already placed, complete the transaction
+    else
+      sink->push(nullptr); // push EOF
+  }
   return ret;
 }
 
@@ -62,15 +70,14 @@ AVFilterContext *VideoSink::configure(const std::string &name)
 void VideoSink::setPixelFormat(const AVPixelFormat pix_fmt)
 {
   AVPixelFormat pix_fmts[] = {pix_fmt, AV_PIX_FMT_NONE};
-  int ret = av_opt_set_int_list(context, "pix_fmts", pix_fmts, AV_PIX_FMT_NONE, AV_OPT_SEARCH_CHILDREN);
-  if (ret < 0)
-    throw Exception("Cannot set output pixel format.");
+  int ret = av_opt_set_int_list(context, "pix_fmts", pix_fmts, AV_PIX_FMT_NONE,
+                                AV_OPT_SEARCH_CHILDREN);
+  if (ret < 0) throw Exception("Cannot set output pixel format.");
 }
 
 bool VideoSink::sync()
 {
-  if (!context || context->inputs[0])
-    return synced;
+  if (!context || context->inputs[0]) return synced;
   VideoParams &p = *static_cast<VideoParams *>(params);
   p.time_base = av_buffersink_get_time_base(context);
   p.format = (AVPixelFormat)av_buffersink_get_format(context);
@@ -95,8 +102,7 @@ AVFilterContext *AudioSink::configure(const std::string &name)
 
 bool AudioSink::sync()
 {
-  if (!context || context->inputs[0])
-    return synced;
+  if (!context || context->inputs[0]) return synced;
   AudioParams &p = *static_cast<AudioParams *>(params);
 
   p.time_base = av_buffersink_get_time_base(context);

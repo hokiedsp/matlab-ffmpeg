@@ -1,16 +1,13 @@
 #pragma once
 
+#include <mexAllocator.h>
+#include <mexObjectHandler.h>
+
 #include "../../ffmpeg/ffmpegAVFrameQueue.h"
 #include "../../ffmpeg/ffmpegReader.h"
 // #include "../../ffmpeg/filter/ffmpegFilterGraph.h"
 #include "../../ffmpeg/syncpolicies.h"
-
-// #include "ffmpeg/ffmpegAVFrameQueue.h" // to pass frames from decoder to
-// filtergraph #include "ffmpeg/ffmpegAVFrameVideoComponentSink.h" // frame
-// buffer
-
-#include <mexAllocator.h>
-#include <mexObjectHandler.h>
+#include "mexReaderPostFilter.h"
 
 #include <chrono>
 #include <string>
@@ -33,7 +30,6 @@ typedef ffmpeg::AVFrameQueue<NullMutex, NullConditionVariable<NullMutex>,
 class mexFFmpegReader
 {
   public:
-
   typedef std::chrono::duration<double> mex_duration_t;
 
   mexFFmpegReader(const mxArray *mxObj, int nrhs, const mxArray *prhs[]);
@@ -51,9 +47,9 @@ class mexFFmpegReader
   private:
   // "quasi-public" as directly called by action_handler or static_handler
   void activate(mxArray *mxObj);
-  mxArray* hasFrame();
-  mxArray* hasMediaType(const AVMediaType type);
-  
+  mxArray *hasFrame();
+  mxArray *hasMediaType(const AVMediaType type);
+
   //    varargout = readFrame(obj, varargin);
   void readFrame(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[]);
   void read(int nlhs, mxArray *plhs[], int nrhs,
@@ -61,7 +57,8 @@ class mexFFmpegReader
   void setCurrentTime(const mxArray *mxTime);
   mxArray *getCurrentTime();
 
-  static mxArray *mxCreateFileFormatName(AVPixelFormat fmt);  // formats = getFileFormats();
+  static mxArray *
+  mxCreateFileFormatName(AVPixelFormat fmt); // formats = getFileFormats();
 
   static mxArray *getFileFormats();  // formats = getFileFormats();
   static mxArray *getVideoFormats(); // formats = getVideoFormats();
@@ -70,14 +67,23 @@ class mexFFmpegReader
 
   double ts;
 
-  std::string filt_desc;            // actual filter graph description
+  std::string filt_desc; // actual filter graph description
+
   std::vector<std::string> streams; /// names of active video streams
+  std::unordered_map<std::string, mexFFmpegVideoPostOp>
+      postfilts; // post-process video filters
 
   /**
    * \brief Setup filter graph & streams according to the Matlab class object
    *        properties
    */
   void set_streams(const mxArray *mxObj);
+
+  /**
+   * \brief Add post-filters to the active streams to make them ready to be
+   * exported to MATLAB
+   */
+  void set_postops(mxArray *mxObj);
 
   /**
    * \brief Read the next primary stream
@@ -97,8 +103,6 @@ class mexFFmpegReader
   mxArray *read_video_frame(size_t nframes);
   mxArray *read_audio_frame(size_t nframes);
 
-  static std::string get_video_format_filter(const mxArray *mxObj);
-
   // temp frame storage & management
   std::vector<AVFrame *> frames;
   void add_frame();
@@ -112,8 +116,7 @@ public:
     }
     ~purge_frames()
     {
-      for (auto f = frames.begin(); f < frames.begin() + nfrms; ++f)
-        av_frame_unref(*f);
+      for (auto &f : frames) av_frame_unref(f);
     }
     size_t nfrms;
 

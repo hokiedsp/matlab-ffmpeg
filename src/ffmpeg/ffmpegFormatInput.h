@@ -149,7 +149,7 @@ class InputFormat : public Base
   Chrono_t getNextTimeStamp(const std::string &spec)
   {
     AVFrame *frame;
-    auto buf = get_buf(spec);
+    auto &buf = get_buf(spec);
     if (get_frame(buf) && !(frame = buf.peekToPop())) return getDuration();
     return get_timestampbuf<Chrono_t>(getSrc().getTimeBase(),
                                       frame->best_effort_timestamp);

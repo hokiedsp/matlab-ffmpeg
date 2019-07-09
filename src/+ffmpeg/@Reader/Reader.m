@@ -147,7 +147,7 @@ classdef Reader < matlab.mixin.SetGet & matlab.mixin.CustomDisplay
          % set all the arguments: Streams, VideoFormat, AudioFormat,
          % FilterGraph
          if nargin>1
-            set(obj,varargin{2:end});
+            set(obj,varargin{:});
          end
 
          % complete configuration & activate the engine
@@ -304,13 +304,23 @@ classdef Reader < matlab.mixin.SetGet & matlab.mixin.CustomDisplay
       end
       function set.VideoFormat(obj,value)
          try
-            value = validatestring(value,{'rgb24','Grayscale'});
+            value = validatestring(value,{'rgb24','Grayscale','native'});
          catch
            value = lower(value);
             validateattributes(value,{'char'},{'row'});
             ffmpeg.Reader.mex_backend('validate_pixfmt',value);   
          end
          obj.VideoFormat = value;
+      end
+      function set.AudioFormat(obj,value)
+         try
+            value = validatestring(value,{'native'});
+         catch
+           value = lower(value);
+            validateattributes(value,{'char'},{'row'});
+            ffmpeg.Reader.mex_backend('validate_samplefmt',value);   
+         end
+         obj.AudioFormat = value;
       end
       function set.FilterGraph(obj,value)
          value = validateattributes(value,{'char','row'},mfilename,'VideoFilter');
@@ -342,7 +352,7 @@ classdef Reader < matlab.mixin.SetGet & matlab.mixin.CustomDisplay
       
       function set.CurrentTime(obj, value)
          validateattributes(value,{'numeric'},...
-            {'scalar','nonnegative','<',obj.Duration,'nonempty'});
+            {'scalar','nonnegative','<=',obj.Duration,'nonempty'});
          ffmpeg.Reader.mex_backend(obj,'setCurrentTime',value);
       end
    end

@@ -26,4 +26,4 @@ function flag = hasFrame(obj)
 %
 %   See also AUDIOVIDEO, MOVIE, VIDEOREADER,VIDEOREADER/READFRAME, MMFILEINFO.
 
-flag = obj.mex_backend(obj.backend,mfilename);
+flag = obj.mex_backend(obj,'hasFrame');

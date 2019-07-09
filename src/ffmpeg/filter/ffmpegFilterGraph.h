@@ -39,7 +39,22 @@ class Graph : public ffmpeg::Base
 
   public:
   Graph(const std::string &filtdesc = "");
+  Graph(const Graph &src) = delete;               // non-copy constractible
+  Graph(Graph &&src) { *this = std::move(src); }; // move ctor
   ~Graph();
+
+  Graph &operator=(const Graph &src) = delete; // non-copyable
+  Graph &operator=(Graph &&src)
+  {
+    graph = src.graph;
+    src.graph = nullptr;
+    graph_desc = std::move(src.graph_desc);
+    inputs = std::move(src.inputs);
+    outputs = std::move(src.outputs);
+    inmon_status = src.inmon_status; // 0:no monitoring; 1:monitor; <0 quit
+
+    return *this;
+  }
 
   /**
    * \brief Destroys the current AVFilterGraph and release all the resources

@@ -11,10 +11,10 @@
 extern "C"
 {
 #include <libavutil/rational.h>
+#include <libavutil/pixdesc.h>
 #include <libavutil/samplefmt.h>
-  // #include <libavutil/frame.h> // for AVFrame
-  // #include <libavutil/pixfmt.h>
-  // #include <libavutil/pixdesc.h>
+// #include <libavutil/frame.h> // for AVFrame
+// #include <libavutil/pixfmt.h>
   // #include <libswscale/swscale.h>
 }
 
@@ -93,7 +93,6 @@ bool mexFFmpegReader::action_handler(const mxArray *mxObj,
   else if (command == "read")
     read(nlhs, plhs, nrhs, prhs);
   else if (command == "hasFrame")
-
     plhs[0] = hasFrame();
   else if (command == "hasVideo")
     plhs[0] = hasMediaType(AVMEDIA_TYPE_VIDEO);
@@ -131,15 +130,19 @@ bool mexFFmpegReader::static_handler(const std::string &command, int nlhs,
   }
   else if (command == "validate_pixfmt")
   {
-    if (nrhs != 1 || !mxIsChar(prhs[0]))
-      throw std::runtime_error(
-          "validate_pixfmt0() takes one string input argument.");
-
     std::string pixfmt = mexGetString(prhs[0]);
     if (av_get_pix_fmt(pixfmt.c_str()) == AV_PIX_FMT_NONE)
       mexErrMsgIdAndTxt("ffmpeg:Reader:validate_pixfmt:invalidFormat",
                         "%s is not a valid FFmpeg Pixel Format",
                         pixfmt.c_str());
+  }
+  else if (command == "validate_samplefmt")
+  {
+    std::string samplefmt = mexGetString(prhs[0]);
+    if (av_get_sample_fmt(samplefmt.c_str()) == AV_SAMPLE_FMT_NONE)
+      mexErrMsgIdAndTxt("ffmpeg:Reader:validate_samplefmt:invalidFormat",
+                        "%s is not a valid FFmpeg Sample Format",
+                        samplefmt.c_str());
   }
   else
     return false;
@@ -167,7 +170,7 @@ mxArray *mexFFmpegReader::hasFrame()
 
 mxArray *mexFFmpegReader::hasMediaType(const AVMediaType type)
 {
-  for (auto spec : streams)
+  for (auto &spec : streams)
   {
     if (dynamic_cast<ffmpeg::IMediaHandler &>(reader.getStream(spec))
             .getMediaType() == type)
@@ -370,6 +373,9 @@ void mexFFmpegReader::activate(mxArray *mxObj)
   // activate the reader (fills all buffers with at least one frame)
   reader.activate();
 
+  // set post-ops
+  set_postops(mxObj);
+
   // set Matlab class properties
   mxArray *mxData;
   mxData = mxCreateCellMatrix(1, streams.size());
@@ -398,7 +404,6 @@ void mexFFmpegReader::activate(mxArray *mxObj)
                   mxCreateDoubleScalar(av_q2d(p.frame_rate)));
     mxSetProperty(mxObj, 0, "PixelAspectRatio",
                   mxCreateDoubleScalar(av_q2d(p.sample_aspect_ratio)));
-    mxSetProperty(mxObj, 0, "VideoFormat", mxCreateFileFormatName(p.format));
   }
 
   // populate audio properties with the first audio stream info (if available)
@@ -417,8 +422,6 @@ void mexFFmpegReader::activate(mxArray *mxObj)
                   mxCreateDoubleScalar(ahdl.getSampleRate()));
     mxSetProperty(mxObj, 0, "ChannelLayout",
                   mxCreateString(ahdl.getChannelLayoutName().c_str()));
-    mxSetProperty(mxObj, 0, "AudioFormat",
-                  mxCreateString(ahdl.getFormatName().c_str()));
   }
 }
 
@@ -502,11 +505,11 @@ void mexFFmpegReader::set_streams(const mxArray *mxObj)
         }
         catch (ffmpeg::InvalidStreamSpecifier &)
         {
-          mexErrMsgIdAndTxt(
-              "ffmpeg:Reader:InvalidStream",
-              "Specified stream specifier (\"%s\") does not yield a stream or "
-              "the specified stream has already been selected.",
-              mexGetString(mxStream).c_str());
+          mexErrMsgIdAndTxt("ffmpeg:Reader:InvalidStream",
+                            "Specified stream specifier (\"%s\") does not "
+                            "yield a stream or "
+                            "the specified stream has already been selected.",
+                            mexGetString(mxStream).c_str());
         }
         streams.push_back(spec);
       }
@@ -531,6 +534,75 @@ void mexFFmpegReader::set_streams(const mxArray *mxObj)
           streams.push_back(std::to_string(id));
         }
       }
+    }
+  }
+}
+
+void mexFFmpegReader::set_postops(mxArray *mxObj)
+{
+  AVPixelFormat pixfmt = AV_PIX_FMT_NB;
+  AVSampleFormat samplefmt = AV_SAMPLE_FMT_NB;
+
+  // video format: AV_PIX_FMT_NB->pick RGB/Grayscale| AV_PIX_FMT_NONE->native
+  mxArray *mxFormat = mxGetProperty(mxObj, 0, "VideoFormat");
+  if (!mxIsEmpty(mxFormat))
+  {
+    std::string pixdesc = mexGetString(mxFormat);
+    if (pixdesc == "native")
+      pixfmt = AV_PIX_FMT_NONE;
+    else if (pixdesc == "Grayscale")
+      pixfmt = AV_PIX_FMT_GRAY8;
+    else
+      pixfmt = av_get_pix_fmt(pixdesc.c_str());
+  }
+
+  // audio format: AV_SAMPLE_FMT_NB->native
+  mxFormat = mxGetProperty(mxObj, 0, "AudioFormat");
+  if (!mxIsEmpty(mxFormat))
+  {
+    std::string sampledesc = mexGetString(mxFormat);
+    if (sampledesc != "native")
+      samplefmt = av_get_sample_fmt(sampledesc.c_str());
+  }
+
+  for (auto &spec : streams)
+  {
+    auto &st = dynamic_cast<ffmpeg::IMediaHandler &>(reader.getStream(spec));
+    auto type = st.getMediaType();
+    if (type == AVMEDIA_TYPE_VIDEO)
+    {
+      // set post-filter to transpose & change video format
+      if (pixfmt == AV_PIX_FMT_NONE || pixfmt == AV_PIX_FMT_NB)
+      {
+        auto nativefmt = dynamic_cast<ffmpeg::IVideoHandler &>(st).getFormat();
+        if (pixfmt == AV_PIX_FMT_NB) // default
+        {
+          if (av_pix_fmt_desc_get(nativefmt)->nb_components == 1)
+            pixfmt = AV_PIX_FMT_GRAY8;
+          else
+            pixfmt = AV_PIX_FMT_RGB24;
+
+          // update
+          mxSetProperty(mxObj, 0, "VideoFormat",
+                        mxCreateString(av_get_pix_fmt_name(pixfmt)));
+        }
+        else // native
+        {
+          mxSetProperty(mxObj, 0, "VideoFormat",
+                        mxCreateString(av_get_pix_fmt_name(nativefmt)));
+          reader.setPostOp<mexFFmpegVideoPostOp, const AVPixelFormat>(
+              spec, nativefmt);
+        }
+      }
+      if (pixfmt != AV_PIX_FMT_NONE)
+        reader.setPostOp<mexFFmpegVideoPostOp, const AVPixelFormat>(spec,
+                                                                    pixfmt);
+    }
+    else if (type == AVMEDIA_TYPE_AUDIO && samplefmt != AV_SAMPLE_FMT_NB)
+    {
+      mxSetProperty(mxObj, 0, "AudioFormat",
+                    mxCreateString(av_get_sample_fmt_name(samplefmt)));
+      reader.setPostOp<mexFFmpegPostAF, const AVSampleFormat>(spec, samplefmt);
     }
   }
 }

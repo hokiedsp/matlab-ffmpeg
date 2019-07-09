@@ -232,7 +232,7 @@ InputStream &InputFormat::add_stream(const int id, IAVFrameSinkBuffer &buf)
 void InputFormat::clearStreams()
 {
   std::for_each(streams.begin(), streams.end(),
-                [&](auto is) { delete is.second; });
+                [&](auto &is) { delete is.second; });
   streams.clear();
 }
 
@@ -322,6 +322,7 @@ InputStream *InputFormat::readNextPacket()
   int ret;
 
   if (!fmt_ctx) throw Exception("No file open.");
+  if (eof) return nullptr;
 
   // unreference previously read packet
   av_packet_unref(&packet);

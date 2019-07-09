@@ -1,15 +1,15 @@
 #include "ffmpegReader.h"
-#include "ffmpegAvRedefine.h"
-#include "ffmpegException.h"
-#include "ffmpegPtrs.h"
+// #include "ffmpegAvRedefine.h"
+// #include "ffmpegException.h"
+// #include "ffmpegPtrs.h"
 
-extern "C"
-{
-#include <libavfilter/avfilter.h>
-#include <libavfilter/buffersink.h>
-#include <libavfilter/buffersrc.h>
-#include <libavutil/opt.h>
-}
+// extern "C"
+// {
+// #include <libavfilter/avfilter.h>
+// #include <libavfilter/buffersink.h>
+// #include <libavfilter/buffersrc.h>
+// #include <libavutil/opt.h>
+// }
 
 using namespace ffmpeg;
 
@@ -20,7 +20,10 @@ Reader::Reader(const std::string &url)
 {
 }
 
-Reader::~Reader() {} // may need to clean up filtergraphs
+Reader::~Reader()
+{
+  for (auto &postop : postops) delete postop.second;
+}
 
 bool Reader::hasFrame()
 {
@@ -76,7 +79,9 @@ int Reader::addStream(const std::string &spec, int related_stream_id)
   // if filter graph is defined, check its output link labels first
   if (filter_graph && filter_graph->isSink(spec))
   {
-    filter_graph->assignSink(filter_outbufs[spec], spec);
+    auto &buf = filter_outbufs[spec];
+    filter_graph->assignSink(buf, spec);
+    emplace_postop<PostOpPassThru>(buf);
     return -1;
   }
 
@@ -87,11 +92,11 @@ int Reader::addStream(const std::string &spec, int related_stream_id)
   return add_stream(id);
 }
 
-Reader::AVFrameQueueST &Reader::read_next_packet()
+ffmpeg::InputStream *Reader::read_next_packet()
 {
   auto stream = file.readNextPacket();
   if (filter_graph) filter_graph->processFrame();
-  return static_cast<AVFrameQueueST &>(stream->getSinkBuffer());
+  return stream; // returns true if eof
 }
 
 bool Reader::get_frame(AVFrameQueueST &buf)
@@ -112,11 +117,8 @@ bool Reader::get_frame(AVFrame *frame, AVFrameQueueST &buf, const bool getmore)
   // filled)
   if ((getmore && get_frame(buf)) || buf.empty()) return true;
 
-  // pop the new frame from the buffer if available; also update eof flag
-  bool eof;
-  buf.pop(frame, eof);
-
-  return eof;
+  // pop the new frame from the buffer if available; return the eof flag
+  return postops.at(&buf)->filter(frame);
 }
 
 Reader::AVFrameQueueST &Reader::get_buf(const std::string &spec)
@@ -134,11 +136,11 @@ Reader::AVFrameQueueST &Reader::get_buf(const std::string &spec)
 void Reader::flush()
 {
   if (!active) return;
-  for (auto buf : bufs) buf.second.clear();
+  for (auto &buf : bufs) buf.second.clear();
   if (filter_graph)
   {
-    for (auto buf : filter_inbufs) buf.second.clear();
-    for (auto buf : filter_outbufs) buf.second.clear();
+    for (auto &buf : filter_inbufs) buf.second.clear();
+    for (auto &buf : filter_outbufs) buf.second.clear();
     filter_graph->flush();
   }
 }

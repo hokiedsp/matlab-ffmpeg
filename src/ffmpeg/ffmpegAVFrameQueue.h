@@ -2,6 +2,7 @@
 
 #include "ffmpegAVFrameBufferInterfaces.h"
 
+#include <numeric> // for std::reduce
 #include <vector>
 
 namespace ffmpeg
@@ -27,7 +28,7 @@ class AVFrameQueue : public IAVFrameBuffer
   virtual ~AVFrameQueue()
   {
     // release allocated memory for all the AVFrames
-    for (auto buf : que)
+    for (auto &buf : que)
       if (buf.frame) av_frame_free(&buf.frame);
   }
 
@@ -57,20 +58,25 @@ class AVFrameQueue : public IAVFrameBuffer
       {
         av_frame_unref(it->frame);
         it->populated = false;
+        it->eof = false;
       }
     }
+    wr = rd = que.begin();
   }
 
   size_t size() const noexcept
   {
     MutexLockType lock(mutex);
-    return (wr - rd) + ((wr < rd) ? que.size() : 0);
+    return std::reduce(que.begin(), que.end(), 0ull,
+                       [](const size_t count, const auto &elem) {
+                         return count + elem.populated;
+                       });
   }
   bool empty() const noexcept
   {
     MutexLockType lock(mutex);
     return !((que.size() > 1 && wr != que.begin()) ? (wr - 1)->populated
-                                                  : que.back().populated);
+                                                   : que.back().populated);
   }
   bool full() const noexcept
   {
@@ -185,23 +191,6 @@ class AVFrameQueue : public IAVFrameBuffer
     return success;
   }
 
-  void pop_back(AVFrame *frame, bool &eof)
-  {
-    if (!frame) throw Exception("frame must be non-null pointer.");
-    MutexLockType lock(mutex);
-    cv_tx.wait(lock, [this] { return readyToPop_threadunsafe(); });
-
-    // pop the last written AVFrame, use with caution
-    auto last = (wr == que.begin()) ? (que.end() - 1) : (wr - 1);
-    if (!last->populated) throw Exception("No frame available.");
-
-    // increment the read pointer and get the frame
-    eof = last->eof;
-    if (!eof) av_frame_move_ref(frame, last->frame);
-    last->populated = false;
-    wr = last;
-  }
-
   bool eof()
   {
     if (empty()) return false;
@@ -294,9 +283,11 @@ class AVFrameQueue : public IAVFrameBuffer
     if (frame) av_frame_ref(wr->frame, frame);
     wr->eof = !frame;
 
-    // set the written flag and increment write iterator
-    (wr++)->populated = true;
-    if (wr == que.end()) wr = que.begin();
+    // set the written flag
+    wr->populated = true;
+
+    // increment write iterator
+    if (++wr == que.end()) wr = que.begin();
 
     // notify the source-end for the arrival of new data
     cv_tx.notify_one();
@@ -307,9 +298,11 @@ class AVFrameQueue : public IAVFrameBuffer
     // if buffer is not available
     if (wr->populated) throw Exception("Already populated.");
 
-    // set the written flag and increment write iterator
-    (wr++)->populated = true;
-    if (wr == que.end()) wr = que.begin();
+    // set the written flag
+    wr->populated = true;
+
+    // increment write iterator
+    if (++wr == que.end()) wr = que.begin();
 
     // notify the source-end for the arrival of new data
     cv_tx.notify_one();
@@ -335,8 +328,9 @@ class AVFrameQueue : public IAVFrameBuffer
     // notify the sink-end for slot opening
     cv_rx.notify_one();
 
-    // increment the read pointer
-    if (++rd == que.end()) rd = que.begin();
+    // increment the read pointer only if wr pointer is elsewhere
+    if (rd != wr)
+      if (++rd == que.end()) rd = que.begin();
 
     return eof;
   }

@@ -24,7 +24,7 @@ function formats = getVideoFormats()
 
 
 ffmpegsetenv();
-formats = ffmpeg.Reader.mex_backend([], 'static', mfilename);
+formats = ffmpeg.Reader.mex_backend(mfilename);
 
 if nargout==0
    display(struct2table(formats));

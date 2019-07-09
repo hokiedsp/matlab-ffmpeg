@@ -1,20 +1,22 @@
 #pragma once
 
-#include <queue>
+#include <string>
+extern "C"
 
-#include "ffmpegAVFrameBufferInterfaces.h"
+{
+#include <libavutil/frame.h> // for AVFrame
+}
+
 #include "ffmpegAVFrameQueue.h"
 #include "ffmpegFormatInput.h"
 #include "ffmpegTimeUtil.h"
-#include "filter/ffmpegFilterGraph.h"
-
 #include "syncpolicies.h"
 
-// #include "mexClassHandler.h"
-// #include "ffmpegPtrs.h"
-// #include "ffmpegAvRedefine.h"
-// #include "ffmpegAVFramePtrBuffer.h"
-// #include "ffmpegFrameBuffers.h"
+#include "ffmpegPostOp.h"
+#include "filter/ffmpegFilterGraph.h"
+
+#undef max
+#undef min
 
 namespace ffmpeg
 {
@@ -228,7 +230,7 @@ class Reader
     // smallest so far
     auto reduce_op = [T](const Chrono_t &t,
                          const std::pair<std::string, AVFrameQueueST> &buf) {
-      auto que = buf.second;
+      auto &que = buf.second;
       if (que.empty()) return t; // no data
 
       AVFrame *frame = que.peekToPop();
@@ -243,11 +245,19 @@ class Reader
     // if no frame avail (the initial value unchanged), read the next frame
     if (t == Chrono_t::max())
     {
-      auto que = read_next_packet();
-      return que.eof() ? T
-                       : get_timestamp(que.peekToPop()->best_effort_timestamp,
-                                       que.getSrc().getTimeBase());
+      auto &st = read_next_packet();
+      if (st)
+      {
+        auto &que = st->getSinkBuffer();
+        t = get_timestamp(que.peekToPop()->best_effort_timestamp,
+                          que.getSrc().getTimeBase());
+      }
+      else
+      {
+        t = T;
+      }
     }
+    return t;
   }
 
   /**
@@ -270,7 +280,12 @@ class Reader
   {
     flush();
     file.seek<Chrono_t>(t0);
-    if (exact_search)
+    if (atEndOfFile())
+    {
+      for (auto &buf : bufs) buf.second.push(nullptr);
+      for (auto &buf : filter_outbufs) buf.second.push(nullptr);
+    }
+    else if (exact_search)
     {
       // purge all premature frames from all the output buffers. Read more
       // packets as needed to verify the time
@@ -287,8 +302,8 @@ class Reader
             read_next_packet();
         }
       };
-      for (auto buf : bufs) purge(buf.second);
-      for (auto buf : filter_outbufs) purge(buf.second);
+      for (auto &buf : bufs) purge(buf.second);
+      for (auto &buf : filter_outbufs) purge(buf.second);
     }
   }
 
@@ -300,6 +315,30 @@ class Reader
     return file.getDuration<Chrono_t>();
   }
 
+  /////////////////////////////////////////////////////////////////////////////
+  /**
+   * \brief Set post-filter object to retrieve the AVFrame
+   *
+   * \param[in] spec      Stream specifier (must be active)
+   * \param[in] postfilt  Post-filter object
+   */
+  template <class PostOp, typename... Args>
+  void setPostOp(const std::string &spec, Args... args)
+  {
+    emplace_postop<PostOp, Args...>(get_buf(spec), args...);
+  }
+  /**
+   * \brief Set post-filter object to retrieve the AVFrame
+   *
+   * \param[in] id        Stream id (must be active)
+   * \param[in] postfilt  Post-filter object (must stay valid)
+   */
+  template <class PostOp, typename... Args>
+  void setPostOp(const int id, Args... args)
+  {
+    emplace_postop<PostOp, Args...>(bufs.at(id), args...);
+  }
+
   private:
   typedef AVFrameQueue<NullMutex, NullConditionVariable<NullMutex>,
                        NullUniqueLock<NullMutex>>
@@ -308,7 +347,10 @@ class Reader
   // activate and adds buffer to an input stream by its id
   int add_stream(const int stream_id)
   {
-    return file.addStream(stream_id, bufs[stream_id]).getId();
+    auto &buf = bufs[stream_id];
+    auto ret = file.addStream(stream_id, buf).getId();
+    emplace_postop<PostOpPassThru>(buf);
+    return ret;
   }
 
   AVFrameQueueST &get_buf(const std::string &spec);
@@ -323,9 +365,11 @@ class Reader
   bool get_frame(AVFrameQueueST &buf);
 
   /**
-   * \brief Read next packet and return the populated frame queue
+   * \brief Read next packet
+   * \returns the pointer to the stream which frame the packet contained. If
+   *          EOF, returns null.
    */
-  AVFrameQueueST &read_next_packet();
+  ffmpeg::InputStream *read_next_packet();
 
   InputFormat file;
   std::unordered_map<int, AVFrameQueueST>
@@ -342,5 +386,19 @@ class Reader
   std::unordered_map<std::string, AVFrameQueueST>
       filter_outbufs; // filter output frame buffers (one for each active
                       // stream)
-};                    // namespace ffmpeg
+
+  // post-op objects for all streams
+  std::unordered_map<AVFrameQueueST *, PostOpInterface *> postops;
+
+  template <class PostOp, typename... Args>
+  void emplace_postop(AVFrameQueueST &buf, Args... args)
+  {
+    if (postops.count(&buf))
+    {
+      delete postops[&buf];
+      postops[&buf] = nullptr;
+    }
+    postops[&buf] = new PostOp(buf, args...);
+  }
+};
 } // namespace ffmpeg

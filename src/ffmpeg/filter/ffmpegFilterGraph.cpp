@@ -378,10 +378,12 @@ void Graph::connect_nullsinks()
 SourceBase &Graph::assignSource(IAVFrameSourceBuffer &buf,
                                 const std::string &name)
 {
-  auto node = inputs.at(name); // throws exception if doesn't exist
+  auto &node = inputs.at(name); // throws exception if doesn't exist
   Graph::assign_endpoint<SourceBase, VideoSource, AudioSource,
                          IAVFrameSourceBuffer>(node.filter, node.type, buf);
   node.buf = &buf;
+  buf.setDst(*node.filter);
+
   return *node.filter;
 }
 
@@ -404,6 +406,7 @@ SinkBase &Graph::assignSink(IAVFrameSinkBuffer &buf, const std::string &name)
   Graph::assign_endpoint<SinkBase, VideoSink, AudioSink, IAVFrameSinkBuffer>(
       node.filter, node.type, buf);
   node.buf = &buf;
+  buf.setSrc(*node.filter);
   return *node.filter;
 }
 
@@ -638,12 +641,6 @@ void Graph::configure()
       throw Exception(
           "[ffmpeg::filter::Graph::configure] Source filter is not set.");
 
-    // load media parameters from buffer
-    if (!src->updateMediaParameters())
-      throw Exception(
-          "[ffmpeg::filter::Graph::configure] Source buffer does not have all "
-          "the necessary media parameters to configure source filter.");
-
     // configure filter (constructs the filter context)
     src->configure(in->first);
 
@@ -815,7 +812,7 @@ int Graph::processFrame()
          ++out) // for each buffer
     {
       // if output buffer is full, cannot retrieve more frames
-      if (out->second.buf->full()) continue;
+      if (out->second.buf->full()) break;
 
       SinkBase *sink = out->second.filter;
       int ret = sink->processFrame(); // calls av_buffersink_get_frame() if
