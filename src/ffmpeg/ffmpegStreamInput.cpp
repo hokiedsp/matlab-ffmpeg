@@ -38,6 +38,22 @@ void InputStream::open(AVStream *s)
   AVCodec *dec = avcodec_find_decoder(par->codec_id);
   if (!dec) throw Exception("Failed to find a codec");
 
+  // update deprecated formats (JPEG)
+  if (par->codec_type == AVMEDIA_TYPE_VIDEO)
+  {
+    bool changed = true;
+    switch ((AVPixelFormat)par->format)
+    {
+    case AV_PIX_FMT_YUVJ420P: par->format = AV_PIX_FMT_YUV420P; break;
+    case AV_PIX_FMT_YUVJ422P: par->format = AV_PIX_FMT_YUV422P; break;
+    case AV_PIX_FMT_YUVJ444P: par->format = AV_PIX_FMT_YUV444P; break;
+    case AV_PIX_FMT_YUVJ440P: par->format = AV_PIX_FMT_YUV440P; break;
+    case AV_PIX_FMT_YUVJ411P: par->format = AV_PIX_FMT_YUV411P; break;
+    default: changed = false;
+    }
+    if (changed) par->color_range = AVCOL_RANGE_JPEG;
+  }
+
   // create decoding context if not already created
   AVCodecContext *dec_ctx = avcodec_alloc_context3(dec);
   if (!dec_ctx) throw Exception("Failed to allocate a decoder context");
