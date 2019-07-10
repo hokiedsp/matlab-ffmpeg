@@ -51,7 +51,7 @@ struct AudioParams : public MediaParams
   AudioParams(const AVRational &tb = {0, 0},
               const AVSampleFormat fmt = AV_SAMPLE_FMT_NONE,
               const uint64_t layout = 0, const int fs = 0)
-      : MediaParams(AVMEDIA_TYPE_VIDEO, tb), format(fmt),
+      : MediaParams(AVMEDIA_TYPE_AUDIO, tb), format(fmt),
         channel_layout(layout), sample_rate(fs){};
 };
 } // namespace ffmpeg
