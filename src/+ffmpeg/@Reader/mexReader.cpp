@@ -10,11 +10,11 @@
 
 extern "C"
 {
-#include <libavutil/rational.h>
 #include <libavutil/pixdesc.h>
+#include <libavutil/rational.h>
 #include <libavutil/samplefmt.h>
-// #include <libavutil/frame.h> // for AVFrame
-// #include <libavutil/pixfmt.h>
+  // #include <libavutil/frame.h> // for AVFrame
+  // #include <libavutil/pixfmt.h>
   // #include <libswscale/swscale.h>
 }
 
@@ -390,7 +390,7 @@ void mexFFmpegReader::activate(mxArray *mxObj)
   // populate video properties with the first video stream info (if available)
   auto spec =
       std::find_if(streams.begin(), streams.end(), [this](const auto &spec) {
-        return dynamic_cast<ffmpeg::IVideoHandler &>(reader.getStream(spec))
+        return dynamic_cast<ffmpeg::IMediaHandler &>(reader.getStream(spec))
                    .getMediaType() == AVMEDIA_TYPE_VIDEO;
       });
   if (spec != streams.end())
@@ -408,7 +408,7 @@ void mexFFmpegReader::activate(mxArray *mxObj)
 
   // populate audio properties with the first audio stream info (if available)
   spec = std::find_if(streams.begin(), streams.end(), [this](const auto &spec) {
-    return dynamic_cast<ffmpeg::IVideoHandler &>(reader.getStream(spec))
+    return dynamic_cast<ffmpeg::IMediaHandler &>(reader.getStream(spec))
                .getMediaType() == AVMEDIA_TYPE_AUDIO;
   });
   if (spec != streams.end())
@@ -598,11 +598,16 @@ void mexFFmpegReader::set_postops(mxArray *mxObj)
         reader.setPostOp<mexFFmpegVideoPostOp, const AVPixelFormat>(spec,
                                                                     pixfmt);
     }
-    else if (type == AVMEDIA_TYPE_AUDIO && samplefmt != AV_SAMPLE_FMT_NB)
+    else if (type == AVMEDIA_TYPE_AUDIO)
     {
-      mxSetProperty(mxObj, 0, "AudioFormat",
-                    mxCreateString(av_get_sample_fmt_name(samplefmt)));
-      reader.setPostOp<mexFFmpegPostAF, const AVSampleFormat>(spec, samplefmt);
+      if (samplefmt == AV_SAMPLE_FMT_NB) // auto/native
+        mxSetProperty(
+            mxObj, 0, "AudioFormat",
+            mxCreateString(
+                dynamic_cast<ffmpeg::IAudioHandler &>(st).getFormatName().c_str()));
+      else // user-specified
+        reader.setPostOp<mexFFmpegPostAF, const AVSampleFormat>(spec,
+                                                                samplefmt);
     }
   }
 }
