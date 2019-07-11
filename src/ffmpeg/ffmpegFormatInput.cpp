@@ -328,22 +328,29 @@ InputStream *InputFormat::readNextPacket()
   av_packet_unref(&packet);
 
   // read the next frame packet
-  ret = av_read_frame(fmt_ctx, &packet);
-  if (ret == AVERROR_EOF) // must notify all streams
+  while (true) // run until decoding a packet of an active stream
   {
-    eof = true;
-    for (auto i = streams.begin(); i != streams.end(); ++i)
-      i->second->processPacket(nullptr);
-    return nullptr;
+    ret = av_read_frame(fmt_ctx, &packet);
+    if (ret == AVERROR_EOF) // must notify all streams
+    {
+      eof = true;
+      for (auto i = streams.begin(); i != streams.end(); ++i)
+        i->second->processPacket(nullptr);
+      return nullptr;
+    }
+    else if (ret >= 0) // should not return EAGAIN
+    {
+      // work only on the registered streams
+      auto search = streams.find(packet.stream_index);
+      if (search != streams.end())
+      {
+        auto is = search->second;
+        ret = is->processPacket(&packet);
+        if (ret < 0) throw Exception(ret);
+        return is;
+      }
+    }
+    else if (!ret)
+      throw Exception(ret);
   }
-  else if (ret >= 0) // should not return EAGAIN
-  {
-    // work only on the registered streams
-    InputStream *is = streams[packet.stream_index];
-    ret = is->processPacket(&packet);
-    if (ret < 0) throw Exception(ret);
-    return is;
-  }
-  else
-    throw Exception(ret);
 }
