@@ -22,7 +22,7 @@ class FFmpegMxProbe
   AVFormatContext *fmt_ctx;
 
   // std::vector<FFmpegInputStream> streams;
-  std::vector<AVCodecContextUniquePtr> st_dec_ctx;
+  std::vector<AVCodecContext*> st_dec_ctx;
 
 public:
   FFmpegMxProbe(const char *filename = nullptr) : fmt_ctx(nullptr)

@@ -1,5 +1,6 @@
 #include "FFmpegMxProbe.h"
 
+#include <algorithm>
 #include <set>
 
 extern "C"
@@ -17,6 +18,8 @@ void FFmpegMxProbe::close()
 {
   if (!fmt_ctx)
   {
+    std::for_each(st_dec_ctx.begin(), st_dec_ctx.end(),
+                  [](auto ctx) { av_codec_context_delete(ctx); });
     st_dec_ctx.clear();             // kill stream codecs first
     avformat_close_input(&fmt_ctx); // close file and clear fmt_ctx
   }
@@ -65,8 +68,7 @@ void FFmpegMxProbe::open(const char *infile, AVInputFormat *iformat,
 
   /* bind a decoder to each input stream */
   for (i = 0; i < (int)fmt_ctx->nb_streams; i++)
-    st_dec_ctx.push_back(
-        NewAVCodecContextUniquePtr(open_stream(fmt_ctx->streams[i], opts)));
+    st_dec_ctx.push_back(open_stream(fmt_ctx->streams[i], opts));
 
   // save the file name
   filename = infile;
@@ -325,7 +327,7 @@ void FFmpegMxProbe::dump_stream_to_matlab(const int sid, mxArray *mxInfo,
                                           const int index) const
 {
   AVStream *st = fmt_ctx->streams[sid];
-  AVCodecContext *dec_ctx = st_dec_ctx[sid].get();
+  AVCodecContext *dec_ctx = st_dec_ctx[sid];
 
 #define BUF_SIZE 128
   char strbuf[BUF_SIZE];
