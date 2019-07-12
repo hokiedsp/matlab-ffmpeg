@@ -110,6 +110,11 @@ class InputFormat : public Base
 
   std::string getFilePath() const;
 
+  const AVDictionary *getMetadata() const
+  {
+    return fmt_ctx ? fmt_ctx->metadata : nullptr;
+  }
+
   /**
    * \brief std::chrono duration compatible with FFmpeg time stamps with
    *        AV_TIME_BASE_Q time base

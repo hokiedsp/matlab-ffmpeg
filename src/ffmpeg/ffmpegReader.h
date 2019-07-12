@@ -317,6 +317,8 @@ class Reader
     return file.getDuration<Chrono_t>();
   }
 
+  const AVDictionary *getMetadata() const { return file.getMetadata(); }
+
   /////////////////////////////////////////////////////////////////////////////
   /**
    * \brief Set post-filter object to retrieve the AVFrame

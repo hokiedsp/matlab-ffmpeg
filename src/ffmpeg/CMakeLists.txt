@@ -4,7 +4,8 @@ set(ffmpeg ${ffmpeg} PARENT_SCOPE) # make the library target available at the ro
 
 set(LIBFFMPEG "libffmpeg")
 add_library(${LIBFFMPEG} OBJECT ffmpegBase.cpp ffmpegStream.cpp ffmpegStreamInput.cpp 
-                                ffmpegFormatInput.cpp ffmpegDump.cpp ffmpegReader.cpp ffmpegTimeUtil.h)
+                                ffmpegFormatInput.cpp ffmpegDump.cpp ffmpegReader.cpp ffmpegTimeUtil.h 
+                                mxutils.cpp)
 
 add_subdirectory(filter) # adds additional gather source file lists in LIBFFMPEG_FILTERSRCS
 

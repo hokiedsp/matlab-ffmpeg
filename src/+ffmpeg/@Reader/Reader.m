@@ -96,6 +96,7 @@ classdef Reader < matlab.mixin.SetGet & matlab.mixin.CustomDisplay
       SampleRate = []
       NumberOfAudioChannels = []
       ChannelLayout = ''
+      Metadata = []
       % ReadMode = 'components' % 'components'(default if pixel is byte size) |'planes' (default if pixel is sub-byte size)
       % Direction = 'forward'
       % BufferSize = 4  % Underlying frame buffer size
@@ -371,7 +372,7 @@ classdef Reader < matlab.mixin.SetGet & matlab.mixin.CustomDisplay
          propGroups(1) = PropertyGroup( {'Name', 'Path', 'FilterGraph','Streams','Duration', 'CurrentTime'});
          propGroups(2) = PropertyGroup( {'Width', 'Height', 'PixelAspectRatio','FrameRate', 'VideoFormat'});
          propGroups(3) = PropertyGroup( {'NumberOfAudioChannels', 'ChannelLayout', 'SampleRate','AudioFormat'});
-         propGroups(4) = PropertyGroup( {'Tag', 'UserData'});
+         propGroups(4) = PropertyGroup( {'Metadata','Tag', 'UserData'});
          
          %          propGroups(1) = PropertyGroup( {'Name', 'Path', 'Duration', 'CurrentTime', 'Tag', 'UserData'}, ...
          %             getString( message('ffmpeg:Reader:GeneralProperties') ) );

@@ -1,36 +1,19 @@
 #include "mexReader.h"
 
 #include "../../ffmpeg/ffmpegImageUtils.h"
-#include "../../ffmpeg/ffmpegPtrs.h"
+#include "../../ffmpeg/mxutils.h"
 
 #include <mexGetString.h>
-
-// #include "getMediaCompressions.h"
-// #include "getVideoFormats.h"
 
 extern "C"
 {
 #include <libavutil/pixdesc.h>
 #include <libavutil/rational.h>
 #include <libavutil/samplefmt.h>
-  // #include <libavutil/frame.h> // for AVFrame
-  // #include <libavutil/pixfmt.h>
-  // #include <libswscale/swscale.h>
 }
 
 #include <algorithm>
-// #include <cstdarg>
-// #include <locale>
-// #include <experimental/filesystem> // C++-standard header file name
-#include <filesystem>
 
-namespace fs = std::filesystem;
-
-// // append transpose filter at the end to show the output in the proper
-// orientation in MATLAB
-
-// #include <fstream>
-// std::ofstream output("mextest.csv");
 void mexFFmpegCallback(void *avcl, int level, const char *fmt, va_list argptr)
 {
   if (level <= AV_LOG_INFO) // AV_LOG_FATAL || level == AV_LOG_ERROR)
@@ -433,6 +416,9 @@ void mexFFmpegReader::activate(mxArray *mxObj)
     mxSetProperty(mxObj, 0, "ChannelLayout",
                   mxCreateString(ahdl.getChannelLayoutName().c_str()));
   }
+
+  // populate metadata
+  mxSetProperty(mxObj, 0, "Metadata", mxCreateTags(reader.getMetadata()));
 }
 
 void mexFFmpegReader::set_streams(const mxArray *mxObj)
