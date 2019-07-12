@@ -262,6 +262,9 @@ mxArray *mexFFmpegReader::read_frame(const std::string &spec)
 // convert data in the first nframes AVFrames in the frames vector
 mxArray *mexFFmpegReader::read_video_frame(size_t nframes)
 {
+  // could be empty
+  if (!nframes) return mxCreateNumericMatrix(0, 0, mxUINT8_CLASS, mxREAL);
+
   AVFrame *frame = frames[0];
 
   // ffmpeg::IVideoHandler &vsrc = dynamic_cast<ffmpeg::IVideoHandler &>(src);
@@ -291,6 +294,9 @@ mxArray *mexFFmpegReader::read_video_frame(size_t nframes)
 mxArray *mexFFmpegReader::read_audio_frame(size_t nframes)
 {
   // ffmpeg::IAudioHandler &asrc = dynamic_cast<ffmpeg::IAudioHandler &>(src);
+
+  // could be empty
+  if (!nframes) return mxCreateDoubleMatrix(0, 0, mxREAL);
 
   AVFrame *frame = frames[0];
 
