@@ -16,8 +16,8 @@ extern "C"
 #include "../../ffmpeg/ffmpegAVFrameQueue.h"
 #include "../../ffmpeg/syncpolicies.h"
 
-#include "../../ffmpeg/filter/ffmpegFilterGraph.h"
 #include "../../ffmpeg/ffmpegPostOp.h"
+#include "../../ffmpeg/filter/ffmpegFilterGraph.h"
 
 /**
  * \brief a FFmpeg video filter to convert a video AVFrame to desired format &
@@ -26,7 +26,8 @@ extern "C"
 class mexFFmpegVideoPostOp : public ffmpeg::PostOpInterface
 {
   public:
-  mexFFmpegVideoPostOp(ffmpeg::IAVFrameSourceBuffer &src, const AVPixelFormat pixfmt)
+  mexFFmpegVideoPostOp(ffmpeg::IAVFrameSourceBuffer &src,
+                       const AVPixelFormat pixfmt)
       : out(1)
   {
     // create filter graph
@@ -38,8 +39,10 @@ class mexFFmpegVideoPostOp : public ffmpeg::PostOpInterface
     // Link filter graph to the in/out buffers
     fg.assignSource(src, "in");
     fg.assignSink(out, "out");
+
+    // finalize the filter configuration
     fg.configure();
-  } 
+  }
   ~mexFFmpegVideoPostOp() {}
 
   bool filter(AVFrame *dst) override
@@ -62,10 +65,11 @@ class mexFFmpegVideoPostOp : public ffmpeg::PostOpInterface
  * \brief a FFmpeg audio filter to convert a video AVFrame to desired format &
  * orientation
  */
-class mexFFmpegPostAF : public ffmpeg::PostOpInterface
+class mexFFmpegAudioPostOp : public ffmpeg::PostOpInterface
 {
   public:
-  mexFFmpegPostAF(ffmpeg::IAVFrameSourceBuffer &src, const AVSampleFormat samplefmt)
+  mexFFmpegAudioPostOp(ffmpeg::IAVFrameSourceBuffer &src,
+                       const AVSampleFormat samplefmt)
       : out(1)
   {
     // create filter graph
@@ -77,8 +81,11 @@ class mexFFmpegPostAF : public ffmpeg::PostOpInterface
     // Link filter graph to the in/out buffers
     fg.assignSource(src, "in");
     fg.assignSink(out, "out");
+
+    // finalize the filter configuration
+    fg.configure();
   }
-  ~mexFFmpegPostAF() {}
+  ~mexFFmpegAudioPostOp() {}
 
   bool filter(AVFrame *dst) override
   {

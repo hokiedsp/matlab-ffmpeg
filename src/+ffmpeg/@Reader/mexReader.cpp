@@ -242,7 +242,7 @@ mxArray *mexFFmpegReader::read_frame(const std::string &spec)
 
   // read frames with ts less than the next primary stream frame
   bool eof = false;
-  while (!eof && reader.getTimeStamp<mex_duration_t>(spec) < ts)
+  while (!eof && ((reader.getTimeStamp<mex_duration_t>(spec)) < ts))
   {
     if (frames.size() <= purger.nfrms) add_frame();
     AVFrame *frame = frames[purger.nfrms];
@@ -294,7 +294,12 @@ mxArray *mexFFmpegReader::read_audio_frame(size_t nframes)
 
   AVFrame *frame = frames[0];
 
-  AVSampleFormat fmt = av_get_packed_sample_fmt((AVSampleFormat)frame->format);
+  AVSampleFormat fmt = (AVSampleFormat)frame->format;
+
+  // just in case...
+  if ((bool)av_sample_fmt_is_planar(fmt))
+    throw ffmpeg::Exception("Audio frame format is not as expected.");
+
   mxClassID mx_class;
   switch (fmt)
   {
@@ -319,35 +324,34 @@ mxArray *mexFFmpegReader::read_audio_frame(size_t nframes)
   default: throw ffmpeg::Exception("Unknown audio sample format.");
   }
 
-  bool is_planar = (fmt != (AVSampleFormat)frame->format);
-  // if planar, line/channel (samplesxchannel), if packed, line/frame
-  // (channelxsamples)
+  size_t total_nb_samples = std::reduce(
+      frames.begin(), frames.begin() + nframes, 0ull,
+      [](size_t N, AVFrame *frame) { return N + frame->nb_samples; });
 
-  mwSize dims[3] = {(mwSize)frame->nb_samples, (mwSize)frame->channels,
-                    nframes};
-  if (is_planar) std::swap(dims[0], dims[1]);
-
-  mxArray *mxData = mxCreateNumericArray(3, dims, mx_class, mxREAL);
+  mxArray *mxData = mxCreateNumericMatrix(frame->channels, total_nb_samples,
+                                          mx_class, mxREAL);
   uint8_t *data = (uint8_t *)mxGetData(mxData);
 
-  int linesize;
-  av_samples_get_buffer_size(&linesize, frame->channels, frame->nb_samples, fmt,
-                             false);
+  auto elsz = mxGetElementSize(mxData);
+
   uint8_t *dst[AV_NUM_DATA_POINTERS];
   dst[0] = data;
-  dst[frame->channels] = nullptr;
+  dst[1] = nullptr;
 
   for (int j = 0; j < nframes; ++j)
   {
-    if (is_planar)
-      for (int i = 1; i < frame->channels; ++i) dst[i] = dst[i - 1] + linesize;
-
     av_samples_copy(dst, frame->data, 0, 0, frame->nb_samples, frame->channels,
                     fmt);
-    dst[0] = dst[frame->channels - 1] + linesize;
+    dst[0] += av_samples_get_buffer_size(nullptr, frame->channels,
+                                         frame->nb_samples, fmt, false);
   }
 
-  return mxData;
+  // call MATLAB transpose function to finalize combined-audio output
+  mxArray *mxDataT;
+  mexCallMATLAB(1, &mxDataT, 1, &mxData, "transpose");
+  mxDestroyArray(mxData);
+
+  return mxDataT;
 }
 
 void mexFFmpegReader::read(
@@ -499,10 +503,9 @@ void mexFFmpegReader::set_streams(const mxArray *mxObj)
       mxArray *mxStream = mxGetCell(mxStreams, i);
       if (mxIsChar(mxStream))
       {
-        spec = mexGetString(mxStream);
-        try // try to grab the specified stream
+        try // to get the best audio stream
         {
-          reader.addStream(spec);
+          reader.addStream(mexGetString(mxStream));
         }
         catch (ffmpeg::InvalidStreamSpecifier &)
         {
@@ -601,14 +604,21 @@ void mexFFmpegReader::set_postops(mxArray *mxObj)
     }
     else if (type == AVMEDIA_TYPE_AUDIO)
     {
+      auto nativefmt = dynamic_cast<ffmpeg::IAudioHandler &>(st).getFormat();
       if (samplefmt == AV_SAMPLE_FMT_NB) // auto/native
-        mxSetProperty(
-            mxObj, 0, "AudioFormat",
-            mxCreateString(
-                dynamic_cast<ffmpeg::IAudioHandler &>(st).getFormatName().c_str()));
-      else // user-specified
-        reader.setPostOp<mexFFmpegPostAF, const AVSampleFormat>(spec,
-                                                                samplefmt);
+      {
+        mxSetProperty(mxObj, 0, "AudioFormat",
+                      mxCreateString(av_get_sample_fmt_name(
+                          av_get_packed_sample_fmt(nativefmt))));
+        samplefmt = nativefmt;
+      }
+      // pick planer/packed data format depending on whether to combine frames
+      samplefmt = av_get_packed_sample_fmt(samplefmt);
+
+      // if requested format is different from the stream format, set postop
+      if (samplefmt != nativefmt)
+        reader.setPostOp<mexFFmpegAudioPostOp, const AVSampleFormat>(spec,
+                                                                     samplefmt);
     }
   }
 }

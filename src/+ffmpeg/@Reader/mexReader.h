@@ -7,7 +7,7 @@
 #include "../../ffmpeg/ffmpegReader.h"
 // #include "../../ffmpeg/filter/ffmpegFilterGraph.h"
 #include "../../ffmpeg/syncpolicies.h"
-#include "mexReaderPostFilter.h"
+#include "mexReaderPostOps.h"
 
 #include <chrono>
 #include <string>
@@ -64,8 +64,6 @@ class mexFFmpegReader
   static mxArray *getVideoFormats(); // formats = getVideoFormats();
 
   ffmpeg::Reader reader;
-
-  double ts;
 
   std::string filt_desc; // actual filter graph description
 
