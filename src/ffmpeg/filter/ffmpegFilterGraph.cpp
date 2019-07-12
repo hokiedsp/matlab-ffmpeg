@@ -24,12 +24,7 @@ Graph::Graph(const std::string &filtdesc) : graph(NULL), inmon_status(0)
 {
   if (filtdesc.size()) parse(filtdesc);
 }
-Graph::~Graph()
-{
-  av_log(NULL, AV_LOG_INFO, "destroying Graph\n");
-  clear();
-  av_log(NULL, AV_LOG_INFO, "destroyed Graph\n");
-}
+Graph::~Graph() { clear(); }
 
 void Graph::clear()
 {
@@ -43,17 +38,13 @@ void Graph::clear()
   // traverse inputs and delete ffmpeg::filter objects
   for (auto p = inputs.begin(); p != inputs.end(); ++p)
   {
-    av_log(NULL, AV_LOG_INFO, "deleting input %s\n", p->first.c_str());
     if (p->second.filter) // if ffmpeg::filter object has been set
     {
       p->second.filter->purge(); // must purge first because AVFilterContext has
                                  // already been freed
       delete p->second.filter;
     }
-    av_log(NULL, AV_LOG_INFO, "deleted input %s\n", p->first.c_str());
   }
-
-  av_log(NULL, AV_LOG_INFO, "destroyed inputs\n");
 
   // traverse outputs and delete ffmpeg::filter objects
   for (auto p = outputs.begin(); p != outputs.end(); ++p)
@@ -112,8 +103,6 @@ void Graph::parse(const std::string &new_desc)
   if ((avfilter_graph_parse2(temp_graph, new_desc.c_str(), &ins, &outs)) < 0)
     throw Exception("Failed to parse the filter graph description.");
 
-  av_log(NULL, AV_LOG_INFO, "parse success, analyzing input/output nodes...\n");
-
   // set unique_ptrs to auto delete the pointer when going out of scope
   auto avFilterInOutFree = [](AVFilterInOut *ptr) {
     avfilter_inout_free(&ptr);
@@ -144,15 +133,8 @@ void Graph::parse(const std::string &new_desc)
                       "graph must be named.");
   }
 
-  av_log(NULL, AV_LOG_INFO,
-         "at least 1 each of input and output nodes are named...\n");
-  // all good to go!!
-
   // clear the existing filtergraph
   clear(); // destroy AVFilterContext as well as the ffmpeg::filter::* objects
-
-  av_log(NULL, AV_LOG_INFO,
-         "existing filtergraph has been destroyed (if there was one)...\n");
 
   // store the filter graph
   ptemp.release(); // now keeping the graph, so release it from the unique_ptr
@@ -162,14 +144,8 @@ void Graph::parse(const std::string &new_desc)
   // create source filter placeholder and mark its type
   if (ins) parse_sources(ins);
 
-  av_log(NULL, AV_LOG_INFO, "input nodes parsed successfully...\n");
-
   // create sink filter placeholder and mark its type
   if (outs) parse_sinks(outs);
-
-  av_log(NULL, AV_LOG_INFO, "output nodes parsed successfully...\n");
-
-  av_log(NULL, AV_LOG_ERROR, "[parse] done parsing\n");
 }
 
 void Graph::parse_sources(AVFilterInOut *ins)
@@ -413,34 +389,14 @@ SinkBase &Graph::assignSink(IAVFrameSinkBuffer &buf, const std::string &name)
 bool Graph::ready()
 {
   // AVFilterGraph must been defined and output buffer must be non-empty
-  if (!graph || outputs.empty())
-  {
-    av_log(NULL, AV_LOG_ERROR,
-           "[ffmpage::filter::Graph::ready] AVFilterGraph not allocated or "
-           "filter has no output\n");
-    return false;
-  }
+  if (!graph || outputs.empty()) return false;
 
   // every input & output buffers must have
   // IAVFrameSourceBuffer/IAVFrameSinkBuffer associated with it
   for (auto it = inputs.begin(); it != inputs.end(); ++it)
-    if (!it->second.buf)
-    {
-      av_log(
-          NULL, AV_LOG_ERROR,
-          "[ffmpage::filter::Graph::ready] No buffer assigned to Input '%s'\n",
-          it->first.c_str());
-      return false;
-    }
+    if (!it->second.buf) return false;
   for (auto it = outputs.begin(); it != outputs.end(); ++it)
-    if (!it->second.buf)
-    {
-      av_log(
-          NULL, AV_LOG_ERROR,
-          "[ffmpage::filter::Graph::ready] No buffer assigned to Output '%s'\n",
-          it->first.c_str());
-      return false;
-    }
+    if (!it->second.buf) return false;
 
   return true;
 }
@@ -449,16 +405,8 @@ void Graph::flush()
 {
   if (!graph) return;
 
-  av_log(NULL, AV_LOG_INFO,
-         "[ffmpeg::filter::Graph::flush] Destroying previously built "
-         "AVFilterGraph\n");
-
   // destroy the existing AVFilterGraph w/out losing the graph structure
   purge();
-
-  av_log(NULL, AV_LOG_INFO,
-         "[ffmpeg::filter::Graph::flush] Destroyed previously built "
-         "AVFilterGraph\n");
 
   // allocate new filter graph
   if (!(graph = avfilter_graph_alloc())) throw Exception(AVERROR(ENOMEM));
@@ -476,7 +424,6 @@ void Graph::flush()
       pout(outs, avFilterInOutFree);
 
   // assign sources
-  av_log(NULL, AV_LOG_INFO, "flush::inputs.size()=%d\n", inputs.size());
   if (ins)
   {
     if (ins->next) // multiple-inputs
@@ -519,7 +466,6 @@ void Graph::flush()
           }
         }
 
-        av_log(NULL, AV_LOG_INFO, "flush::input name:%s\n", name);
         inputs.at(name).conns.push_back(
             ConnectTo({cur->filter_ctx, cur->pad_idx}));
       }
@@ -577,7 +523,6 @@ void Graph::flush()
           }
         }
 
-        av_log(NULL, AV_LOG_INFO, "flush::input name:%s\n", name);
         outputs.at(name).conn = {cur->filter_ctx, cur->pad_idx};
       }
 
@@ -602,8 +547,6 @@ void Graph::flush()
 void Graph::use_src_splitter(SourceBase *src, const ConnectionList &conns)
 {
   // if connects to multiple filters, we need to insert "split" filter block
-
-  av_log(NULL, AV_LOG_INFO, "Splitting input %d ways\n", conns.size());
 
   // determine the type of splitter
   const AVFilter *filter;

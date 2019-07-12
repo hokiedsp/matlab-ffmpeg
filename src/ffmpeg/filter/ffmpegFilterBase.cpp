@@ -50,9 +50,10 @@ AVFilterContext *Base::create_context(const std::string &fname, const std::strin
   if (context)
     throw Exception("[ffmpeg::filter::Base::create_context] Object already has configured an AVFilter.");
 
+  // get the arguments for the filter
   std::string new_args = generate_args();
-  av_log(NULL, AV_LOG_ERROR, "video source buffer argument: %s\n",new_args.c_str());
 
+  // create the filter
   if (avfilter_graph_create_filter(&context,
                                    avfilter_get_by_name(fname.c_str()),
                                    name.c_str(), new_args.c_str(), NULL, graph.getAVFilterGraph()) < 0)

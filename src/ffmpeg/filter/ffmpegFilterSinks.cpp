@@ -22,8 +22,6 @@ SinkBase::SinkBase(Graph &fg, IAVFrameSinkBuffer &buf)
 }
 SinkBase::~SinkBase()
 {
-  av_log(NULL, AV_LOG_INFO, "destroying SinkBase\n");
-  av_log(NULL, AV_LOG_INFO, "destroyed SinkBase\n");
 }
 
 AVFilterContext *SinkBase::configure(const std::string &name)

@@ -407,7 +407,6 @@ private:
     switch (type)
     {
     case AVMEDIA_TYPE_VIDEO:
-      av_log(NULL, AV_LOG_ERROR, "creating video source node\n");
       ep = new VEP(*this, buf);
       break;
     case AVMEDIA_TYPE_AUDIO: ep = new AEP(*this, buf); break;

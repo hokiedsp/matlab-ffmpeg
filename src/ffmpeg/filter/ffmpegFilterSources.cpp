@@ -24,7 +24,6 @@ SourceBase::SourceBase(Graph &fg, IAVFrameSourceBuffer &srcbuf)
 }
 SourceBase::~SourceBase()
 {
-  av_log(NULL, AV_LOG_INFO, "destroyed SourceBase\n");
 }
 
 void SourceBase::link(AVFilterContext *other, const unsigned otherpad,
@@ -61,8 +60,6 @@ AVFilterContext *VideoSource::configure(const std::string &name)
   // configure the filter
   create_context("buffer", name);
 
-  // av_log(NULL, AV_LOG_ERROR, "video source context created...");
-
   // // also send in the hw_frame_ctx  (if given)
   // AVBufferSrcParameters *par = av_buffersrc_parameters_alloc();
   // if (!par)
@@ -76,8 +73,6 @@ AVFilterContext *VideoSource::configure(const std::string &name)
   // if (ret < 0)
   //   throw Exception("[ffmpeg::filter::VideoSource::configure] Failed to call
   //   av_buffersrc_parameters_set().");
-
-  // av_log(NULL, AV_LOG_ERROR, "video source parameters created...");
 
   return configure_prefilter(true);
 }

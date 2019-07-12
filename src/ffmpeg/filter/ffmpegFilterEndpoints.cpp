@@ -53,8 +53,6 @@ void EndpointBase::setPrefilter(const std::string &desc)
     avfilter_inout_free(&outs);
     if (fail)
       throw Exception("[ffmpeg::filter::EndpointBase::setPrefilter] Failed to parse the prefilter chain description.");
-
-    av_log(NULL, AV_LOG_INFO, "[ffmpeg::filter::EndpointBase::setPrefilter] Prefilter successfully set: %s.\n", desc.c_str());
   }
 
   // passed, update
@@ -75,8 +73,6 @@ void EndpointBase::setPrefilter(const std::string &desc)
    */
 AVFilterContext *EndpointBase::configure_prefilter(bool issrc)
 {
-  av_log(NULL, AV_LOG_INFO, "[ffmpeg::filter::EndpointBase::configure_prefilter] prefilter_desc=%s\n", prefilter_desc.c_str());
-
   // no prefilter set, just return the endpoint filter
   if (prefilter_desc.empty())
   {
