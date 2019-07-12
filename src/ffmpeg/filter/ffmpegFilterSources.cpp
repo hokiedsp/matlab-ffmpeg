@@ -185,9 +185,9 @@ AVFilterContext *AudioSource::configure(const std::string &name)
   create_context("abuffer", name);
 
   // load media parameters from buffer
-  if (updateMediaParameters())
-    throw Exception("Source buffer does not have all the necessary media "
-                    "parameters to configure source filter.");
+  // if (updateMediaParameters())
+  //   throw Exception("Source buffer does not have all the necessary media "
+  //                   "parameters to configure source filter.");
 
   return configure_prefilter(true);
 }
@@ -198,7 +198,8 @@ std::string AudioSource::generate_args()
       static_cast<const AudioParams &>(buf->getMediaParams());
 
   std::stringstream sout;
-  sout << "time_base=" << p.time_base.num << 'x' << p.time_base.den << ':'
+  sout << "time_base=" << p.time_base.num << '/' << p.time_base.den << ':'
+       << "sample_rate=" << p.sample_rate << ':'
        << "sample_fmt=" << av_get_sample_fmt_name(p.format) << ':'
        << "channel_layout=0x" << std::setbase(16) << p.channel_layout;
   return sout.str();
