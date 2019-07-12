@@ -257,7 +257,7 @@ class AVFrameQueue : public IAVFrameBuffer
     if (que.empty() || wr == que.end() - 1)
       que.push_back({av_frame_alloc(), false, false});
     else
-      que.insert(wr, {av_frame_alloc(), false, false});
+      que.insert(wr + 1, {av_frame_alloc(), false, false});
 
     wr = que.begin() + Iwr;
     rd = que.begin() + Ird;
@@ -332,8 +332,7 @@ class AVFrameQueue : public IAVFrameBuffer
     cv_rx.notify_one();
 
     // increment the read pointer only if wr pointer is elsewhere
-    if (rd != wr)
-      if (++rd == que.end()) rd = que.begin();
+    if (++rd == que.end()) rd = que.begin();
 
     return eof;
   }
