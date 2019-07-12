@@ -9,7 +9,7 @@ extern "C"
 
 #include "avexception.h"
 
-mxArray *mxCreateTags(AVDictionary *tags)
+mxArray *mxCreateTags(const AVDictionary *tags)
 {
     int ntags = av_dict_count(tags);
     mxArray *mxTags = mxCreateCellMatrix(ntags, 2);

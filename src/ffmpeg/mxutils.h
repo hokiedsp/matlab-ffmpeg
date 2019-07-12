@@ -24,7 +24,7 @@ inline bool mxIsScalar(const mxArray *array_ptr) { return mxGetNumberOfElements(
  * Returns 2-column Matlab cell array with the AVDicationary key names on the
  * first column and their values on the second column.
  */
-mxArray *mxCreateTags(AVDictionary *tags);
+mxArray *mxCreateTags(const AVDictionary *tags);
 
 /**
  * Call Matlab to look for the specified file in its search path. If found,
