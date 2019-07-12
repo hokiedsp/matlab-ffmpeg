@@ -163,7 +163,7 @@ class InputFormat : public Base
 
   AVMediaType getStreamType(const int stream_id) const
   {
-    return (fmt_ctx && stream_id >= 0 && stream_id >= (int)fmt_ctx->nb_streams)
+    return (fmt_ctx && stream_id >= 0 && stream_id < (int)fmt_ctx->nb_streams)
                ? fmt_ctx->streams[stream_id]->codecpar->codec_type
                : AVMEDIA_TYPE_UNKNOWN;
   }

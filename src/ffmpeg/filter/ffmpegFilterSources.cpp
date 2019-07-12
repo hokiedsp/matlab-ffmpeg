@@ -112,6 +112,7 @@ std::string VideoSource::generate_args()
        << "pix_fmt=" << fmtstr << ':' << "time_base=" << p.time_base.num << '/'
        << p.time_base.den << ':' << "pixel_aspect=" << p.sample_aspect_ratio.num
        << '/' << p.sample_aspect_ratio.den << ':'
+       << "frame_rate=" << p.frame_rate.num << '/' << p.frame_rate.den << ':'
        << "sws_param=flags=" << sws_flags;
 
   return sout.str();

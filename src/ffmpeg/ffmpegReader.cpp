@@ -185,7 +185,11 @@ int Reader::setFilterGraph(const std::string &desc)
   if (active)
     Exception("Cannot set filter graph as the reader is already active.");
 
-  if (filter_graph) delete filter_graph;
+  if (filter_graph)
+  {
+    delete filter_graph;
+    filter_graph = nullptr;
+  }
 
   // create new filter graph
   filter::Graph *fg = new filter::Graph(desc);
@@ -251,6 +255,7 @@ void Reader::activate()
 
   if (filter_graph)
   {
+    // also make sure all the filter graph sink buffers are filled
     while (!file.atEndOfFile() &&
            std::any_of(filter_outbufs.begin(), filter_outbufs.end(),
                        [](const auto &buf) { return buf.second.empty(); }))
@@ -258,6 +263,10 @@ void Reader::activate()
       file.readNextPacket();
       if (filter_graph) filter_graph->processFrame();
     }
-  }
+
+    // then update media parameters of the sinks
+    for (auto &buf : filter_outbufs)
+    { dynamic_cast<filter::SinkBase &>(buf.second.getSrc()).sync(); } }
+
   active = true;
 }

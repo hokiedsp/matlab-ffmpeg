@@ -393,10 +393,10 @@ std::string Graph::getNextUnassignedSink(const std::string &last,
   bool any_media = (type == AVMEDIA_TYPE_UNKNOWN);
 
   auto out = last.size() ? ++outputs.find(last) : outputs.begin();
-  for (; out != outputs.end() && out->second.buf &&
-         !(any_media || out->second.filter->getMediaType() == type);
-       ++out)
-    ;
+  out = std::find_if(out, outputs.end(), [any_media, type](auto &sinkinfo) {
+    return (!sinkinfo.second.buf &&
+            (any_media || sinkinfo.second.filter->getMediaType() == type));
+  });
   return out != outputs.end() ? out->first : "";
 }
 

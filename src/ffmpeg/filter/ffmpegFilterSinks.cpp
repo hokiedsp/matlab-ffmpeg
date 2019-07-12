@@ -27,7 +27,7 @@ SinkBase::~SinkBase()
 }
 
 AVFilterContext *SinkBase::configure(const std::string &name)
-{ // configure the AVFilterContext
+{ 
   ena = true;
   return configure_prefilter(false);
 }
@@ -77,14 +77,23 @@ void VideoSink::setPixelFormat(const AVPixelFormat pix_fmt)
 
 bool VideoSink::sync()
 {
-  if (!context || context->inputs[0]) return synced;
-  VideoParams &p = *static_cast<VideoParams *>(params);
-  p.time_base = av_buffersink_get_time_base(context);
-  p.format = (AVPixelFormat)av_buffersink_get_format(context);
-  p.width = av_buffersink_get_w(context);
-  p.height = av_buffersink_get_h(context);
-  p.sample_aspect_ratio = av_buffersink_get_sample_aspect_ratio(context);
-  synced = true;
+  if (context && context->inputs[0])
+  {
+    VideoParams &p = *static_cast<VideoParams *>(params);
+    p.time_base = av_buffersink_get_time_base(context);
+    p.format = (AVPixelFormat)av_buffersink_get_format(context);
+    p.width = av_buffersink_get_w(context);
+    p.height = av_buffersink_get_h(context);
+    p.sample_aspect_ratio = av_buffersink_get_sample_aspect_ratio(context);
+    p.frame_rate = av_buffersink_get_frame_rate(context);
+    synced = true;
+  }
+  else
+  {
+    {
+      synced = false;
+    }
+  }
   return synced;
 }
 
@@ -102,13 +111,20 @@ AVFilterContext *AudioSink::configure(const std::string &name)
 
 bool AudioSink::sync()
 {
-  if (!context || context->inputs[0]) return synced;
-  AudioParams &p = *static_cast<AudioParams *>(params);
+  if (context && context->inputs[0])
+  {
+    AudioParams &p = *static_cast<AudioParams *>(params);
 
-  p.time_base = av_buffersink_get_time_base(context);
-  p.format = (AVSampleFormat)av_buffersink_get_format(context);
-  p.channel_layout = av_buffersink_get_channel_layout(context);
-  synced = true;
+    p.time_base = av_buffersink_get_time_base(context);
+    p.format = (AVSampleFormat)av_buffersink_get_format(context);
+    p.channel_layout = av_buffersink_get_channel_layout(context);
+    p.sample_rate = av_buffersink_get_sample_rate(context);
+    synced = true;
+  }
+  else
+  {
+    synced = false;
+  }
   return true;
 
   // if linked to a stream

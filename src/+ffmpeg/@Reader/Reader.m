@@ -323,8 +323,8 @@ classdef Reader < matlab.mixin.SetGet & matlab.mixin.CustomDisplay
          obj.AudioFormat = value;
       end
       function set.FilterGraph(obj,value)
-         value = validateattributes(value,{'char','row'},mfilename,'VideoFilter');
-         obj.VideoFilter = value;
+         validateattributes(value,{'char'},{'row'});
+         obj.FilterGraph = value;
       end
       
 %       function set.BufferSize(obj,value)

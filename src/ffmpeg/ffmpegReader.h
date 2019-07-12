@@ -270,7 +270,9 @@ class Reader
     AVFrameQueueST &buf = get_buf(spec);
     while (buf.empty()) read_next_packet();
     AVFrame *frame = buf.peekToPop();
-    return (frame) ? get_timestamp<Chrono_t>(frame->best_effort_timestamp,
+    return (frame) ? get_timestamp<Chrono_t>(frame->best_effort_timestamp >= 0
+                                                 ? frame->best_effort_timestamp
+                                                 : frame->pts,
                                              buf.getSrc().getTimeBase())
                    : getDuration();
   }

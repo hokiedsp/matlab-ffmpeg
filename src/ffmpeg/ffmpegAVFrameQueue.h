@@ -261,6 +261,9 @@ class AVFrameQueue : public IAVFrameBuffer
 
     wr = que.begin() + Iwr;
     rd = que.begin() + Ird;
+
+    // advance write pointer to the new element for the subsequent pushing
+    if (wr->populated && ++wr == que.end()) wr = que.begin();
   }
 
   bool readyToPush_threadunsafe() { return dynamic || !wr->populated; }
