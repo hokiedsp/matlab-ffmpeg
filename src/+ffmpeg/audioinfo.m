@@ -12,21 +12,22 @@ function info = audioinfo(filename)
 %
 %   'Filename'          A character vector or string scalar containing the
 %                       name of the file 
-%   'CompressionMethod' Method of audio compression in the file 
-%   'NumChannels'       Number of audio channels in the file.
-%   'SampleRate'        The sample rate (in Hertz) of the data in the file.
-%   'TotalSamples'      Total number of audio samples in the file.
-%   'Duration'          Total duration of the audio in the file, in
-%                       seconds. 
-%   'Title'             character vector or string scalar representing the 
-%                       value of the Title tag present in the file. Value 
+%   'StreamId'          Data stream ID selected from the file
+%   'CompressionMethod' Method of audio compression of the stream
+%   'NumChannels'       Number of audio channels of the stream
+%   'ChannelLayout'     Layout of audio channels of the stream
+%   'SampleRate'        The sample rate (in Hertz) of the stream
+%   'TotalSamples'      Total number of audio samples of the stream
+%   'Duration'          Total duration of the stream, in seconds
+%   'Title'             character vector representing the value of the 
+%                       Title tag present in the file. Value is empty
+%                       if tag is not present.
+%   'Comment'           character vector representing the value of the
+%                       Comment tag present in the file. Value 
 %                       is empty if tag is not present.
-%   'Comment'           character vector or string scalar representing the
-%                       value of the Comment tag present in the file. Value 
-%                       is empty if tag is not present.
-%   'Artist'            character vector or string scalar representing the
-%                       value of the Artist or Author tag present in the 
-%                       file. Value is empty if tag not present.
+%   'Artist'            character vector representing the value of the 
+%                       Artist or Author tag present in the file. Value
+%                       is empty if tag not present.
 %
 %   Format specific fields areas follows:
 %
