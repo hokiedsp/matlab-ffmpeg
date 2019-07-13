@@ -14,7 +14,7 @@ extern "C"
 #include <libavutil/display.h>
 }
 
-#include "../ffmpeg/avexception.h"
+#include "../ffmpeg/ffmpegException.h"
 #include "transcode_inputfile.h"
 #include "transcode_inputstream.h"
 #include "transcode_outputfile.h"
@@ -158,7 +158,7 @@ static char *choose_pix_fmts(OutputFilter *ofilter)
 
         if (avio_open_dyn_buf(&s) < 0)
         {
-            AVException::log(AV_LOG_FATAL, "Failed to open dynamic buffer (avio_open_dyn_buf())");
+            AVthrow Exception( "Failed to open dynamic buffer (avio_open_dyn_buf())");
             throw;
         }
 
@@ -200,7 +200,7 @@ static char *choose_pix_fmts(OutputFilter *ofilter)
                                                                                   \
             if (avio_open_dyn_buf(&s) < 0)                                        \
             {                                                                     \
-                AVException::log(AV_LOG_FATAL, "Failed to open dynamic buffer."); \
+                AVthrow Exception( "Failed to open dynamic buffer."); \
                 throw;                                                            \
             }                                                                     \
                                                                                   \
@@ -246,7 +246,7 @@ int init_simple_filtergraph(InputStream *ist, OutputStream *ost)
 
     if (!fg)
     {
-        AVException::log(AV_LOG_FATAL, "Failed to allocate memory for FilterGraph object.");
+        AVthrow Exception( "Failed to allocate memory for FilterGraph object.");
         throw;
     }
     fg->index = filtergraphs.size();
@@ -266,7 +266,7 @@ int init_simple_filtergraph(InputStream *ist, OutputStream *ost)
     fg->inputs[0]->frame_queue = av_fifo_alloc(8 * sizeof(AVFrame *));
     if (!fg->inputs[0]->frame_queue)
     {
-        AVException::log(AV_LOG_FATAL, "Failed to allocate frame FIFO queue.");
+        AVthrow Exception( "Failed to allocate frame FIFO queue.");
         throw;
     }
 

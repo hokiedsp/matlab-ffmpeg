@@ -14,7 +14,7 @@ extern "C"
 #include <libavutil/avstring.h>
 }
 
-#include "../ffmpeg/avexception.h"
+#include "../ffmpeg/ffmpegException.h"
 #include "transcode_utils.h"
 #include "transcode_inputstream.h"
 #include "transcode_inputfile.h"
@@ -236,7 +236,7 @@ void write_packet(OutputFile *of, AVPacket *pkt, OutputStream *ost, int unqueue)
                                  ost->max_muxing_queue_size);
             if (new_size <= av_fifo_size(ost->muxing_queue))
             {
-                AVException::log(AV_LOG_FATAL,
+                AVthrow Exception(
                                  "Too many packets buffered for output stream %d:%d.\n",
                                  ost->file_index, ost->st->index);
                 throw;
@@ -244,14 +244,14 @@ void write_packet(OutputFile *of, AVPacket *pkt, OutputStream *ost, int unqueue)
             ret = av_fifo_realloc2(ost->muxing_queue, new_size);
             if (ret < 0)
             {
-                AVException::log(AV_LOG_FATAL, "Failed to allocate FIFO for mux queue.");
+                AVthrow Exception( "Failed to allocate FIFO for mux queue.");
                 throw;
             }
         }
         ret = av_packet_make_refcounted(pkt);
         if (ret < 0)
         {
-            AVException::log(AV_LOG_FATAL, "Failed to ensure the data described by a given packet is reference counted.");
+            AVthrow Exception( "Failed to ensure the data described by a given packet is reference counted.");
             throw;
         }
         av_packet_move_ref(&tmp_pkt, pkt);
@@ -316,7 +316,7 @@ void write_packet(OutputFile *of, AVPacket *pkt, OutputStream *ost, int unqueue)
                        ost->file_index, ost->st->index, ost->last_mux_dts, pkt->dts);
                 if (exit_on_error)
                 {
-                    AVException::log(AV_LOG_FATAL, "aborting.\n");
+                    AVthrow Exception( "aborting.\n");
                     throw;
                 }
                 AVException::log(s, loglevel, "changing to %" PRId64 ". This may result "
@@ -685,7 +685,7 @@ void do_video_out(OutputFile *of, OutputStream *ost, AVFrame *next_picture, doub
 
     return;
 error:
-    AVException::log(AV_LOG_FATAL, "Video encoding failed\n");
+    AVthrow Exception( "Video encoding failed\n");
     throw;
 }
 
@@ -747,7 +747,7 @@ void do_audio_out(OutputFile *of, OutputStream *ost, AVFrame *frame)
 
     return;
 error:
-    AVException::log(AV_LOG_FATAL, "Audio encoding failed\n");
+    AVthrow Exception( "Audio encoding failed\n");
     throw;
 }
 
@@ -774,7 +774,7 @@ void do_subtitle_out(OutputFile *of, OutputStream *ost, AVSubtitle *sub)
         subtitle_out = (uint8_t *)av_malloc(subtitle_out_max_size);
         if (!subtitle_out)
         {
-            AVException::log(AV_LOG_FATAL, "Failed to allocate subtitle_out\n");
+            AVthrow Exception( "Failed to allocate subtitle_out\n");
             throw;
         }
     }
@@ -815,7 +815,7 @@ void do_subtitle_out(OutputFile *of, OutputStream *ost, AVSubtitle *sub)
             sub->num_rects = save_num_rects;
         if (subtitle_out_size < 0)
         {
-            AVException::log(AV_LOG_FATAL, "Subtitle encoding failed\n");
+            AVthrow Exception( "Subtitle encoding failed\n");
             throw;
         }
 
@@ -871,7 +871,7 @@ void set_encoder_id(OutputFile *of, OutputStream *ost)
     encoder_string = (uint8_t*)av_mallocz(encoder_string_len);
     if (!encoder_string)
     {
-        AVException::log(AV_LOG_FATAL,"Failed to allocate a string for encoder string.");
+        AVthrow Exception("Failed to allocate a string for encoder string.");
         throw;
     }
 

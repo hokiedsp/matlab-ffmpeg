@@ -10,8 +10,8 @@ extern "C"
 #endif
 }
 
-#include "ffmpeg/FFmpegMxProbe.h"
-#include "ffmpeg/avexception.h"
+#include "ffmpeg/ffmpegMxProbe.h"
+#include "ffmpeg/ffmpegException.h"
 #include "ffmpeg/ffmpeg_utils.h"
 #include "ffmpeg/mxutils.h"
 
@@ -27,17 +27,17 @@ void mexFunction(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[])
     avdevice_register_all();
 #endif
 
-    // initialize AVException
-    AVException::initialize();
+    // initialize ffmpeg::Exception
+    ffmpeg::Exception::initialize();
 
     // initialize the output struct
-    plhs[0] = FFmpegMxProbe::createMxInfoStruct(filenames.size());
+    plhs[0] = ffmpeg::MxProbe::createMxInfoStruct(filenames.size());
 
     int index = 0;
     for (auto pfile = filenames.begin(); pfile != filenames.end(); ++pfile)
     {
         // open the media file
-        FFmpegMxProbe mediafile(pfile->c_str());
+        ffmpeg::MxProbe mediafile(pfile->c_str());
 
         // get a dump of the media info
         mediafile.dumpToMatlab(plhs[0], index++);

@@ -18,7 +18,7 @@ extern "C"
 #include "transcode_outputstream.h"
 #include "transcode_filter.h"
 #include "transcode_utils.h"
-#include "../ffmpeg/avexception.h"
+#include "../ffmpeg/ffmpegException.h"
 
 // prototypes
 

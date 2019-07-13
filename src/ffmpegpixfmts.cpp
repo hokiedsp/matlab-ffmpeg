@@ -10,7 +10,7 @@ extern "C"
 #include <libswscale/swscale.h>
 }
 
-#include "ffmpeg/avexception.h"
+#include "ffmpeg/ffmpegException.h"
 #include "ffmpeg/mxutils.h"
 
 // function colors = ffmpegpixfmts()
@@ -33,8 +33,8 @@ void mexFunction(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[])
             mexErrMsgTxt("Only input argument supported is \"onlynames\".");
     }
 
-    // initialize AVException to capture fatal error in ffmpeg
-    AVException::initialize();
+    // initialize ffmpeg::Exception to capture fatal error in ffmpeg
+    ffmpeg::Exception::initialize();
 
     // gather color data
     std::map<std::string, const AVPixFmtDescriptor *> pixfmt_map;

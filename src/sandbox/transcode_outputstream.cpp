@@ -8,7 +8,7 @@ extern "C"
 #include <libavutil/avassert.h>
 }
 
-#include "../ffmpeg/avexception.h"
+#include "../ffmpeg/ffmpegException.h"
 #include "transcode_inputstream.h"
 #include "transcode_outputfile.h"
 #include "transcode_hw.h"
@@ -143,7 +143,7 @@ int init_output_stream(OutputStream *ost, char *error, int error_len)
         ret = avcodec_parameters_from_context(ost->st->codecpar, ost->enc_ctx);
         if (ret < 0)
         {
-            AVException::log(AV_LOG_FATAL,
+            AVthrow Exception(
                              "Error initializing the output stream codec context.\n");
             throw;
         }
@@ -561,7 +561,7 @@ int init_output_stream_streamcopy(OutputStream *ost)
     case AVMEDIA_TYPE_AUDIO:
         if (audio_volume != 256)
         {
-            AVException::log(AV_LOG_FATAL, "-acodec copy and -vol are incompatible (frames are not decoded)");
+            AVthrow Exception( "-acodec copy and -vol are incompatible (frames are not decoded)");
             throw;
         }
         if ((par_dst->block_align == 1 || par_dst->block_align == 1152 || par_dst->block_align == 576) && par_dst->codec_id == AV_CODEC_ID_MP3)

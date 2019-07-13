@@ -10,7 +10,7 @@ extern "C"
 #include <libavutil/parseutils.h>
 }
 
-#include "ffmpeg/avexception.h"
+#include "ffmpeg/ffmpegException.h"
 #include "ffmpeg/mxutils.h"
 
 // tf = isframesize(val) (prevalidated)
@@ -41,8 +41,8 @@ void mexFunction(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[])
         ok =( expr != "");
     }
 
-    // initialize AVException
-    AVException::initialize();
+    // initialize ffmpeg::Exception
+    ffmpeg::Exception::initialize();
 
     int width, height; // dummy
     plhs[0] = mxCreateLogicalScalar(av_parse_video_size(&width, &height, expr.c_str()) >= 0);

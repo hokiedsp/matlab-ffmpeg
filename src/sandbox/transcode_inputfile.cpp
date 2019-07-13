@@ -10,7 +10,7 @@ extern "C"
 #include <libavutil/timestamp.h>
 }
 
-#include "../ffmpeg/avexception.h"
+#include "../ffmpeg/ffmpegException.h"
 #include "transcode_inputstream.h"
 
 #include "transcode_outputstream.h"
@@ -181,7 +181,7 @@ void InputFile::findStreamInfo(AVDictionary **codec_opts)
 
     if (ret < 0)
     {
-        AVException::log(AV_LOG_FATAL, "%s: could not find codec parameters", filename.c_str());
+        AVthrow Exception( "%s: could not find codec parameters", filename.c_str());
         throw; // just in case
     }
 }
@@ -372,7 +372,7 @@ int InputFile::process_input()
 
             dst_data = av_packet_new_side_data(&pkt, src_sd->type, src_sd->size);
             if (!dst_data)
-                AVException::log(AV_LOG_FATAL, "Failed to allocate new information of a packet.");
+                AVthrow Exception( "Failed to allocate new information of a packet.");
 
             memcpy(dst_data, src_sd->data, src_sd->size);
         }

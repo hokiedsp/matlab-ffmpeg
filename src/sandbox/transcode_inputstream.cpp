@@ -11,7 +11,7 @@ extern "C"
     // #include <libavformat/avformat.h>
 }
 
-#include "../ffmpeg/avexception.h"
+#include "../ffmpeg/ffmpegException.h"
 #include "transcode_inputfile.h"
 
 #include "transcode_utils.h"
@@ -280,13 +280,13 @@ void InputStream::initDecoder(const AVDictionary *codec_opts)
     dec_ctx = avcodec_alloc_context3(dec);
     if (!dec_ctx)
     {
-        AVException::log(AV_LOG_FATAL, "Error allocating the decoder context.");
+        AVthrow Exception( "Error allocating the decoder context.");
         throw; // just in case
     }
 
     if (avcodec_parameters_to_context(dec_ctx, st->codecpar) < 0)
     {
-        AVException::log(AV_LOG_FATAL, "Error initializing the decoder context.");
+        AVthrow Exception( "Error initializing the decoder context.");
         throw; // just in case
     }
 
@@ -319,7 +319,7 @@ void InputStream::initDecoder(const AVDictionary *codec_opts)
         if (canvas_size &&
             av_parse_video_size(&dec_ctx->width, &dec_ctx->height, canvas_size) < 0)
         {
-            AVException::log(AV_LOG_FATAL, "Invalid canvas size: %s.", canvas_size);
+            AVthrow Exception( "Invalid canvas size: %s.", canvas_size);
             throw;
         }
         break;
@@ -328,7 +328,7 @@ void InputStream::initDecoder(const AVDictionary *codec_opts)
     case AVMEDIA_TYPE_UNKNOWN:
         break;
     default:
-        AVException::log(AV_LOG_FATAL, "Unknown codec type.");
+        AVthrow Exception( "Unknown codec type.");
         throw;
     }
 
@@ -350,7 +350,7 @@ void InputStream::openDecoder()
         {
             std::stringstream ss;
             ss << "Decoder (codec " << avcodec_get_name(dec_ctx->codec_id) << ") not found for input stream " << IdString();
-            AVException::log(AV_LOG_FATAL, ss.str().c_str());
+            AVthrow Exception( ss.str().c_str());
             throw;
         }
 
@@ -501,7 +501,7 @@ int InputStream::process_input_packet(const AVPacket *pkt, bool no_eof)
                 ret = AVERROR_EOF;
             break;
         default:
-            AVException::log(AV_LOG_FATAL, "Unknown media type for stream #%s", IdString().c_str());
+            AVthrow Exception( "Unknown media type for stream #%s", IdString().c_str());
             AVException::throw_last_log();
         }
 
@@ -913,7 +913,7 @@ void InputStream::send_filter_eof()
     {
         ret = ifilter_send_eof(filters[i], pts_rescaled);
         if (ret < 0)
-            AVException::log(AV_LOG_FATAL, "Error marking filters as finished.");
+            AVthrow Exception( "Error marking filters as finished.");
     }
 }
 

@@ -7,7 +7,7 @@ extern "C"
 #include <libavutil/opt.h>
 }
 
-#include "avexception.h"
+#include "ffmpegException.h"
 
 mxArray *mxCreateTags(const AVDictionary *tags)
 {

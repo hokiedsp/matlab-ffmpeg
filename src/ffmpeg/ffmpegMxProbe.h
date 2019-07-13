@@ -13,10 +13,12 @@ extern "C"
 
 #include "ffmpeg_utils.h"
 
+namespace ffmpeg{
+
 /*
 * Standalone class to open a media file to probe its content from Matlab
 */
-class FFmpegMxProbe
+class MxProbe
 {
   std::string filename;
   AVFormatContext *fmt_ctx;
@@ -25,22 +27,22 @@ class FFmpegMxProbe
   std::vector<AVCodecContext*> st_dec_ctx;
 
 public:
-  FFmpegMxProbe(const char *filename = nullptr) : fmt_ctx(nullptr)
+  MxProbe(const char *filename = nullptr) : fmt_ctx(nullptr)
   {
     if (filename)
       open(filename);
   }
-  FFmpegMxProbe(const FFmpegMxProbe &) = delete;            // non construction-copyable
-  FFmpegMxProbe(FFmpegMxProbe &&src) : fmt_ctx(src.fmt_ctx) // move xtor
+  MxProbe(const MxProbe &) = delete;            // non construction-copyable
+  MxProbe(MxProbe &&src) : fmt_ctx(src.fmt_ctx) // move xtor
   {
     src.fmt_ctx = nullptr;
     st_dec_ctx = std::move(src.st_dec_ctx);
   }
 
-  FFmpegMxProbe &operator=(const FFmpegMxProbe &) = delete; // non copyable
-  FFmpegMxProbe &operator=(FFmpegMxProbe &&src) = delete;   // non movable
+  MxProbe &operator=(const MxProbe &) = delete; // non copyable
+  MxProbe &operator=(MxProbe &&src) = delete;   // non movable
 
-  ~FFmpegMxProbe() { close(); }
+  ~MxProbe() { close(); }
 
   std::vector<std::string> getMediaTypes() const;
 
@@ -145,3 +147,4 @@ private:
   static mxArray *createMxProgramStruct(mwSize size);
   static mxArray *createMxStreamStruct(mwSize size);
 };
+}

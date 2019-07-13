@@ -1,4 +1,4 @@
-#include "FFmpegMxProbe.h"
+#include "ffmpegMxProbe.h"
 
 #include <algorithm>
 #include <set>
@@ -10,11 +10,13 @@ extern "C"
 #include <libavutil/pixdesc.h>
 }
 
-#include "avexception.h"
+#include "ffmpegException.h"
 #include "ffmpeg_utils.h"
 #include "mxutils.h"
 
-void FFmpegMxProbe::close()
+using namespace ffmpeg;
+
+void MxProbe::close()
 {
   if (!fmt_ctx)
   {
@@ -25,7 +27,7 @@ void FFmpegMxProbe::close()
   }
 }
 
-void FFmpegMxProbe::open(const char *infile, AVInputFormat *iformat,
+void MxProbe::open(const char *infile, AVInputFormat *iformat,
                          AVDictionary *opts)
 {
   int err, i;
@@ -33,7 +35,7 @@ void FFmpegMxProbe::open(const char *infile, AVInputFormat *iformat,
 
   fmt_ctx = avformat_alloc_context();
   if (!fmt_ctx)
-    AVException::log_error(AV_LOG_FATAL, "%s: %s", 1, infile, AVERROR(ENOMEM));
+    throw Exception("%s: Could not allocate memory for format context.", infile);
 
   // if (!av_dict_get(format_opts, "scan_all_pmts", NULL, AV_DICT_MATCH_CASE))
   // {
@@ -49,14 +51,14 @@ void FFmpegMxProbe::open(const char *infile, AVInputFormat *iformat,
       err = avformat_open_input(&fmt_ctx, filepath.c_str(), iformat,
                                 opts ? &opts : nullptr);
     if (err < 0) // no luck
-      AVException::log_error(AV_LOG_FATAL, "%s: %s", 1, infile, err);
+      throw Exception(err);
   }
 
   // fmt_ctx valid
 
   // fill stream information if not populated yet
   err = avformat_find_stream_info(fmt_ctx, opts ? &opts : nullptr);
-  if (err < 0) AVException::log_error(AV_LOG_FATAL, "%s: %s", 1, infile, err);
+  if (err < 0) throw Exception(err);
 
   // if (scan_all_pmts_set)
   //     av_dict_set(&format_opts, "scan_all_pmts", NULL, AV_DICT_MATCH_CASE);
@@ -74,14 +76,14 @@ void FFmpegMxProbe::open(const char *infile, AVInputFormat *iformat,
   filename = infile;
 }
 
-AVCodecContext *FFmpegMxProbe::open_stream(AVStream *st, AVDictionary *opts)
+AVCodecContext *MxProbe::open_stream(AVStream *st, AVDictionary *opts)
 {
   AVCodecContext *dec_ctx = nullptr;
   AVCodec *codec;
 
   if (st->codecpar->codec_id == AV_CODEC_ID_PROBE)
   {
-    AVException::log(AV_LOG_WARNING,
+    Exception::log(AV_LOG_WARNING,
                      "Failed to probe codec for input stream %d\n", st->index);
     return dec_ctx;
   }
@@ -89,7 +91,7 @@ AVCodecContext *FFmpegMxProbe::open_stream(AVStream *st, AVDictionary *opts)
   codec = avcodec_find_decoder(st->codecpar->codec_id);
   if (!codec)
   {
-    AVException::log(AV_LOG_WARNING,
+    Exception::log(AV_LOG_WARNING,
                      "Unsupported codec with id %d for input stream %d\n",
                      st->codecpar->codec_id, st->index);
     return dec_ctx;
@@ -100,18 +102,18 @@ AVCodecContext *FFmpegMxProbe::open_stream(AVStream *st, AVDictionary *opts)
   AVDictionaryAutoDelete(codec_opts);
 
   dec_ctx = avcodec_alloc_context3(codec);
-  if (!dec_ctx) AVException::log_error(AV_LOG_FATAL, "%s", AVERROR(ENOMEM));
+  if (!dec_ctx) throw Exception(AVERROR(ENOMEM));
   AVCodecContextAutoDelete(dec_ctx);
 
   int err = avcodec_parameters_to_context(dec_ctx, st->codecpar);
-  if (err < 0) AVException::log_error(AV_LOG_FATAL, "%s", err);
+  if (err < 0) throw Exception(err);
 
   dec_ctx->pkt_timebase = st->time_base;
   dec_ctx->framerate = st->avg_frame_rate;
 
   if (avcodec_open2(dec_ctx, codec, &codec_opts) < 0)
   {
-    AVException::log(AV_LOG_WARNING,
+    Exception::log(AV_LOG_WARNING,
                      "Could not open codec for input stream %d\n", st->index);
     return dec_ctx;
   }
@@ -119,14 +121,14 @@ AVCodecContext *FFmpegMxProbe::open_stream(AVStream *st, AVDictionary *opts)
   AVDictionaryEntry *t;
   while ((t = av_dict_get(codec_opts, "", NULL, AV_DICT_IGNORE_SUFFIX)))
   {
-    AVException::log(AV_LOG_ERROR, "Option %s for input stream %d not found\n",
+    Exception::log(AV_LOG_ERROR, "Option %s for input stream %d not found\n",
                      t->key, st->index);
   }
 
   return dec_ctx;
 }
 
-std::vector<std::string> FFmpegMxProbe::getMediaTypes() const
+std::vector<std::string> MxProbe::getMediaTypes() const
 {
   // create a unique list of codec types
   std::set<AVMediaType> types;
@@ -140,26 +142,26 @@ std::vector<std::string> FFmpegMxProbe::getMediaTypes() const
   return ret;
 }
 
-double FFmpegMxProbe::getDuration() const
+double MxProbe::getDuration() const
 {
-  if (!fmt_ctx) AVException::log(AV_LOG_FATAL, "No file is open.\n");
+  if (!fmt_ctx) throw Exception("No file is open.");
 
   int64_t duration =
       fmt_ctx->duration + (fmt_ctx->duration <= INT64_MAX - 5000 ? 5000 : 0);
   return duration / (double)AV_TIME_BASE;
 }
 
-int FFmpegMxProbe::getStreamIndex(const enum AVMediaType type,
+int MxProbe::getStreamIndex(const enum AVMediaType type,
                                   int wanted_stream_index) const
 {
-  if (!fmt_ctx) AVException::log(AV_LOG_FATAL, "No file is open.\n");
+  if (!fmt_ctx) throw Exception( "No file is open.\n");
   return av_find_best_stream(fmt_ctx, type, wanted_stream_index, -1, nullptr,
                              0);
 }
 
-int FFmpegMxProbe::getStreamIndex(const std::string &spec_str) const
+int MxProbe::getStreamIndex(const std::string &spec_str) const
 {
-  if (!fmt_ctx) AVException::log(AV_LOG_FATAL, "No file is open.\n");
+  if (!fmt_ctx) throw Exception("No file is open.");
   const char *spec = spec_str.c_str();
 
   if (!fmt_ctx->nb_streams) return AVERROR_STREAM_NOT_FOUND;
@@ -171,21 +173,21 @@ int FFmpegMxProbe::getStreamIndex(const std::string &spec_str) const
   return AVERROR_STREAM_NOT_FOUND;
 }
 
-double FFmpegMxProbe::getVideoFrameRate(int wanted_stream_index,
+double MxProbe::getVideoFrameRate(int wanted_stream_index,
                                         const bool get_avg) const
 {
   int i = getStreamIndex(AVMEDIA_TYPE_VIDEO, wanted_stream_index);
-  if (i < 0) AVException::log(AV_LOG_FATAL, "No video stream found.\n");
+  if (i < 0) throw Exception( "No video stream found.\n");
   return av_q2d(get_avg ? (fmt_ctx->streams[i]->avg_frame_rate)
                         : (fmt_ctx->streams[i]->r_frame_rate));
 }
 
-double FFmpegMxProbe::getVideoFrameRate(const std::string &spec_str,
+double MxProbe::getVideoFrameRate(const std::string &spec_str,
                                         const bool get_avg) const
 {
   int i = getStreamIndex(spec_str);
   if (i < 0 || fmt_ctx->streams[i]->codecpar->codec_type != AVMEDIA_TYPE_VIDEO)
-    AVException::log(AV_LOG_FATAL,
+    throw Exception(
                      "Stream specifier \"%s\" is either invalid expression or "
                      "no match found.\n",
                      spec_str.c_str());
@@ -193,18 +195,18 @@ double FFmpegMxProbe::getVideoFrameRate(const std::string &spec_str,
                         : (fmt_ctx->streams[i]->r_frame_rate));
 }
 
-int FFmpegMxProbe::getAudioSampleRate(int wanted_stream_index) const
+int MxProbe::getAudioSampleRate(int wanted_stream_index) const
 {
   int i = getStreamIndex(AVMEDIA_TYPE_AUDIO, wanted_stream_index);
-  if (i < 0) AVException::log(AV_LOG_FATAL, "No audio stream found.\n");
+  if (i < 0) throw Exception( "No audio stream found.\n");
   return fmt_ctx->streams[i]->codecpar->sample_rate;
 }
 
-int FFmpegMxProbe::getAudioSampleRate(const std::string &spec_str) const
+int MxProbe::getAudioSampleRate(const std::string &spec_str) const
 {
   int i = getStreamIndex(spec_str);
   if (i < 0 || fmt_ctx->streams[i]->codecpar->codec_type != AVMEDIA_TYPE_AUDIO)
-    AVException::log(AV_LOG_FATAL,
+    throw Exception(
                      "Stream specifier \"%s\" is either invalid expression or "
                      "no match found.\n",
                      spec_str.c_str());
@@ -214,9 +216,9 @@ int FFmpegMxProbe::getAudioSampleRate(const std::string &spec_str) const
 
 ////////////////////////////////////////////////////////////////////////////
 
-void FFmpegMxProbe::dumpToMatlab(mxArray *mxInfo, const int index) const
+void MxProbe::dumpToMatlab(mxArray *mxInfo, const int index) const
 {
-  if (!fmt_ctx) AVException::log(AV_LOG_FATAL, "No file is open.\n");
+  if (!fmt_ctx) throw Exception( "No file is open.\n");
   ///////////////////////////////////////////
   // MACROs to set mxArray struct fields
   mxArray *mxTMP;
@@ -323,7 +325,7 @@ void FFmpegMxProbe::dumpToMatlab(mxArray *mxInfo, const int index) const
     if (notshown[i]) { dump_stream_to_matlab(i, mxStreams, j++); }
 }
 
-void FFmpegMxProbe::dump_stream_to_matlab(const int sid, mxArray *mxInfo,
+void MxProbe::dump_stream_to_matlab(const int sid, mxArray *mxInfo,
                                           const int index) const
 {
   AVStream *st = fmt_ctx->streams[sid];
@@ -567,39 +569,39 @@ void FFmpegMxProbe::dump_stream_to_matlab(const int sid, mxArray *mxInfo,
 
 #define ARRAY_LENGTH(_array_) (sizeof(_array_) / sizeof(_array_[0]))
 
-mxArray *FFmpegMxProbe::createMxInfoStruct(mwSize size)
+mxArray *MxProbe::createMxInfoStruct(mwSize size)
 {
   return mxCreateStructMatrix(size, 1, ARRAY_LENGTH(field_names), field_names);
 }
 
-mxArray *FFmpegMxProbe::createMxChapterStruct(mwSize size)
+mxArray *MxProbe::createMxChapterStruct(mwSize size)
 {
   return mxCreateStructMatrix(size, 1, ARRAY_LENGTH(chapter_field_names),
                               chapter_field_names);
 }
 
-mxArray *FFmpegMxProbe::createMxProgramStruct(mwSize size)
+mxArray *MxProbe::createMxProgramStruct(mwSize size)
 {
   return mxCreateStructMatrix(size, 1, ARRAY_LENGTH(program_field_names),
                               program_field_names);
 }
 
-mxArray *FFmpegMxProbe::createMxStreamStruct(mwSize size)
+mxArray *MxProbe::createMxStreamStruct(mwSize size)
 {
   return mxCreateStructMatrix(size, 1, ARRAY_LENGTH(stream_field_names),
                               stream_field_names);
 }
 
-const char *FFmpegMxProbe::field_names[] = {
+const char *MxProbe::field_names[] = {
     "format",  "filename", "metadata", "duration_ts", "duration", "start_ts",
     "bitrate", "start",    "streams",  "chapters",    "programs"};
 
-const char *FFmpegMxProbe::chapter_field_names[] = {"start", "end", "metadata"};
+const char *MxProbe::chapter_field_names[] = {"start", "end", "metadata"};
 
-const char *FFmpegMxProbe::program_field_names[] = {"id", "name", "metadata",
+const char *MxProbe::program_field_names[] = {"id", "name", "metadata",
                                                     "streams"};
 
-const char *FFmpegMxProbe::stream_field_names[] = {"index",
+const char *MxProbe::stream_field_names[] = {"index",
                                                    "codec_name",
                                                    "codec_long_name",
                                                    "profile",

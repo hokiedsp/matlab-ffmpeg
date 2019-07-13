@@ -10,8 +10,8 @@ extern "C"
 #endif
 }
 
-#include "ffmpeg/FFmpegMxProbe.h"
-#include "ffmpeg/avexception.h"
+#include "ffmpeg/ffmpegMxProbe.h"
+#include "ffmpeg/ffmpegException.h"
 #include "ffmpeg/mxutils.h"
 
 // types = ffmpegmediatypes(filename)
@@ -28,18 +28,18 @@ void mexFunction(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[])
     avdevice_register_all();
 #endif
 
-    // initialize AVException
-    AVException::initialize();
+    // initialize ffmpeg::Exception
+    ffmpeg::Exception::initialize();
 
     // // testing logging capability
-    // AVException::av_log_level = AV_LOG_INFO;
-    // AVException::log_fcn = [](const std::string &msg) { mexPrintf("%s", msg.c_str()); };
-    // AVException::log(AV_LOG_INFO, "executing ffmpegmediatypes...");
+    // ffmpeg::Exception::av_log_level = AV_LOG_INFO;
+    // ffmpeg::Exception::log_fcn = [](const std::string &msg) { mexPrintf("%s", msg.c_str()); };
+    // ffmpeg::Exception::log(AV_LOG_INFO, "executing ffmpegmediatypes...");
 
     char *filename = mxArrayToUTF8String(prhs[0]);
     mxAutoFree(filename);
 
-    FFmpegMxProbe mediafile(filename);
+    ffmpeg::MxProbe mediafile(filename);
     auto types = mediafile.getMediaTypes();
 
     plhs[0] = mxCreateCellMatrix(types.size(), 1);

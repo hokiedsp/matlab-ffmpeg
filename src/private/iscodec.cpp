@@ -14,7 +14,7 @@ extern "C"
 #endif
 }
 
-#include "ffmpeg/avexception.h"
+#include "ffmpeg/ffmpegException.h"
 #include "ffmpeg/mxutils.h"
 
 // tf = iscodec(val,type,encoder) (prevalidated)
@@ -32,8 +32,8 @@ void mexFunction(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[])
     avdevice_register_all();
 #endif
 
-    // initialize AVException
-    AVException::initialize();
+    // initialize ffmpeg::Exception
+    ffmpeg::Exception::initialize();
 
     // derived from find_codec_or_die() in ffmpeg_opt.c
     AVCodec *codec = encoder ? avcodec_find_encoder_by_name(name.c_str()) : avcodec_find_decoder_by_name(name.c_str());

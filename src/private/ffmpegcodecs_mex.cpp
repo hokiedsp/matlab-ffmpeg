@@ -4,7 +4,7 @@
 #include <string>
 
 #include <mex.h>
-#include "ffmpeg/avexception.h"
+#include "ffmpeg/ffmpegException.h"
 
 extern "C"
 {
@@ -212,8 +212,8 @@ void mexFunction(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[])
     avdevice_register_all();
 #endif
 
-    // initialize AVException
-    AVException::initialize();
+    // initialize ffmpeg::Exception
+    ffmpeg::Exception::initialize();
 
     codec_map_t list = map_codecs(enc, dec, video, audio, subtitle, other);
 

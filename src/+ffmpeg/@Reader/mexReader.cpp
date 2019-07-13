@@ -14,20 +14,20 @@ extern "C"
 
 #include <algorithm>
 
-void mexFFmpegCallback(void *avcl, int level, const char *fmt, va_list argptr)
-{
-  if (level <= AV_LOG_INFO) // AV_LOG_FATAL || level == AV_LOG_ERROR)
-  {
-    char dest[1024 * 16];
-    vsprintf(dest, fmt, argptr);
-    mexPrintf(dest);
-  }
-}
+bool ini = true;
 
 void mexFunction(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[])
 {
 
-  av_log_set_callback(&mexFFmpegCallback);
+  // initialize ffmpeg::Exception
+  if (ini)
+  {
+    ffmpeg::Exception::initialize();
+    ffmpeg::Exception::log_fcn = [](const auto &msg) {
+      mexPrintf(msg.c_str());
+    };
+    ini = false;
+  }
 
   mexObjectHandler<mexFFmpegReader>(nlhs, plhs, nrhs, prhs);
 }

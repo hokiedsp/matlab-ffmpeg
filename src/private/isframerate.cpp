@@ -10,7 +10,7 @@ extern "C"
 #include <libavutil/parseutils.h>
 }
 
-#include "ffmpeg/avexception.h"
+#include "ffmpeg/ffmpegException.h"
 #include "ffmpeg/mxutils.h"
 
 // tf = isframerate(val) (prevalidated)
@@ -30,8 +30,8 @@ void mexFunction(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[])
         expr = mxArrayToStdString(prhs[0]);
     }
 
-    // initialize AVException
-    AVException::initialize();
+    // initialize ffmpeg::Exception
+    ffmpeg::Exception::initialize();
 
     AVRational rate; // dummy
     plhs[0] = mxCreateLogicalScalar(av_parse_video_rate(&rate, expr.c_str())>=0);
