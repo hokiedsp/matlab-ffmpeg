@@ -443,9 +443,14 @@ void mexFFmpegReader::set_streams(const mxArray *mxObj)
 
         // use the "prefix + #" format specifier for the ease of type id
         bool notfound = true;
+        if (reader.getStreamId(prefix) == id)
+        {
+          streams.push_back(prefix);
+          notfound = false;
+        }
         for (int i = 0; notfound && i < reader.getStreamCount(); ++i)
         {
-          std::string spec = prefix + std::to_string(i);
+          std::string spec = prefix + ":" + std::to_string(i);
           if (reader.getStreamId(spec) == id)
           {
             streams.push_back(spec);
@@ -456,7 +461,7 @@ void mexFFmpegReader::set_streams(const mxArray *mxObj)
 
       try // to get the best video stream
       {
-        add(AVMEDIA_TYPE_VIDEO, "v:");
+        add(AVMEDIA_TYPE_VIDEO, "v");
       }
       catch (ffmpeg::InvalidStreamSpecifier &)
       { // ignore
@@ -464,7 +469,7 @@ void mexFFmpegReader::set_streams(const mxArray *mxObj)
 
       try // to get the best audio stream
       {
-        add(AVMEDIA_TYPE_AUDIO, "a:");
+        add(AVMEDIA_TYPE_AUDIO, "a");
       }
       catch (ffmpeg::InvalidStreamSpecifier &)
       { // ignore
