@@ -58,6 +58,7 @@ class BaseStream : public Base
   int getCodecFrameSize() const { return ctx ? ctx->frame_size : 0; }
 
   AVStream *getAVStream() const { return st; }
+  AVCodecParameters *getAVCodecParameters() const { return st->codecpar; }
 
   static const AVPixelFormats
   get_compliance_unofficial_pix_fmts(AVCodecID codec_id,
@@ -65,8 +66,8 @@ class BaseStream : public Base
   void choose_sample_fmt(); // should be moved to OutputAudioStream when created
 
   protected:
-  AVStream *st;                 // stream
-  AVCodecContext *ctx;          // stream's codec context
+  AVStream *st;        // stream
+  AVCodecContext *ctx; // stream's codec context
 };
 
 /**
@@ -79,7 +80,7 @@ class VideoStream : virtual public BaseStream, public VideoHandler
 
   /**
    * \brief Synchronize object's MediaParams to AVStream parameters
-   * 
+   *
    * \note Intended to be called when an input stream is opened
    * \note Use open() for setting up an output stream
    */
