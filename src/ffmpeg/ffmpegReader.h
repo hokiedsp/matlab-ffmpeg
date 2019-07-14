@@ -220,6 +220,8 @@ class Reader
    */
   ffmpeg::InputStream *read_next_packet();
 
+  bool at_end_of_stream(AVFrameQueueST &buf);
+
   InputFormat file;
   std::unordered_map<int, AVFrameQueueST>
       bufs; // output frame buffers (one for each active stream)
@@ -263,6 +265,24 @@ inline void Reader::closeFile()
   file.closeFile();
   active = false;
   bufs.clear();
+}
+
+inline bool Reader::atEndOfStream(const std::string &spec)
+{
+  return at_end_of_stream(get_buf(spec)); // frame buffer for the stream
+}
+
+inline bool Reader::atEndOfStream(int stream_id)
+{
+  return at_end_of_stream(bufs.at(stream_id));
+}
+
+inline bool Reader::at_end_of_stream(AVFrameQueueST &buf)
+{
+  // if file is at eof, eos if spec's buffer is exhausted
+  // else, read one more packet from file
+  return file.atEndOfFile() ? buf.size() && buf.eof()
+                            : buf.empty() ? !file.readNextPacket() : false;
 }
 
 inline int Reader::getStreamId(const int stream_id,

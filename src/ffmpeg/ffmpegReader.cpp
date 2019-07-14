@@ -46,28 +46,28 @@ bool Reader::hasFrame(const std::string &spec)
 // returns true if all open streams have been exhausted
 bool Reader::atEndOfFile()
 {
-  auto pred = [](auto &buf) {
-    AVFrameQueueST &que = buf.second;
-    return que.size() && que.eof();
-  };
-  return file.atEndOfFile() && std::all_of(bufs.begin(), bufs.end(), pred) &&
-         std::all_of(filter_outbufs.begin(), filter_outbufs.end(), pred);
-}
+  if (file.atEndOfFile())
+  {
+    // if all packets have already been read, EOF if all buffers are exhausted
+    auto pred = [](auto &buf) {
+      AVFrameQueueST &que = buf.second;
+      return que.size() && que.eof();
+    };
+    return std::all_of(bufs.begin(), bufs.end(), pred) &&
+           std::all_of(filter_outbufs.begin(), filter_outbufs.end(), pred);
+  }
+  else
+  {
+    // if still more packets to read and all buffers are empty read another
+    // packet
+    auto pred = [](auto &buf) { return buf.second.empty(); };
+    return (std::all_of(bufs.begin(), bufs.end(), pred) &&
+            std::all_of(filter_outbufs.begin(), filter_outbufs.end(), pred))
+               ? !file.readNextPacket()
+               : false;
+  }
 
-bool Reader::atEndOfStream(const std::string &spec)
-{
-  if (!file.atEndOfFile()) return false; // not eos if more to read from file
-  // if file is at eof, eos if spec's buffer is exhausted
-  auto &buf = get_buf(spec);
-  return buf.size() && buf.eof();
-}
-
-bool Reader::atEndOfStream(int stream_id)
-{
-  if (!file.atEndOfFile()) return false; // not eos if more to read from file
-  // if file is at eof, eos if spec's buffer is exhausted
-  auto &buf = bufs.at(stream_id);
-  return buf.size() && buf.eof();
+  // end of file if all streams reached eos
 }
 
 IAVFrameSource &Reader::getStream(std::string spec, int related_stream_id)
