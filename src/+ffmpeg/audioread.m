@@ -5,7 +5,8 @@ function [y, Fs] = audioread(filename, range, datatype)
 %   in Y and the sample rate FS, in Hertz.
 %
 %   [Y, FS] = ffmpeg.AUDIOREAD(FILENAME, [START END]) returns only samples
-%   START through END from each channel in the file.
+%   START through END from each channel in the file. START and END are 
+%   specified in sample index.
 %
 %   [Y, FS] = ffmpeg.AUDIOREAD(FILENAME, DATATYPE) specifies the data type
 %   format of Y used to represent samples read from the file. If DATATYPE =

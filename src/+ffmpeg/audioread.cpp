@@ -43,9 +43,9 @@ void mexFunction(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[])
   if (log_uninit)
   {
     ffmpeg::Exception::initialize();
-    ffmpeg::Exception::log_fcn = [](const auto &msg) {
-      mexPrintf("%s\n", msg.c_str());
-    };
+    // ffmpeg::Exception::log_fcn = [](const auto &msg) {
+    //   mexPrintf("%s\n", msg.c_str());
+    // };
     log_uninit = false;
   }
 
@@ -69,12 +69,11 @@ void mexFunction(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[])
   reader.activate();
 
   // set postop filter if needed
-  AVSampleFormat format = args.format;
-  if (format != AV_SAMPLE_FMT_NONE || format != stream.getFormat())
-  { reader.setPostOp<mexFFmpegAudioPostOp>(stream_id, format); }
-  else if (args.format == AV_SAMPLE_FMT_NONE)
+  AVSampleFormat format = stream.getFormat();
+  if (args.format == AV_SAMPLE_FMT_NONE)
   {
-    switch (stream.getFormat())
+    args.format = av_get_packed_sample_fmt(format);
+    switch (args.format)
     {
     case AV_SAMPLE_FMT_U8: args.class_id = mxUINT8_CLASS; break;
     case AV_SAMPLE_FMT_S16: args.class_id = mxINT16_CLASS; break;
@@ -84,6 +83,11 @@ void mexFunction(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[])
     default: args.class_id = mxDOUBLE_CLASS;
     }
   }
+  if (args.format != format)
+  {
+    format = args.format;
+    reader.setPostOp<mexFFmpegAudioPostOp>(stream_id, format);
+  }
 
   // analyze time-base & sample rate
   int fs = stream.getSampleRate();
@@ -91,9 +95,9 @@ void mexFunction(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[])
   bool tbIsSamplePeriod = tb.num == 1 && tb.den == fs;
   AVRational tb2Period = av_mul_q(tb, AVRational({fs, 1}));
   auto get_frame_time = [tbIsSamplePeriod, tb2Period](const AVFrame *frame) {
-    return tbIsSamplePeriod
-               ? frame->pts
-               : av_rescale(frame->pts, tb2Period.num, tb2Period.den);
+    return tbIsSamplePeriod ? frame->best_effort_timestamp
+                            : av_rescale(frame->best_effort_timestamp,
+                                         tb2Period.num, tb2Period.den);
   };
 
   // set start & end 0-based sample indices
@@ -155,13 +159,15 @@ void mexFunction(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[])
   reader.readNextFrame(frame, stream_id);
   if (start > 0)
   {
-    // get frames until reader's next frame is past the starting time while the
-    // last read frame contains the requested start time
+    // get frames until reader's next frame is past the starting time while
+    // the last read frame contains the requested start time
     mex_duration_t t0(start / (double)fs);
     while (!reader.atEndOfStream(stream_id) &&
            reader.getTimeStamp<mex_duration_t>(stream_id) < t0)
+    {
       av_frame_unref(frame);
       reader.readNextFrame(frame, stream_id);
+    }
   }
 
   // no data (shouldn't happen)
@@ -170,7 +176,7 @@ void mexFunction(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[])
 
   // copy the data from the first frame
   int offset = (int)(start - get_frame_time(frame));
-  if (offset<0)
+  if (offset < 0)
     mexErrMsgIdAndTxt("ffmpeg:audioread:BadOffset", "Seek failed.");
 
   int n = frame->nb_samples - offset;
