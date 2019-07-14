@@ -62,6 +62,14 @@ bool Reader::atEndOfStream(const std::string &spec)
   return buf.size() && buf.eof();
 }
 
+bool Reader::atEndOfStream(int stream_id)
+{
+  if (!file.atEndOfFile()) return false; // not eos if more to read from file
+  // if file is at eof, eos if spec's buffer is exhausted
+  auto &buf = bufs.at(stream_id);
+  return buf.size() && buf.eof();
+}
+
 IAVFrameSource &Reader::getStream(std::string spec, int related_stream_id)
 {
   // if filter graph is defined, check its output link labels first

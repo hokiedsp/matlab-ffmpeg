@@ -46,6 +46,7 @@ class Reader
   bool atEndOfFile();
 
   bool atEndOfStream(const std::string &spec);
+  bool atEndOfStream(int stream_id);
 
   /**
    * \brief Open a file at the given URL
@@ -161,6 +162,7 @@ class Reader
    * \brief Get the youngest time stamp of the specified stream
    */
   template <class Chrono_t> Chrono_t getTimeStamp(const std::string &spec);
+  template <class Chrono_t> Chrono_t getTimeStamp(int stream_id);
 
   template <class Chrono_t>
   void seek(const Chrono_t t0, const bool exact_search = true);
@@ -208,6 +210,8 @@ class Reader
    * \brief Read file until buf has a frame
    */
   bool get_frame(AVFrameQueueST &buf);
+
+  template <class Chrono_t> Chrono_t get_time_stamp(AVFrameQueueST &buf);
 
   /**
    * \brief Read next packet
@@ -334,7 +338,7 @@ inline bool Reader::readNextFrame(AVFrame *frame, const int stream_id,
   return get_frame(frame, bufs.at(file.getStreamId(stream_id)), getmore);
 }
 
-template <class Chrono_t> Chrono_t Reader::getTimeStamp()
+template <class Chrono_t> inline Chrono_t Reader::getTimeStamp()
 {
   if (!active) throw Exception("Activate before read a frame.");
 
@@ -374,11 +378,22 @@ template <class Chrono_t> Chrono_t Reader::getTimeStamp()
   return t;
 }
 
-template <class Chrono_t> Chrono_t Reader::getTimeStamp(const std::string &spec)
+template <class Chrono_t>
+inline Chrono_t Reader::getTimeStamp(const std::string &spec)
 {
   if (!active) throw Exception("Activate before read a frame.");
+  return get_time_stamp<Chrono_t>(get_buf(spec));
+}
 
-  AVFrameQueueST &buf = get_buf(spec);
+template <class Chrono_t> inline Chrono_t Reader::getTimeStamp(int stream_id)
+{
+  if (!active) throw Exception("Activate before read a frame.");
+  return get_time_stamp<Chrono_t>(bufs.at(stream_id));
+}
+
+template <class Chrono_t>
+inline Chrono_t Reader::get_time_stamp(AVFrameQueueST &buf)
+{
   while (buf.empty()) read_next_packet();
   AVFrame *frame = buf.peekToPop();
   return (frame) ? get_timestamp<Chrono_t>(frame->best_effort_timestamp >= 0
@@ -389,7 +404,7 @@ template <class Chrono_t> Chrono_t Reader::getTimeStamp(const std::string &spec)
 }
 
 template <class Chrono_t>
-void Reader::seek(const Chrono_t t0, const bool exact_search)
+inline void Reader::seek(const Chrono_t t0, const bool exact_search)
 {
   flush();
   file.seek<Chrono_t>(t0);
