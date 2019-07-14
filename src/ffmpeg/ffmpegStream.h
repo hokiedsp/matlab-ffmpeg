@@ -113,13 +113,13 @@ class AudioStream : virtual public BaseStream, public AudioHandler
   void syncMediaParams();
 
   using AudioHandler::getMediaType;
-  AVRational getTimeBase() const { return AudioHandler::getTimeBase(); }
-  void setTimeBase(const AVRational &tb);
+  AVRational getTimeBase() const override { return AudioHandler::getTimeBase(); }
+  void setTimeBase(const AVRational &tb) override;
 
-  void setMediaParams(const MediaParams &new_params);
-  void setFormat(const AVSampleFormat fmt);
-  void setChannelLayout(const uint64_t layout);
-  void setChannelLayoutByName(const std::string &name);
-  void setSampleRate(const int fs);
+  void setMediaParams(const MediaParams &new_params) override;
+  void setFormat(const AVSampleFormat fmt) override;
+  void setChannelLayout(const uint64_t layout) override;
+  void setChannelLayoutByName(const std::string &name) override;
+  void setSampleRate(const int fs) override;
 };
 } // namespace ffmpeg

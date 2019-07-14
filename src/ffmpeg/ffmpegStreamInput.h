@@ -32,8 +32,6 @@ class InputStream : virtual public BaseStream, public IAVFrameSource
   virtual void open(AVStream *st);
   // virtual void close();
 
-  using BaseStream::getTimeBase;
-
   // Implementing IAVFrameSource interface
   IAVFrameSinkBuffer &getSinkBuffer() const
   {
@@ -83,6 +81,16 @@ class InputVideoStream : public InputStream, public VideoStream
     syncMediaParams();
   }
 
+  using VideoStream::getMediaType;
+  using VideoStream::getTimeBase;
+  using VideoStream::setFormat;
+  using VideoStream::setFrameRate;
+  using VideoStream::setHeight;
+  using VideoStream::setMediaParams;
+  using VideoStream::setSAR;
+  using VideoStream::setTimeBase;
+  using VideoStream::setWidth;
+
   AVRational getAvgFrameRate() const
   {
     return st ? st->avg_frame_rate : AVRational({0, 0});
@@ -109,10 +117,28 @@ class InputAudioStream : public InputStream, public AudioStream
   }
   virtual ~InputAudioStream() {}
 
+  using AudioStream::getMediaType;
+  using AudioStream::getTimeBase;
+  using AudioStream::setChannelLayout;
+  using AudioStream::setChannelLayoutByName;
+  using AudioStream::setFormat;
+  using AudioStream::setMediaParams;
+  using AudioStream::setSampleRate;
+  using AudioStream::setTimeBase;
+
   void open(AVStream *st)
   {
     InputStream::open(st);
     syncMediaParams();
+  }
+
+  /**
+   * \brief Returns estimated total number of samples in the stream
+   */
+  size_t getTotalNumberOfSamples() const
+  {
+    return (size_t)std::round(av_q2d(st->time_base) * st->duration *
+                              st->codecpar->sample_rate);
   }
 
   private:
