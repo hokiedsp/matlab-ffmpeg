@@ -32,7 +32,24 @@ template <typename AVFrameQue> class Reader
 {
   public:
   Reader(const std::string &url = "");
-  ~Reader(); // may need to clean up filtergraphs
+  virtual ~Reader(); // may need to clean up filtergraphs
+
+  /**
+   * \brief Open a file at the given URL
+   * \param[in] url
+   * \throws if cannot open the specified URL
+   * \throws if cannot retrieve stream info
+   */
+  void openFile(const std::string &url);
+  void activate();
+  void closeFile();
+
+  /**
+   * \brief Add a filter graph to the reader
+   *
+   * \param[in] desc   Filter graph description to be parsed
+   */
+  int setFilterGraph(const std::string &desc);
 
   bool isFileOpen() { return file.isFileOpen(); }
 
@@ -54,26 +71,6 @@ template <typename AVFrameQue> class Reader
   bool atEndOfStream(const std::string &spec);
   bool atEndOfStream(int stream_id);
 
-  /**
-   * \brief Open a file at the given URL
-   * \param[in] url
-   * \throws if cannot open the specified URL
-   * \throws if cannot retrieve stream info
-   */
-  void openFile(const std::string &url);
-  void activate();
-  void closeFile();
-
-  /**
-   * \brief set pixel format of video streams
-   *
-   * \param[in] pix_fmt New pixel format
-   * \param[in] spec    Stream specifier string. Empty string (default) set the
-   *                    pixel format for all the video streams
-   */
-  void setPixelFormat(const AVPixelFormat pix_fmt,
-                      const std::string &spec = "");
-
   size_t getStreamCount() { return file.getNumberOfStreams(); }
 
   int getStreamId(const int stream_id, const int related_stream_id = -1) const;
@@ -91,19 +88,15 @@ template <typename AVFrameQue> class Reader
    *                              program (only relevant on input stream)
    * \returns the stream id if decoder output
    */
-  int addStream(const std::string &spec, int related_stream_id = -1);
-
-  int addStream(const int wanted_stream_id, int related_stream_id = -1);
-  int addStream(const AVMediaType type, int related_stream_id = -1);
-
-  /**
-   * \brief Add a filter graph to the reader
-   *
-   * \param[in] desc   Filter graph description to be parsed
-   */
-  int setFilterGraph(const std::string &desc);
-
-  void clearStreams();
+  template <typename... Args>
+  int addStream(const std::string &spec, int related_stream_id = -1,
+                Args... args);
+  template <typename... Args>
+  int addStream(const int wanted_stream_id, int related_stream_id = -1,
+                Args... args);
+  template <typename... Args>
+  int addStream(const AVMediaType type, int related_stream_id = -1,
+                Args... args);
 
   InputStream &getStream(int stream_id, int related_stream_id = -1);
   InputStream &getStream(AVMediaType type, int related_stream_id = -1);
@@ -149,7 +142,6 @@ template <typename AVFrameQue> class Reader
    */
   bool readNextFrame(AVFrame *frame, const int stream_id,
                      const bool getmore = true);
-
   bool readNextFrame(AVFrame *frame, const std::string &spec,
                      const bool getmore = true);
 
@@ -157,12 +149,16 @@ template <typename AVFrameQue> class Reader
    * \brief Get the youngest time stamp in the queues
    */
   template <class Chrono_t> Chrono_t getTimeStamp();
+
   /**
    * \brief Get the youngest time stamp of the specified stream
    */
   template <class Chrono_t> Chrono_t getTimeStamp(const std::string &spec);
   template <class Chrono_t> Chrono_t getTimeStamp(int stream_id);
 
+  /**
+   * \brief Adjust to the specified timestamp
+   */
   template <class Chrono_t>
   void seek(const Chrono_t t0, const bool exact_search = true);
 
@@ -170,6 +166,7 @@ template <typename AVFrameQue> class Reader
 
   template <typename Chrono_t = InputFormat::av_duration>
   Chrono_t getDuration() const;
+
   const AVDictionary *getMetadata() const { return file.getMetadata(); }
 
   /////////////////////////////////////////////////////////////////////////////
@@ -191,9 +188,21 @@ template <typename AVFrameQue> class Reader
   template <class PostOp, typename... Args>
   void setPostOp(const int id, Args... args);
 
-  // activate and adds buffer to an input stream by its id
-  int add_stream(const int stream_id);
+  protected:
+  /**
+   * \brief Read next packet
+   * \returns the pointer to the stream which frame the packet contained. If
+   *          EOF, returns null.
+   */
+  virtual ffmpeg::InputStream *read_next_packet();
 
+  // activate and adds buffer to an input stream by its id
+  template <typename... Args> int add_stream(const int stream_id, Args... args);
+
+  // input media file
+  InputFormat file;
+
+  private:
   AVFrameQue &get_buf(const std::string &spec);
 
   // reads next set of packets from file/stream and push the decoded frame
@@ -207,16 +216,8 @@ template <typename AVFrameQue> class Reader
 
   template <class Chrono_t> Chrono_t get_time_stamp(AVFrameQue &buf);
 
-  /**
-   * \brief Read next packet
-   * \returns the pointer to the stream which frame the packet contained. If
-   *          EOF, returns null.
-   */
-  ffmpeg::InputStream *read_next_packet();
-
   bool at_end_of_stream(AVFrameQue &buf);
 
-  InputFormat file;
   std::unordered_map<int, AVFrameQue>
       bufs; // output frame buffers (one for each active stream)
 
@@ -225,7 +226,7 @@ template <typename AVFrameQue> class Reader
   std::chrono::nanoseconds pts;
 
   filter::Graph *filter_graph; // filter graphs
-  std::unordered_map<std::string, AVFrameQue>
+  std::unordered_map<std::string, AVFrameQueueST>
       filter_inbufs; // filter output frame buffers (one for each active
                      // stream)
   std::unordered_map<std::string, AVFrameQue>
@@ -311,17 +312,20 @@ IAVFrameSource &Reader<AVFrameQue>::getStream(std::string spec,
 }
 
 template <typename AVFrameQue>
+template <typename... Args>
 int Reader<AVFrameQue>::addStream(const std::string &spec,
-                                  int related_stream_id)
+                                  int related_stream_id, Args... args)
 {
   if (active) Exception("Cannot add stream as the reader is already active.");
 
   // if filter graph is defined, check its output link labels first
   if (filter_graph && filter_graph->isSink(spec))
   {
-    auto &buf = filter_outbufs[spec];
-    filter_graph->assignSink(buf, spec);
-    emplace_postop<PostOpPassThru>(buf);
+    auto buf = filter_outbufs.find(spec);
+    if (buf == filter_outbufs.end())
+      buf = filter_outbufs.insert({spec, AVFrameQue(args...)}).first;
+    filter_graph->assignSink(buf->second, spec);
+    emplace_postop<PostOpPassThru>(buf->second);
     return -1;
   }
 
@@ -400,32 +404,6 @@ bool Reader<AVFrameQue>::readNextFrame(AVFrame *frame, const std::string &spec,
 }
 
 ////////////////////
-
-template <typename AVFrameQue>
-void Reader<AVFrameQue>::setPixelFormat(const AVPixelFormat pix_fmt,
-                                        const std::string &spec)
-{
-  if (active)
-    Exception("Cannot set pixel format as the reader is already active.");
-
-  if (filter_graph) // if using filters, set filter
-  {
-    try
-    {
-      filter_graph->setPixelFormat(pix_fmt, spec);
-      if (spec.empty()) file.setPixelFormat(pix_fmt, spec);
-    }
-    catch (const InvalidStreamSpecifier &)
-    {
-      // reaches only if spec is not found in the filter_graph
-      file.setPixelFormat(pix_fmt, spec);
-    }
-  }
-  else
-  {
-    file.setPixelFormat(pix_fmt, spec);
-  }
-}
 
 template <typename AVFrameQue>
 int Reader<AVFrameQue>::setFilterGraph(const std::string &desc)
@@ -593,28 +571,24 @@ inline int Reader<AVFrameQue>::getStreamId(const std::string &spec,
 }
 
 template <typename AVFrameQue>
+template <typename... Args>
 inline int Reader<AVFrameQue>::addStream(const int wanted_stream_id,
-                                         int related_stream_id)
+                                         int related_stream_id, Args... args)
 {
   int id = file.getStreamId(wanted_stream_id, related_stream_id);
   if (id < 0 || file.isStreamActive(id))
     throw InvalidStreamSpecifier(wanted_stream_id);
-  return add_stream(id);
+  return add_stream(id, args...);
 }
 
 template <typename AVFrameQue>
+template <typename... Args>
 inline int Reader<AVFrameQue>::addStream(const AVMediaType type,
-                                         int related_stream_id)
+                                         int related_stream_id, Args... args)
 {
   int id = file.getStreamId(type, related_stream_id);
   if (id < 0 || file.isStreamActive(id)) throw InvalidStreamSpecifier(type);
-  return add_stream(id);
-}
-
-template <typename AVFrameQue> inline void Reader<AVFrameQue>::clearStreams()
-{
-  bufs.clear();
-  file.clearStreams();
+  return add_stream(id, args...);
 }
 
 template <typename AVFrameQue>
@@ -659,38 +633,15 @@ inline Chrono_t Reader<AVFrameQue>::getTimeStamp()
 
   Chrono_t T = getDuration();
 
-  // get the timestamp of the next frame and return the smaller of it or the
-  // smallest so far
+  // find the minimum timestamp of all active streams
   auto reduce_op = [T](const Chrono_t &t,
                        const std::pair<std::string, AVFrameQue> &buf) {
-    auto &que = buf.second;
-    if (que.empty()) return t; // no data
-
-    AVFrame *frame = que.peekToPop();
-    return std::min(T, (frame) ? get_timestamp(frame->best_effort_timestamp,
-                                               que.getSrc().getTimeBase())
-                               : T);
+    return std::min(T, get_time_stamp<Chrono_t>(buf.second));
   };
   Chrono_t t =
       std::reduce(bufs.begin(), bufs.end(), Chrono_t::max(), reduce_op);
-  t = std::reduce(filter_outbufs.begin(), filter_outbufs.end(), t, reduce_op);
-
-  // if no frame avail (the initial value unchanged), read the next frame
-  if (t == Chrono_t::max())
-  {
-    auto &st = read_next_packet();
-    if (st)
-    {
-      auto &que = st->getSinkBuffer();
-      t = get_timestamp(que.peekToPop()->best_effort_timestamp,
-                        que.getSrc().getTimeBase());
-    }
-    else
-    {
-      t = T;
-    }
-  }
-  return t;
+  return std::reduce(filter_outbufs.begin(), filter_outbufs.end(), t,
+                     reduce_op);
 }
 
 template <typename AVFrameQue>
@@ -777,11 +728,16 @@ inline void Reader<AVFrameQue>::setPostOp(const int id, Args... args)
 }
 
 template <typename AVFrameQue>
-inline int Reader<AVFrameQue>::add_stream(const int stream_id)
+template <typename... Args>
+inline int Reader<AVFrameQue>::add_stream(const int stream_id, Args... args)
 {
-  auto &buf = bufs[stream_id];
-  auto ret = file.addStream(stream_id, buf).getId();
-  emplace_postop<PostOpPassThru>(buf);
+  auto buf = bufs.find(stream_id);
+  if (buf == bufs.end())
+    buf = bufs.insert(std::make_pair(stream_id, AVFrameQue(args...))).first;
+
+  // auto &buf = bufs[stream_id];
+  auto ret = file.addStream(stream_id, buf->second).getId();
+  emplace_postop<PostOpPassThru>(buf->second);
   return ret;
 }
 
