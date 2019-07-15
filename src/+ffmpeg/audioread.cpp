@@ -57,7 +57,7 @@ void mexFunction(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[])
   InputArgs args(nrhs, prhs);
 
   // open the audio file
-  ffmpeg::Reader reader;
+  ffmpeg::Reader<ffmpeg::AVFrameQueueST> reader;
   reader.openFile(args.url);
 
   // add audio stream (throws InvalidStreamSpecifier if no audio stream found)

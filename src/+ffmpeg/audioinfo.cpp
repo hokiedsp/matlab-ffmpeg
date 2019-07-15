@@ -40,7 +40,7 @@ void mexFunction(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[])
   mexCallMATLAB(1, &mxURL, 1, (mxArray **)prhs, "which");
 
   // open the audio file
-  ffmpeg::Reader reader;
+  ffmpeg::Reader<ffmpeg::AVFrameQueueST> reader;
   reader.openFile(mexGetString(mxURL));
 
   // add audio stream (throws InvalidStreamSpecifier if no audio stream found)

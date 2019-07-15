@@ -63,7 +63,7 @@ class mexFFmpegReader
   static mxArray *getFileFormats();  // formats = getFileFormats();
   static mxArray *getVideoFormats(); // formats = getVideoFormats();
 
-  ffmpeg::Reader reader;
+  ffmpeg::Reader<ffmpeg::AVFrameQueueST> reader;
 
   std::string filt_desc; // actual filter graph description
 

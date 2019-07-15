@@ -485,7 +485,7 @@ void mexFFmpegReader::set_streams(const mxArray *mxObj)
       // add all the filtered streams
       while ((spec = reader.getNextInactiveStream(
                   "", AVMEDIA_TYPE_UNKNOWN,
-                  ffmpeg::Reader::StreamSource::FilterSink))
+                  ffmpeg::StreamSource::FilterSink))
                  .size())
       {
         reader.addStream(spec);
