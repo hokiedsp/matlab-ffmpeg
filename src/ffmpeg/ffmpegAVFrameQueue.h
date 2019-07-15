@@ -1,6 +1,7 @@
 #pragma once
 
 #include "ffmpegAVFrameBufferInterfaces.h"
+#include "syncpolicies.h"
 
 #include <numeric> // for std::reduce
 #include <vector>
@@ -47,7 +48,9 @@ class AVFrameQueue : public IAVFrameBuffer
   void setDst(IAVFrameSink &buf) { dst = &buf; }
   void clrDst() { dst = nullptr; }
 
-  bool ready() const { return src && dst; };
+  bool autoexpand() const { return dynamic; }
+
+  bool ready() const { return true; };
 
   void clear()
   {
@@ -118,7 +121,7 @@ class AVFrameQueue : public IAVFrameBuffer
   void push()
   {
     MutexLockType lock(mutex);
-    cv_rx.wait(lock);
+    cv_rx.wait(lock, [this] { return readyToPush_threadunsafe(); });
     mark_populated_threadunsafe();
   }
 
@@ -173,21 +176,22 @@ class AVFrameQueue : public IAVFrameBuffer
                           [this] { return readyToPop_threadunsafe(); });
   }
 
-  void pop(AVFrame *frame, bool &eof)
+  void pop(AVFrame *frame, bool *eof = nullptr)
   {
     if (!frame) throw Exception("frame must be non-null pointer.");
     MutexLockType lock(mutex);
     cv_tx.wait(lock, [this] { return readyToPop_threadunsafe(); });
-    eof = pop_threadunsafe(frame);
+    pop_threadunsafe(frame, eof);
   }
 
-  bool pop(AVFrame *frame, bool &eof, const std::chrono::milliseconds &rel_time)
+  bool pop(AVFrame *frame, bool *eof, const std::chrono::milliseconds &rel_time)
   {
     if (!frame) throw Exception("frame must be non-null pointer.");
     MutexLockType lock(mutex);
+    cv_tx.wait(lock, [this] { return readyToPop_threadunsafe(); });
     bool success = cv_tx.wait_for(lock, rel_time,
                                   [this] { return readyToPop_threadunsafe(); });
-    if (success) eof = pop_threadunsafe(frame);
+    if (success) pop_threadunsafe(frame, eof);
     return success;
   }
 
@@ -209,12 +213,12 @@ class AVFrameQueue : public IAVFrameBuffer
     return rd->eof; // true if no more frames in the buffer
   }
 
-  bool tryToPop(AVFrame *frame, bool &eof)
+  bool tryToPop(AVFrame *frame, bool *eof)
   {
     MutexLockType lock(mutex);
     if (readyToPop_threadunsafe())
     {
-      eof = pop_threadunsafe(frame);
+      pop_threadunsafe(frame, eof);
       return true;
     }
     else
@@ -237,7 +241,7 @@ class AVFrameQueue : public IAVFrameBuffer
   {
     MutexLockType lock(mutex);
     cv_tx.wait(lock);
-    pop_threadunsafe(nullptr);
+    pop_threadunsafe(nullptr, nullptr);
   }
 
   private:
@@ -311,7 +315,7 @@ class AVFrameQueue : public IAVFrameBuffer
     cv_tx.notify_one();
   }
 
-  bool pop_threadunsafe(AVFrame *frame) // declared in AVFrameSourceBase
+  void pop_threadunsafe(AVFrame *frame, bool *eofout)
   {
     // guaranteed readyToPop() returns true
 
@@ -334,7 +338,7 @@ class AVFrameQueue : public IAVFrameBuffer
     // increment the read pointer only if wr pointer is elsewhere
     if (++rd == que.end()) rd = que.begin();
 
-    return eof;
+    if (eofout) *eofout = eof;
   }
 
   IAVFrameSource *src;
@@ -357,5 +361,9 @@ class AVFrameQueue : public IAVFrameBuffer
   typename std::vector<QueData>::iterator wr; // points to next to be written
   typename std::vector<QueData>::iterator rd; // points to next to be read
 };
+
+typedef AVFrameQueue<NullMutex, NullConditionVariable<NullMutex>,
+                     NullUniqueLock<NullMutex>>
+    AVFrameQueueST;
 
 } // namespace ffmpeg

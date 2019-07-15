@@ -33,9 +33,11 @@ class IAVFrameSinkBuffer
 
   virtual bool readyToPush() = 0;
   virtual void blockTillReadyToPush() = 0;
-  virtual bool blockTillReadyToPush(const std::chrono::milliseconds &timeout_duration) = 0;
+  virtual bool
+  blockTillReadyToPush(const std::chrono::milliseconds &timeout_duration) = 0;
   virtual void push(AVFrame *frame) = 0;
-  virtual bool push(AVFrame *frame, const std::chrono::milliseconds &timeout_duration) = 0;
+  virtual bool push(AVFrame *frame,
+                    const std::chrono::milliseconds &timeout_duration) = 0;
   virtual bool tryToPush(AVFrame *frame) = 0;
 
   virtual AVFrame *peekToPush() = 0;
@@ -59,13 +61,14 @@ class IAVFrameSourceBuffer
 
   virtual bool readyToPop() = 0;
   virtual void blockTillReadyToPop() = 0;
-  virtual bool blockTillReadyToPop(const std::chrono::milliseconds &timeout_duration) = 0;
-  virtual void pop(AVFrame *frame, bool &eof) = 0;
-  virtual bool pop(AVFrame *frame, bool &eof, const std::chrono::milliseconds &timeout_duration) = 0;
-  virtual bool tryToPop(AVFrame *frame, bool &eof) = 0;
-
+  virtual bool
+  blockTillReadyToPop(const std::chrono::milliseconds &timeout_duration) = 0;
   virtual AVFrame *peekToPop() = 0;
   virtual void pop() = 0;
+  virtual void pop(AVFrame *frame, bool *eof = nullptr) = 0;
+  virtual bool pop(AVFrame *frame, bool *eof,
+                   const std::chrono::milliseconds &timeout_duration) = 0;
+  virtual bool tryToPop(AVFrame *frame, bool *eof = nullptr) = 0;
 
   virtual bool eof() = 0;
   virtual bool eof(const std::chrono::milliseconds &rel_time) = 0;

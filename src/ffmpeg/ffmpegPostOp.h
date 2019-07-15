@@ -34,7 +34,7 @@ class PostOpPassThru : public PostOpInterface
   bool filter(AVFrame *dst) override
   {
     bool eof;
-    in.pop(dst, eof);
+    in.pop(dst, &eof);
     return eof;
   }
 

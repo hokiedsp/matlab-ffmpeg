@@ -10,7 +10,6 @@ extern "C"
 #include "ffmpegAVFrameQueue.h"
 #include "ffmpegFormatInput.h"
 #include "ffmpegTimeUtil.h"
-#include "syncpolicies.h"
 
 #include "ffmpegPostOp.h"
 #include "filter/ffmpegFilterGraph.h"
@@ -27,10 +26,6 @@ enum StreamSource
   Unspecified,
   Decoder
 };
-
-typedef AVFrameQueue<NullMutex, NullConditionVariable<NullMutex>,
-                     NullUniqueLock<NullMutex>>
-    AVFrameQueueST;
 
 // single-thread media file reader
 template <typename AVFrameQue> class Reader

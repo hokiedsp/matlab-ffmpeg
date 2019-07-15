@@ -50,7 +50,7 @@ class mexFFmpegVideoPostOp : public ffmpeg::PostOpInterface
     bool eof;
     if (!fg.processFrame())
       throw ffmpeg::Exception("Post video filter produced no frame!.");
-    out.pop(dst, eof);
+    out.pop(dst, &eof);
     return eof;
   }
 
@@ -92,7 +92,7 @@ class mexFFmpegAudioPostOp : public ffmpeg::PostOpInterface
     bool eof;
     if (!fg.processFrame())
       throw ffmpeg::Exception("Post video filter produced no frame!.");
-    out.pop(dst, eof);
+    out.pop(dst, &eof);
     return eof;
   }
 
