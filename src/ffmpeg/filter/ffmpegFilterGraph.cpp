@@ -777,36 +777,6 @@ int Graph::processFrame()
   return nb_frames;
 }
 
-void Graph::setPixelFormat(const AVPixelFormat pix_fmt, const std::string &spec)
-{
-  if (spec.size()) // for a specific sink, throws if invalid spec/pix_fmt
-  {
-    try
-    {
-      dynamic_cast<VideoSink *>(outputs.at(spec).filter)
-          ->setPixelFormat(pix_fmt);
-    }
-    catch (const std::out_of_range &)
-    {
-      throw InvalidStreamSpecifier(spec);
-    }
-    catch (const std::bad_cast &)
-    {
-      throw UnexpectedMediaType(AVMEDIA_TYPE_VIDEO,
-                                outputs.at(spec).filter->getMediaType());
-    }
-  }
-  else // all video sinks, should throw only if invalid pix_fmt
-  {
-    for (auto out = outputs.begin(); out != outputs.end(); ++out)
-    {
-      auto filter = out->second.filter;
-      if (filter->getMediaType() == AVMEDIA_TYPE_VIDEO)
-        dynamic_cast<VideoSink *>(filter)->setPixelFormat(pix_fmt);
-    }
-  }
-}
-
 std::string Graph::findSourceLink(int file_id, int stream_id)
 {
   auto in = inputs.begin();

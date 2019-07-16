@@ -168,16 +168,6 @@ class Graph : public ffmpeg::Base
                         const AVMediaType type = AVMEDIA_TYPE_UNKNOWN);
 
   /**
-   * \brief set pixel format of video filter sinks
-   *
-   * \param[in] pix_fmt New pixel format
-   * \param[in] spec    Stream specifier string. Empty string (default) set the
-   *                    pixel format for all the video streams
-   */
-  void setPixelFormat(const AVPixelFormat pix_fmt,
-                      const std::string &spec = "");
-
-  /**
    * \brief Assign a source buffer to a parsed filtergraph
    *
    * assignSource() links the filter graph input with the given label \ref name
