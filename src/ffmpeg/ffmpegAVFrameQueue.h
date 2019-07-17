@@ -26,6 +26,8 @@ class AVFrameQueue : public IAVFrameBuffer
 
   } // queue size
 
+  AVFrameQueue(const AVFrameQueue &src) = delete;
+
   virtual ~AVFrameQueue()
   {
     // release allocated memory for all the AVFrames
@@ -33,18 +35,34 @@ class AVFrameQueue : public IAVFrameBuffer
       if (buf.frame) av_frame_free(&buf.frame);
   }
 
+  AVFrameQueue &operator=(const AVFrameQueue &src) = delete;
+
   const MediaParams &getMediaParams() const
   {
-    if (src) return src->getMediaParams();
-    throw Exception(
-        "Media parameters could be retrieved only if src is connected.");
+    if (src)
+      return src->getMediaParams();
+    else
+      throw Exception(
+          "Media parameters could be retrieved only if src is connected.");
   }
 
-  IAVFrameSource &getSrc() const { return *src; };
+  IAVFrameSource &getSrc() const
+  {
+    if (src)
+      return *src;
+    else
+      throw Exception("No source is connected.");
+  };
   void setSrc(IAVFrameSource &buf) { src = &buf; }
   void clrSrc() { src = nullptr; }
 
-  IAVFrameSink &getDst() const { return *dst; };
+  IAVFrameSink &getDst() const
+  {
+    if (dst)
+      return *dst;
+    else
+      throw Exception("No source is connected.");
+  };
   void setDst(IAVFrameSink &buf) { dst = &buf; }
   void clrDst() { dst = nullptr; }
 
@@ -67,7 +85,7 @@ class AVFrameQueue : public IAVFrameBuffer
     wr = rd = que.begin();
   }
 
-  size_t size() const noexcept
+  size_t size() noexcept
   {
     MutexLockType lock(mutex);
     return std::reduce(que.begin(), que.end(), 0ull,
@@ -75,13 +93,13 @@ class AVFrameQueue : public IAVFrameBuffer
                          return count + elem.populated;
                        });
   }
-  bool empty() const noexcept
+  bool empty() noexcept
   {
     MutexLockType lock(mutex);
     return !((que.size() > 1 && wr != que.begin()) ? (wr - 1)->populated
                                                    : que.back().populated);
   }
-  bool full() const noexcept
+  bool full() noexcept
   {
     if (dynamic) return false;
     MutexLockType lock(mutex);
