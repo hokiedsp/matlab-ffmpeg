@@ -27,9 +27,9 @@ class IAVFrameSinkBuffer
   virtual void clrSrc() = 0;
 
   virtual void clear() = 0;
-  virtual size_t size() const noexcept = 0;
-  virtual bool empty() const noexcept = 0;
-  virtual bool full() const noexcept = 0;
+  virtual size_t size() noexcept = 0;
+  virtual bool empty() noexcept = 0;
+  virtual bool full() noexcept = 0;
 
   virtual bool readyToPush() = 0;
   virtual void blockTillReadyToPush() = 0;
@@ -56,8 +56,9 @@ class IAVFrameSourceBuffer
   virtual const MediaParams &getMediaParams() const = 0;
 
   virtual void clear() = 0;
-  virtual size_t size() const noexcept = 0;
-  virtual bool empty() const noexcept = 0;
+  virtual size_t size() noexcept = 0;
+  virtual bool empty() noexcept = 0;
+  virtual bool full() noexcept = 0;
 
   virtual bool readyToPop() = 0;
   virtual void blockTillReadyToPop() = 0;
