@@ -32,7 +32,10 @@ template <typename AVFrameQue> class Reader
 {
   public:
   Reader(const std::string &url = "");
+  Reader(const Reader &src) = delete;
   virtual ~Reader(); // may need to clean up filtergraphs
+
+  Reader &operator=(const Reader &src) = delete;
 
   /**
    * \brief Open a file at the given URL
@@ -194,13 +197,23 @@ template <typename AVFrameQue> class Reader
    * \returns the pointer to the stream which frame the packet contained. If
    *          EOF, returns null.
    */
-  virtual ffmpeg::InputStream *read_next_packet();
+  virtual void read_next_packet();
 
   // activate and adds buffer to an input stream by its id
   template <typename... Args> int add_stream(const int stream_id, Args... args);
 
   // input media file
   InputFormat file;
+
+  bool active; // true to lock down the configuring interface, set by
+               // activate() function
+
+  std::unordered_map<int, AVFrameQue>
+      bufs; // output frame buffers (one for each active stream)
+
+  std::unordered_map<std::string, AVFrameQue>
+      filter_outbufs; // filter output frame buffers (one for each active
+                      // stream)
 
   private:
   AVFrameQue &get_buf(const std::string &spec);
@@ -218,21 +231,15 @@ template <typename AVFrameQue> class Reader
 
   bool at_end_of_stream(AVFrameQue &buf);
 
-  std::unordered_map<int, AVFrameQue>
-      bufs; // output frame buffers (one for each active stream)
-
-  bool active; // true to lock down the configuring interface, set by
-               // activate() function
-  std::chrono::nanoseconds pts;
+  /**
+   * \brief Purge all the frames earlier than t
+   */
+  template <class Chrono_t> void purge_until(Chrono_t t);
 
   filter::Graph *filter_graph; // filter graphs
   std::unordered_map<std::string, AVFrameQueueST>
       filter_inbufs; // filter output frame buffers (one for each active
                      // stream)
-  std::unordered_map<std::string, AVFrameQue>
-      filter_outbufs; // filter output frame buffers (one for each active
-                      // stream)
-
   // post-op objects for all streams
   std::unordered_map<AVFrameQue *, PostOpInterface *> postops;
 
@@ -260,14 +267,14 @@ template <typename AVFrameQue> bool Reader<AVFrameQue>::hasFrame()
     AVFrameQue &que = buf.second;
     return que.size() && !que.eof();
   };
-  return std::any_of(bufs.begin(), bufs.end(), pred) &&
+  return active && std::any_of(bufs.begin(), bufs.end(), pred) &&
          std::any_of(filter_outbufs.begin(), filter_outbufs.end(), pred);
 }
 
 template <typename AVFrameQue>
 bool Reader<AVFrameQue>::hasFrame(const std::string &spec)
 {
-  if (!file.atEndOfFile()) return false;
+  if (!active || file.atEndOfFile()) return false;
   auto &buf = get_buf(spec);
   return buf.size() && !buf.eof();
 }
@@ -275,28 +282,29 @@ bool Reader<AVFrameQue>::hasFrame(const std::string &spec)
 // returns true if all open streams have been exhausted
 template <typename AVFrameQue> bool Reader<AVFrameQue>::atEndOfFile()
 {
-  if (file.atEndOfFile())
+  if (!active) return false;
+
+  // if all packets have already been read, EOF if all buffers are exhausted
+  auto eof = [](auto &buf) {
+    AVFrameQue &que = buf.second;
+    return que.size() && que.eof();
+  };
+  if (std::all_of(bufs.begin(), bufs.end(), eof) &&
+      std::all_of(filter_outbufs.begin(), filter_outbufs.end(), eof))
+    return true;
+
+  // if all buffers empty, read another packet and try again
+  auto empty = [](auto &buf) { return buf.second.empty(); };
+  if (std::all_of(bufs.begin(), bufs.end(), empty) &&
+      std::all_of(filter_outbufs.begin(), filter_outbufs.end(), empty))
   {
-    // if all packets have already been read, EOF if all buffers are exhausted
-    auto pred = [](auto &buf) {
-      AVFrameQue &que = buf.second;
-      return que.size() && que.eof();
-    };
-    return std::all_of(bufs.begin(), bufs.end(), pred) &&
-           std::all_of(filter_outbufs.begin(), filter_outbufs.end(), pred);
-  }
-  else
-  {
-    // if still more packets to read and all buffers are empty read another
-    // packet
-    auto pred = [](auto &buf) { return buf.second.empty(); };
-    return (std::all_of(bufs.begin(), bufs.end(), pred) &&
-            std::all_of(filter_outbufs.begin(), filter_outbufs.end(), pred))
-               ? !file.readNextPacket()
-               : false;
+    read_next_packet(); // guarantee to push something to a buffer
+    return (std::all_of(bufs.begin(), bufs.end(), eof) &&
+            std::all_of(filter_outbufs.begin(), filter_outbufs.end(), eof));
   }
 
-  // end of file if all streams reached eos
+  // otherwise (some buffers not empty and at least one is not eof)
+  return false;
 }
 
 template <typename AVFrameQue>
@@ -323,7 +331,10 @@ int Reader<AVFrameQue>::addStream(const std::string &spec,
   {
     auto buf = filter_outbufs.find(spec);
     if (buf == filter_outbufs.end())
-      buf = filter_outbufs.insert({spec, AVFrameQue(args...)}).first;
+      buf = filter_outbufs
+                .emplace(std::piecewise_construct, std::forward_as_tuple(spec),
+                         std::forward_as_tuple(args...))
+                .first;
     filter_graph->assignSink(buf->second, spec);
     emplace_postop<PostOpPassThru>(buf->second);
     return -1;
@@ -336,21 +347,17 @@ int Reader<AVFrameQue>::addStream(const std::string &spec,
   return add_stream(id);
 }
 
-template <typename AVFrameQue>
-ffmpeg::InputStream *Reader<AVFrameQue>::read_next_packet()
+template <typename AVFrameQue> void Reader<AVFrameQue>::read_next_packet()
 {
-  auto stream = file.readNextPacket();
+  file.readNextPacket();
   if (filter_graph) filter_graph->processFrame();
-  return stream; // returns true if eof
 }
 
 template <typename AVFrameQue>
 bool Reader<AVFrameQue>::get_frame(AVFrameQue &buf)
 {
   // read file until the target stream is reached
-  while (buf.empty() && file.readNextPacket() && filter_graph &&
-         filter_graph->processFrame())
-    ;
+  while (buf.empty()) read_next_packet();
   return buf.eof();
 }
 
@@ -472,29 +479,23 @@ template <typename AVFrameQue> void Reader<AVFrameQue>::activate()
     filter_graph->configure();
   }
 
-  // read frames until all the buffers have at least one frame
-  while (!file.atEndOfFile() &&
-         std::any_of(bufs.begin(), bufs.end(),
-                     [](const auto &buf) { return buf.second.empty(); }))
-  {
-    file.readNextPacket();
-    if (filter_graph) filter_graph->processFrame();
-  }
+  // // read frames until all the buffers have at least one frame
+  // while (!file.atEndOfFile() &&
+  //        std::any_of(bufs.begin(), bufs.end(),
+  //                    [](auto &buf) { return buf.second.empty(); }))
+  //   read_next_packet();
 
-  if (filter_graph)
-  {
-    // also make sure all the filter graph sink buffers are filled
-    while (!file.atEndOfFile() &&
-           std::any_of(filter_outbufs.begin(), filter_outbufs.end(),
-                       [](const auto &buf) { return buf.second.empty(); }))
-    {
-      file.readNextPacket();
-      if (filter_graph) filter_graph->processFrame();
-    }
+  // if (filter_graph)
+  // {
+  //   // also make sure all the filter graph sink buffers are filled
+  //   while (!file.atEndOfFile() &&
+  //          std::any_of(filter_outbufs.begin(), filter_outbufs.end(),
+  //                      [](auto &buf) { return buf.second.empty(); }))
+  //     read_next_packet();
 
-    // then update media parameters of the sinks
-    for (auto &buf : filter_outbufs)
-    { dynamic_cast<filter::SinkBase &>(buf.second.getSrc()).sync(); } }
+  // // then update media parameters of the sinks
+  // for (auto &buf : filter_outbufs)
+  // { dynamic_cast<filter::SinkBase &>(buf.second.getSrc()).sync(); } }
 
   active = true;
 }
@@ -537,8 +538,12 @@ inline bool Reader<AVFrameQue>::at_end_of_stream(AVFrameQue &buf)
 {
   // if file is at eof, eos if spec's buffer is exhausted
   // else, read one more packet from file
-  return file.atEndOfFile() ? buf.size() && buf.eof()
-                            : buf.empty() ? !file.readNextPacket() : false;
+  if (buf.size() && buf.eof()) { return true; }
+  else
+  {
+    if (buf.empty()) read_next_packet();
+    return buf.size() && buf.eof();
+  }
 }
 
 template <typename AVFrameQue>
@@ -677,7 +682,10 @@ template <typename AVFrameQue>
 template <class Chrono_t>
 inline void Reader<AVFrameQue>::seek(const Chrono_t t0, const bool exact_search)
 {
+  // clear all the buffers
   flush();
+
+  // seek (to near) the requested time
   file.seek<Chrono_t>(t0);
   if (atEndOfFile())
   {
@@ -686,24 +694,32 @@ inline void Reader<AVFrameQue>::seek(const Chrono_t t0, const bool exact_search)
   }
   else if (exact_search)
   {
-    // purge all premature frames from all the output buffers. Read more
-    // packets as needed to verify the time
-    auto purge = [this, t0](AVFrameQue &que) {
-      AVFrame *frame;
-      while (que.empty() ||
-             (frame = que.peekToPop()) &&
-                 get_timestamp<Chrono_t>(frame->best_effort_timestamp,
-                                         que.getSrc().getTimeBase()) < t0)
-      {
-        if (que.size())
-          que.pop();
-        else
-          read_next_packet();
-      }
-    };
-    for (auto &buf : bufs) purge(buf.second);
-    for (auto &buf : filter_outbufs) purge(buf.second);
+    // throw away frames with timestamps younger than t0
+    purge_until(t0);
   }
+}
+
+template <typename AVFrameQue>
+template <class Chrono_t>
+void Reader<AVFrameQue>::purge_until(Chrono_t t0)
+{
+  // purge all premature frames from all the output buffers. Read more
+  // packets as needed to verify the time
+  auto purge = [this, t0](AVFrameQue &que) {
+    AVFrame *frame;
+    while (que.empty() ||
+           (frame = que.peekToPop()) &&
+               get_timestamp<Chrono_t>(frame->best_effort_timestamp,
+                                       que.getSrc().getTimeBase()) < t0)
+    {
+      if (que.size())
+        que.pop();
+      else
+        read_next_packet();
+    }
+  };
+  for (auto &buf : bufs) purge(buf.second);
+  for (auto &buf : filter_outbufs) purge(buf.second);
 }
 
 template <typename AVFrameQue>
@@ -733,7 +749,10 @@ inline int Reader<AVFrameQue>::add_stream(const int stream_id, Args... args)
 {
   auto buf = bufs.find(stream_id);
   if (buf == bufs.end())
-    buf = bufs.insert(std::make_pair(stream_id, AVFrameQue(args...))).first;
+    buf =
+        bufs.emplace(std::piecewise_construct, std::forward_as_tuple(stream_id),
+                     std::forward_as_tuple(args...))
+            .first;
 
   // auto &buf = bufs[stream_id];
   auto ret = file.addStream(stream_id, buf->second).getId();
