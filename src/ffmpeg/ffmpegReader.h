@@ -202,6 +202,11 @@ template <typename AVFrameQue> class Reader
   // activate and adds buffer to an input stream by its id
   template <typename... Args> int add_stream(const int stream_id, Args... args);
 
+  /**
+   * \brief Helper function for seek(): Purge all the frames earlier than t
+   */
+  template <class Chrono_t> void purge_until(Chrono_t t);
+
   // input media file
   InputFormat file;
 
@@ -230,11 +235,6 @@ template <typename AVFrameQue> class Reader
   template <class Chrono_t> Chrono_t get_time_stamp(AVFrameQue &buf);
 
   bool at_end_of_stream(AVFrameQue &buf);
-
-  /**
-   * \brief Purge all the frames earlier than t
-   */
-  template <class Chrono_t> void purge_until(Chrono_t t);
 
   filter::Graph *filter_graph; // filter graphs
   std::unordered_map<std::string, AVFrameQueueST>
