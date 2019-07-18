@@ -13,22 +13,6 @@ inline void ReaderMT::closeFile()
   Reader<AVFrameDoubleBufferMT>::closeFile();
 }
 
-template <class Chrono_t>
-inline void ReaderMT::seek(const Chrono_t t0, const bool exact_search)
-{
-  // stop thread before seek
-  pause();
-
-  // do the coarse search first
-  Reader<AVFrameDoubleBufferMT>::seek<Chrono_t>(t0, false);
-
-  // restart thread
-  resume();
-
-  // perform the exact search only after the thread has restarted
-  if (exact_search) Reader<AVFrameDoubleBufferMT>::purge_until<Chrono_t>(t0);
-}
-
 /**
  * \brief Worker thread function to read frames and stuff buffers
  */
@@ -98,6 +82,15 @@ void ReaderMT::read_next_packet()
 void ReaderMT::activate()
 {
   if (active) return;
+
+  // at least 1 of buffers must be fixed size
+
+  if (std::all_of(bufs.begin(), bufs.end(),
+                  [](const auto &buf) { return buf.second.autoexpand(); }) &&
+      std::all_of(filter_outbufs.begin(), filter_outbufs.end(),
+                  [this](const auto &buf) { return buf.second.autoexpand(); }))
+    throw Exception("All buffers are dynamically sized. At least one buffer "
+                    "used by the ffmpeg::ReaderMT object must be fixed size.");
 
   // ready the file & streams
   Reader<AVFrameDoubleBufferMT>::activate();

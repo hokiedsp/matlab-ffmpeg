@@ -38,4 +38,20 @@ class ReaderMT : public Reader<AVFrameDoubleBufferMT>, private ThreadBase
   void read_next_packet();
 };
 
+template <class Chrono_t>
+inline void ReaderMT::seek(const Chrono_t t0, const bool exact_search)
+{
+  // stop thread before seek
+  pause();
+
+  // do the coarse search first
+  Reader<AVFrameDoubleBufferMT>::seek<Chrono_t>(t0, false);
+
+  // restart thread
+  resume();
+
+  // perform the exact search only after the thread has restarted
+  if (exact_search) Reader<AVFrameDoubleBufferMT>::purge_until<Chrono_t>(t0);
+}
+
 } // namespace ffmpeg
