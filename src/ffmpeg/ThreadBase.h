@@ -56,7 +56,7 @@ class ThreadBase
 // THREAD FUNCTIONS: Read file and send it to the FFmpeg decoder
 
 template <class Function, class... Args>
-void ThreadBase::start(Function &&f, Args &&... args)
+inline void ThreadBase::start(Function &&f, Args &&... args)
 {
   // if there is an existing active thread, throw an exception
   if (thread.joinable())
@@ -72,7 +72,7 @@ void ThreadBase::start(Function &&f, Args &&... args)
   resume();
 }
 
-void ThreadBase::pause()
+inline void ThreadBase::pause()
 {
   // lock all mutexes
   std::unique_lock<std::mutex> thread_guard(thread_lock);
@@ -89,7 +89,7 @@ void ThreadBase::pause()
   }
 }
 
-void ThreadBase::resume()
+inline void ThreadBase::resume()
 {
   std::unique_lock<std::mutex> thread_guard(thread_lock);
   if (status != ACTIVE || status != PAUSED)
@@ -98,7 +98,7 @@ void ThreadBase::resume()
   thread_ready.notify_one();
 }
 
-void ThreadBase::stop()
+inline void ThreadBase::stop()
 {
   // if thread has been detached or already terminated, nothing to do
   if (!thread.joinable()) return;
