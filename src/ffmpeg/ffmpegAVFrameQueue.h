@@ -26,7 +26,17 @@ class AVFrameQueue : public IAVFrameBuffer
 
   } // queue size
 
-  AVFrameQueue(const AVFrameQueue &src) = delete;
+  AVFrameQueue(const AVFrameQueue &that)
+      : src(that.src), dst(that.dst), dynamic(that.dynamic),
+        que(that.que.size())
+  {
+    std::transform(that.que.begin(), that.que.end(), que.begin(),
+                   [](const QueData &src) -> QueData {
+                     return {av_frame_clone(src.frame), src.eof, src.populated};
+                   });
+    wr = que.begin() + (that.wr - that.que.begin());
+    rd = que.begin() + (that.rd - that.que.begin());
+  }
 
   virtual ~AVFrameQueue()
   {
@@ -35,7 +45,19 @@ class AVFrameQueue : public IAVFrameBuffer
       if (buf.frame) av_frame_free(&buf.frame);
   }
 
-  AVFrameQueue &operator=(const AVFrameQueue &src) = delete;
+  AVFrameQueue &operator=(const AVFrameQueue &that)
+  {
+    src = that.src;
+    dst = that.dst;
+    dynamic = that.dynamic;
+    que(that.que.size());
+    std::transform(that.que.begin(), that.que.end(), que.begin(),
+                   [](const QueData &src) -> QueData {
+                     return {av_frame_clone(src.frame), src.eof, src.populated};
+                   });
+    wr = que.begin() + (that.wr - that.que.begin());
+    rd = que.begin() + (that.rd - that.que.begin());
+  }
 
   const MediaParams &getMediaParams() const
   {
