@@ -14,13 +14,15 @@ template <typename MutexType, typename CondVarType, typename MutexLockType>
 class AVFrameDoubleBuffer : public IAVFrameBuffer
 {
   public:
-  AVFrameDoubleBuffer(size_t N);
+  AVFrameDoubleBuffer(size_t N = 0);
   AVFrameDoubleBuffer(const AVFrameDoubleBuffer &src) = delete;
   ~AVFrameDoubleBuffer() {}
 
   AVFrameDoubleBuffer &operator=(const AVFrameDoubleBuffer &src) = delete;
 
   bool ready() const { return true; }
+
+  bool autoexpand() const { return rcvr->autoexpand(); }
 
   IAVFrameSource &getSrc() const { return rcvr->getSrc(); }
   void setSrc(IAVFrameSource &src);
@@ -77,7 +79,7 @@ class AVFrameDoubleBuffer : public IAVFrameBuffer
   void pop_threadunsafe(MutexLockType &lock, AVFrame *frame, bool *eof,
                         Action action);
 
-  void swap_threadunsafe();
+  void swap_threadunsafe() { std::swap(rcvr, sndr); }
 
   typedef std::vector<AVFrameQueueST> Buffers;
   Buffers buffers;
@@ -249,10 +251,12 @@ inline bool AVFrameDoubleBuffer<MutexType, CondVarType, MutexLockType>::push(
     AVFrame *frame, const std::chrono::milliseconds &timeout_duration)
 {
   MutexLockType lock(mutex);
-  cv_rx.wait_for(lock, timeout_duration,
-                 [this] { return readyToPush_threadunsafe(); });
-  push_threadunsafe(lock, frame,
-                    [](auto &rcvr, AVFrame *frame) { rcvr->push(frame); });
+  bool success = cv_rx.wait_for(lock, timeout_duration,
+                                [this] { return readyToPush_threadunsafe(); });
+  if (success)
+    push_threadunsafe(lock, frame,
+                      [](auto &rcvr, AVFrame *frame) { rcvr->push(frame); });
+  return success;
 }
 
 template <typename MutexType, typename CondVarType, typename MutexLockType>
@@ -415,6 +419,13 @@ inline bool AVFrameDoubleBuffer<MutexType, CondVarType, MutexLockType>::eof(
     throw Exception("Timed out while waiting to check for eof.");
   if (sndr->empty()) swap_threadunsafe(); // gets here only if swappable is true
   return sndr->eof();
+}
+
+template <typename MutexType, typename CondVarType, typename MutexLockType>
+inline void AVFrameDoubleBuffer<MutexType, CondVarType, MutexLockType>::swap()
+{
+  MutexLockType lock(mutex);
+  swap_threadunsafe();
 }
 
 } // namespace ffmpeg
