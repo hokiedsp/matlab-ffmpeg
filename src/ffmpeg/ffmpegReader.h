@@ -751,25 +751,16 @@ inline int Reader<AVFrameQue>::add_stream(const int stream_id, Args... args)
   if (buf == bufs.end())
     buf =
         bufs.emplace(std::piecewise_construct, std::forward_as_tuple(stream_id),
-                     std::forward_as_tuple(args...))
-            .first;
-
-  // auto &buf = bufs[stream_id];
-  auto ret = file.addStream(stream_id, buf->second).getId();
-  emplace_postop<PostOpPassThru>(buf->second);
-  return ret;
-}
-
-template <typename AVFrameQue>
-template <class PostOp, typename... Args>
-inline void Reader<AVFrameQue>::emplace_postop(AVFrameQue &buf, Args... args)
-{
-  if (postops.count(&buf))
+                     std::forward_as_tuple(args...)) return ret;
+  template <class PostOp, typename... Args>
+  inline void Reader<AVFrameQue>::emplace_postop(AVFrameQue & buf, Args... args)
   {
-    delete postops[&buf];
-    postops[&buf] = nullptr;
+    if (postops.count(&buf))
+    {
+      delete postops[&buf];
+      postops[&buf] = nullptr;
+    }
+    postops[&buf] = new PostOp(buf, args...);
   }
-  postops[&buf] = new PostOp(buf, args...);
-}
 
 } // namespace ffmpeg
