@@ -747,20 +747,39 @@ template <typename AVFrameQue>
 template <typename... Args>
 inline int Reader<AVFrameQue>::add_stream(const int stream_id, Args... args)
 {
-  auto buf = bufs.find(stream_id);
-  if (buf == bufs.end())
-    buf =
-        bufs.emplace(std::piecewise_construct, std::forward_as_tuple(stream_id),
-                     std::forward_as_tuple(args...)) return ret;
-  template <class PostOp, typename... Args>
-  inline void Reader<AVFrameQue>::emplace_postop(AVFrameQue & buf, Args... args)
+  // stream must not be already activated (i.e., already has a buffer assigned
+  // to it)
+
+  auto emplace_returned =
+      bufs.emplace(std::piecewise_construct, std::forward_as_tuple(stream_id),
+                   std::forward_as_tuple(args...));
+
+  if (!emplace_returned.second)
+    throw Exception("The specified stream has already been activated.");
+
+  // create a new buffer
+  auto &buf = emplace_returned.first->second;
+
+  // activate the stream with the new buffer
+  auto ret = file.addStream(stream_id, buf).getId();
+
+  // default to just pass-through the output frame
+  emplace_postop<PostOpPassThru>(buf);
+
+  // return the stream id
+  return ret;
+}
+
+template <typename AVFrameQue>
+template <class PostOp, typename... Args>
+inline void Reader<AVFrameQue>::emplace_postop(AVFrameQue &buf, Args... args)
+{
+  if (postops.count(&buf))
   {
-    if (postops.count(&buf))
-    {
-      delete postops[&buf];
-      postops[&buf] = nullptr;
-    }
-    postops[&buf] = new PostOp(buf, args...);
+    delete postops[&buf];
+    postops[&buf] = nullptr;
   }
+  postops[&buf] = new PostOp(buf, args...);
+}
 
 } // namespace ffmpeg
