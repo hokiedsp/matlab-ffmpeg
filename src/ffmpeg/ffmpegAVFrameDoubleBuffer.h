@@ -105,6 +105,7 @@ AVFrameDoubleBuffer<MutexType, CondVarType, MutexLockType>::AVFrameDoubleBuffer(
     : swappable(true)
 {
   // set up a double buffer
+  buffers.reserve(2);
   buffers.emplace_back(N);
   buffers.emplace_back(N);
 
