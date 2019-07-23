@@ -20,6 +20,10 @@ void ReaderMT::thread_fcn()
 {
   std::unique_lock<std::mutex> thread_guard(thread_lock);
 
+  // nothing to initialize
+  status = ACTIVE; 
+  thread_ready.notify_one();
+
   while (!killnow)
   {
     switch (status)
@@ -97,4 +101,8 @@ void ReaderMT::activate()
 
   // start the thread
   start();
+
+  // wait till thread starts
+  waitTillInitialized();
+
 }
