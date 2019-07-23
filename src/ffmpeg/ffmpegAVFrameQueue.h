@@ -32,10 +32,30 @@ class AVFrameQueue : public IAVFrameBuffer
   {
     std::transform(that.que.begin(), that.que.end(), que.begin(),
                    [](const QueData &src) -> QueData {
-                     return {av_frame_clone(src.frame), src.eof, src.populated};
+                     AVFrame *frame;
+                     if (src.populated)
+                       frame = av_frame_clone(src.frame);
+                     else
+                       frame = av_frame_alloc();
+                     if (!frame) throw Exception("Failed to clone AVFrame.");
+                     return {frame, src.eof, src.populated};
                    });
     wr = que.begin() + (that.wr - that.que.begin());
     rd = que.begin() + (that.rd - that.que.begin());
+  }
+
+  AVFrameQueue(AVFrameQueue &&that)
+  {
+    src = std::move(that.src);
+    dst = std::move(that.dst);
+    dynamic = std::move(that.dynamic);
+    int64_t Iwr = that.wr - that.que.begin();
+    int64_t Ird = that.rd - that.que.begin();
+    que = std::move(that.que);
+    wr = que.begin() + Iwr;
+    rd = que.begin() + Ird;
+    that.wr = that.que.begin();
+    that.rd = that.que.begin();
   }
 
   virtual ~AVFrameQueue()
