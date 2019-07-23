@@ -12,11 +12,13 @@ class ThreadBase
   ThreadBase() : killnow(false), status(INIT) {}
   virtual ~ThreadBase() { stop(); }
 
-  virtual bool isRunning() const { return thread.joinable(); }
-  virtual void start() { start(&ThreadBase::thread_fcn); }
-  virtual void pause();
-  virtual void resume();
-  virtual void stop();
+  bool isRunning() const { return thread.joinable(); }
+  bool isInitializing(); // returns true if worker thread is still initializing
+  void waitTillInitialized(); // blocks until the thread is out of initialization phase
+  void start() { start(&ThreadBase::thread_fcn); }
+  void pause();
+  void resume();
+  void stop();
 
   protected:
   template <class Function, class... Args>
@@ -67,9 +69,23 @@ inline void ThreadBase::start(Function &&f, Args &&... args)
 
   // start the file reading thread (sets up and idles)
   thread = std::thread(f, this, args...);
+}
 
-  // start reading immediately
-  resume();
+inline bool ThreadBase::isInitializing()
+{
+  // lock all mutexes
+  std::unique_lock<std::mutex> thread_guard(thread_lock);
+  return status == INIT;
+}
+
+inline void ThreadBase::waitTillInitialized() 
+{
+// blocks until the thread is out of initialization phase
+  std::unique_lock<std::mutex> thread_guard(thread_lock);
+  // cannot pause until thread has been initialized
+  if (status == INIT)
+    thread_ready.wait(thread_guard, [this]() { return status != INIT; });
+
 }
 
 inline void ThreadBase::pause()
@@ -77,21 +93,30 @@ inline void ThreadBase::pause()
   // lock all mutexes
   std::unique_lock<std::mutex> thread_guard(thread_lock);
 
+  // cannot pause until thread has been initialized
+  if (status == INIT)
+    thread_ready.wait(thread_guard, [this]() { return status != INIT; });
+
   // if not already idling
-  if (status != IDLE || status != PAUSED)
+  if (status != IDLE && status != PAUSED)
   {
     // command threads to pause
     status = PAUSE_RQ;
     thread_ready.notify_one();
 
     // wait until reader thread is IDLE
-    while (status != IDLE || status != PAUSED) thread_ready.wait(thread_guard);
+    thread_ready.wait(thread_guard,
+                      [this]() { return status == IDLE || status == PAUSED; });
   }
 }
 
 inline void ThreadBase::resume()
 {
   std::unique_lock<std::mutex> thread_guard(thread_lock);
+
+  // thread is still initializing or idling (i.e., already running)
+  if (status == INIT || status == IDLE) return;
+
   if (status != ACTIVE || status != PAUSED)
     throw std::runtime_error("Cannot resume. Thread is not in paused state.");
   status = ACTIVE;
@@ -104,14 +129,15 @@ inline void ThreadBase::stop()
   if (!thread.joinable()) return;
 
   // pause the thread -> thread reaches PAUSED/IDLE state
-  pause();
+  if (status != INIT) pause();
 
   // turn on the thread termination flag
-  killnow = true;
-
-  // resume the thread -> killnow must be checked right outside of IDLE wait
-  resume();
-
+  {
+    std::unique_lock<std::mutex> thread_guard(thread_lock);
+    killnow = true;
+    thread_ready.notify_one();
+  }
+  
   // wait till the thread has joined (if joinable)
   if (thread.joinable()) thread.join();
 }
