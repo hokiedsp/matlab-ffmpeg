@@ -437,9 +437,9 @@ void mexFFmpegReader::set_streams(const mxArray *mxObj)
     // * Filtergraph: pick all the filter outputs
     if (filt_desc.empty())
     {
-      auto add = [this](const AVMediaType type, const std::string &prefix) {
+      auto add = [this, mxObj](const AVMediaType type, const std::string &prefix) {
         // add the best stream (throws InvalidStreamSpecifier if invalid)
-        int id = reader.addStream(type);
+        int id = add_stream(mxObj, type);
 
         // use the "prefix + #" format specifier for the ease of type id
         bool notfound = true;
@@ -488,7 +488,7 @@ void mexFFmpegReader::set_streams(const mxArray *mxObj)
                   ffmpeg::StreamSource::FilterSink))
                  .size())
       {
-        reader.addStream(spec);
+        add_stream(mxObj,spec);
         streams.push_back(spec);
       }
     }
@@ -502,7 +502,7 @@ void mexFFmpegReader::set_streams(const mxArray *mxObj)
       {
         try // to get the best audio stream
         {
-          reader.addStream(mexGetString(mxStream));
+          add_stream(mxObj,mexGetString(mxStream));
         }
         catch (ffmpeg::InvalidStreamSpecifier &)
         {
@@ -522,7 +522,7 @@ void mexFFmpegReader::set_streams(const mxArray *mxObj)
           int id = (int)ids[j];
           try
           {
-            reader.addStream(id);
+            add_stream(mxObj,id);
           }
           catch (ffmpeg::InvalidStreamSpecifier &)
           {

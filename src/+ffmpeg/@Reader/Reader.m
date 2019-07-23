@@ -71,8 +71,10 @@ classdef Reader < matlab.mixin.SetGet & matlab.mixin.CustomDisplay
    properties(GetAccess='public', SetAccess='private')
       Name            % Name of the file to be read.
       Path            % Path of the file to be read.
-      Streams             % Activated streams (excluding those consumed by filters)
+      Streams         % Activated streams (excluding those consumed by filters)
       Duration        % Total length of file in seconds.
+      BufferSize = 4  % Underlying frame buffer size
+      % Direction = 'forward'
    end
    
    properties(Access='public', Dependent)
@@ -97,9 +99,6 @@ classdef Reader < matlab.mixin.SetGet & matlab.mixin.CustomDisplay
       NumberOfAudioChannels = []
       ChannelLayout = ''
       Metadata = []
-      % ReadMode = 'components' % 'components'(default if pixel is byte size) |'planes' (default if pixel is sub-byte size)
-      % Direction = 'forward'
-      % BufferSize = 4  % Underlying frame buffer size
    end
    
    %------------------------------------------------------------------
@@ -328,10 +327,10 @@ classdef Reader < matlab.mixin.SetGet & matlab.mixin.CustomDisplay
          obj.FilterGraph = value;
       end
       
-%       function set.BufferSize(obj,value)
-%          validateattributes(value,{'double'},{'scalar','real','positive','integer'});
-%          obj.BufferSize = value;
-%       end
+      function set.BufferSize(obj,value)
+         validateattributes(value,{'double'},{'scalar','real','positive','integer'});
+         obj.BufferSize = value;
+      end
 %       function set.Direction(obj,value)
 %          obj.Direction = validatestring(value,{'forward','backward'},mfilename,'Direction');
 %       end

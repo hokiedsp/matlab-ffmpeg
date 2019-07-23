@@ -4,9 +4,8 @@
 #include <mexObjectHandler.h>
 
 #include "../../ffmpeg/ffmpegAVFrameQueue.h"
-#include "../../ffmpeg/ffmpegReader.h"
+#include "../../ffmpeg/ffmpegReaderMT.h"
 // #include "../../ffmpeg/filter/ffmpegFilterGraph.h"
-#include "../../ffmpeg/syncpolicies.h"
 #include "mexReaderPostOps.h"
 
 #include <chrono>
@@ -18,14 +17,19 @@
 // #include <condition_variable>
 
 typedef std::vector<uint8_t> uint8_vector;
-typedef ffmpeg::AVFrameQueue<NullMutex, NullConditionVariable<NullMutex>,
-                             NullUniqueLock<NullMutex>>
-    AVFrameQueue;
+// typedef ffmpeg::AVFrameQueue<NullMutex, NullConditionVariable<NullMutex>,
+//                              NullUniqueLock<NullMutex>>
+//     AVFrameBuffer;
+typedef ffmpeg::AVFrameDoubleBufferMT AVFrameBuffer;
+
 // typedef ffmpeg::AVFrameQueue<Cpp11Mutex,
 //                              Cpp11ConditionVariable<Cpp11Mutex,
 //                              Cpp11UniqueLock<Cpp11Mutex>>,
 //                              Cpp11UniqueLock<Cpp11Mutex>>
-//     AVFrameQueue;
+//     AVFrameBuffer;
+
+// typedef ffmpeg::Reader<AVFrameQueue> ffmpegReader;
+typedef ffmpeg::ReaderMT ffmpegReader;
 
 class mexFFmpegReader
 {
@@ -47,6 +51,22 @@ class mexFFmpegReader
   private:
   // "quasi-public" as directly called by action_handler or static_handler
   void activate(mxArray *mxObj);
+
+  template <typename Spec>
+  int add_stream(const mxArray *mxObj, const Spec &spec)
+  {
+    // the first stream gets the finite buffer size while the secondary streams
+    // are dynamically buffered
+    if (streams.empty())
+    {
+      int N = (int)mxGetScalar(mxGetProperty(mxObj, 0, "BufferSize"));
+      av_log(nullptr, AV_LOG_INFO, "N = %d\n", N);
+      return reader.addStream(spec, -1, N);
+    }
+    else
+      return reader.addStream(spec);
+  }
+
   mxArray *hasFrame();
   mxArray *hasMediaType(const AVMediaType type);
 
@@ -63,7 +83,7 @@ class mexFFmpegReader
   static mxArray *getFileFormats();  // formats = getFileFormats();
   static mxArray *getVideoFormats(); // formats = getVideoFormats();
 
-  ffmpeg::Reader<ffmpeg::AVFrameQueueST> reader;
+  ffmpegReader reader;
 
   std::string filt_desc; // actual filter graph description
 
