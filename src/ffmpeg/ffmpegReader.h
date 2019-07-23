@@ -324,19 +324,18 @@ template <typename... Args>
 int Reader<AVFrameQue>::addStream(const std::string &spec,
                                   int related_stream_id, Args... args)
 {
-  if (active) Exception("Cannot add stream as the reader is already active.");
+  if (active) Exception("Cannot add a stream as the reader is already active.");
 
   // if filter graph is defined, check its output link labels first
   if (filter_graph && filter_graph->isSink(spec))
   {
-    auto buf = filter_outbufs.find(spec);
-    if (buf == filter_outbufs.end())
-      buf = filter_outbufs
-                .emplace(std::piecewise_construct, std::forward_as_tuple(spec),
-                         std::forward_as_tuple(args...))
-                .first;
-    filter_graph->assignSink(buf->second, spec);
-    emplace_postop<PostOpPassThru>(buf->second);
+    auto emplace_returned = filter_outbufs.try_emplace(spec, args...);
+    if (!emplace_returned.second)
+      throw Exception("The specified filter sink has already been activated.");
+
+    auto &buf = emplace_returned.first->second;
+    filter_graph->assignSink(buf, spec);
+    emplace_postop<PostOpPassThru>(buf);
     return -1;
   }
 
@@ -749,10 +748,7 @@ inline int Reader<AVFrameQue>::add_stream(const int stream_id, Args... args)
 {
   // stream must not be already activated (i.e., already has a buffer assigned
   // to it)
-
-  auto emplace_returned =
-      bufs.emplace(std::piecewise_construct, std::forward_as_tuple(stream_id),
-                   std::forward_as_tuple(args...));
+  auto emplace_returned = bufs.try_emplace(stream_id, args...);
 
   if (!emplace_returned.second)
     throw Exception("The specified stream has already been activated.");
