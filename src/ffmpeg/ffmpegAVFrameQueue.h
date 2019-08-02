@@ -148,6 +148,13 @@ class AVFrameQueue : public IAVFrameBuffer
     return wr->populated;
   }
 
+  bool isDynamic() const { return dynamic; }
+
+  // does not support master-slave mode
+  bool linkable() const { return false; }
+  void follow(IAVFrameSinkBuffer &master) {}
+  void lead(IAVFrameSinkBuffer &slave) {}
+
   ///////////////////////////////////////////////////////////////////////////////
 
   bool readyToPush()

@@ -31,6 +31,10 @@ class IAVFrameSinkBuffer
   virtual bool empty() noexcept = 0;
   virtual bool full() noexcept = 0;
 
+  virtual bool linkable() const = 0;
+  virtual void follow(IAVFrameSinkBuffer &master) = 0;
+  virtual void lead(IAVFrameSinkBuffer &slave) = 0;
+
   virtual bool readyToPush() = 0;
   virtual void blockTillReadyToPush() = 0;
   virtual bool

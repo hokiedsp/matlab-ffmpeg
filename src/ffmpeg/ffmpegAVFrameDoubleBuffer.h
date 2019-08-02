@@ -39,6 +39,10 @@ class AVFrameDoubleBuffer : public IAVFrameBuffer
   bool empty() noexcept;
   bool full() noexcept;
 
+  bool linkable() const { return true; }
+  void follow(IAVFrameSinkBuffer &master);
+  void lead(IAVFrameSinkBuffer &slave);
+
   bool readyToPush();
   void blockTillReadyToPush();
   bool blockTillReadyToPush(const std::chrono::milliseconds &timeout_duration);
@@ -79,12 +83,14 @@ class AVFrameDoubleBuffer : public IAVFrameBuffer
   void pop_threadunsafe(MutexLockType &lock, AVFrame *frame, bool *eof,
                         Action action);
 
-  void swap_threadunsafe() { std::swap(rcvr, sndr); }
+  void swap_threadunsafe();
 
   typedef std::vector<AVFrameQueueST> Buffers;
   Buffers buffers;
   Buffers::iterator rcvr; // receives new AVFrame
   Buffers::iterator sndr; // sends new stored AVFrame data
+
+  std::vector<AVFrameDoubleBuffer *> slaves;
 
   MutexType mutex;
   CondVarType cv_tx;
@@ -180,6 +186,28 @@ AVFrameDoubleBuffer<MutexType, CondVarType, MutexLockType>::full() noexcept
   MutexLockType lock(mutex);
   return std::all_of(buffers.begin(), buffers.end(),
                      [](auto &buf) { return buf.full(); });
+}
+
+template <typename MutexType, typename CondVarType, typename MutexLockType>
+inline void AVFrameDoubleBuffer<MutexType, CondVarType, MutexLockType>::follow(
+    IAVFrameSinkBuffer &master)
+{
+  if (!rcvr->isDynamic())
+    throw Exception(
+        "Only dynamic buffers can become a slave to another buffer.");
+  AVFrameDoubleBuffer &masterDB = dynamic_cast<AVFrameDoubleBuffer &>(master);
+  masterDB.slaves.push_back(this);
+}
+
+template <typename MutexType, typename CondVarType, typename MutexLockType>
+inline void AVFrameDoubleBuffer<MutexType, CondVarType, MutexLockType>::lead(
+    IAVFrameSinkBuffer &slave)
+{
+  AVFrameDoubleBuffer &slaveDB = dynamic_cast<AVFrameDoubleBuffer &>(slave);
+  if (!slaveDB.rcvr->isDynamic())
+    throw Exception(
+        "Only dynamic buffers can become a slave to another buffer.");
+  slaves.push_back(&slaveDB);
 }
 
 template <typename MutexType, typename CondVarType, typename MutexLockType>
@@ -427,6 +455,14 @@ inline void AVFrameDoubleBuffer<MutexType, CondVarType, MutexLockType>::swap()
 {
   MutexLockType lock(mutex);
   swap_threadunsafe();
+}
+
+template <typename MutexType, typename CondVarType, typename MutexLockType>
+inline void
+AVFrameDoubleBuffer<MutexType, CondVarType, MutexLockType>::swap_threadunsafe()
+{
+  std::swap(rcvr, sndr);
+  for (auto slave : slaves) slave->swap();
 }
 
 } // namespace ffmpeg
