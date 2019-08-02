@@ -1,4 +1,4 @@
-project (matlab-ffmpeg)
+set(PROJECT_SRC_DIR ${CMAKE_CURRENT_SOURCE_DIR})
 
 # must build the ffmpeg library first as it is used by all mex files
 add_subdirectory("ffmpeg") # creates LIBFFMPEG target variable
@@ -18,7 +18,7 @@ install(TARGETS ffmpegpixfmts RUNTIME DESTINATION ${CMAKE_INSTALL_PREFIX})
 
 # install copies all the m-files
 # add the install procedures
-file(GLOB MFILES LIST_DIRECTORIES false RELATIVE ${PROJECT_SOURCE_DIR} "*.m")
+file(GLOB MFILES LIST_DIRECTORIES false RELATIVE ${PROJECT_SRC_DIR} "*.m")
 install(FILES ${MFILES} DESTINATION ${CMAKE_INSTALL_PREFIX}) # copy all the package m-files
 
 # copy private m-files & build private mex functions

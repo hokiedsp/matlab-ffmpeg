@@ -1,11 +1,11 @@
 matlab_add_mex(NAME audioinfo SRC audioinfo.cpp LINK_TO ${FFMPEG_LIBRARIES} $<TARGET_OBJECTS:${LIBFFMPEG}>)
 
-file(RELATIVE_PATH DstRelativePath ${PROJECT_SOURCE_DIR} ${CMAKE_CURRENT_SOURCE_DIR})
+file(RELATIVE_PATH DstRelativePath ${PROJECT_SRC_DIR} ${CMAKE_CURRENT_SOURCE_DIR})
 install(TARGETS audioinfo RUNTIME DESTINATION "${DstRelativePath}")
 
 matlab_add_mex(NAME audioread SRC audioread.cpp LINK_TO ${FFMPEG_LIBRARIES} $<TARGET_OBJECTS:${LIBFFMPEG}>)
 
-file(RELATIVE_PATH DstRelativePath ${PROJECT_SOURCE_DIR} ${CMAKE_CURRENT_SOURCE_DIR})
+file(RELATIVE_PATH DstRelativePath ${PROJECT_SRC_DIR} ${CMAKE_CURRENT_SOURCE_DIR})
 install(TARGETS audioread RUNTIME DESTINATION "${DstRelativePath}")
 
 # copy all the m-files in the directory

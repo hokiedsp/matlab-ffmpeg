@@ -1,6 +1,8 @@
 cmake_minimum_required(VERSION 3.14) 
 # for FindMatlab support (may require a later version to detect the latest Matlab release)
 
+project (matlab-ffmpeg)
+
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_LIST_DIR}/cmake")
 
 set(FFMPEG_VERSION "latest" CACHE STRING "FFmpeg version (only relevant for Win32 and Apple)")

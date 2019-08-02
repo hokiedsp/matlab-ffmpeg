@@ -2,7 +2,7 @@
 
 include_directories(..)
 
-file(RELATIVE_PATH DstRelativePath ${PROJECT_SOURCE_DIR} ${CMAKE_CURRENT_SOURCE_DIR})
+file(RELATIVE_PATH DstRelativePath ${PROJECT_SRC_DIR} ${CMAKE_CURRENT_SOURCE_DIR})
 
 matlab_add_mex(NAME ffmpeginfo_mex SRC ffmpeginfo_mex.cpp LINK_TO $<TARGET_OBJECTS:ffmpeg>)
 install(TARGETS ffmpeginfo_mex RUNTIME DESTINATION "${DstRelativePath}")
