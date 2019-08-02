@@ -30,6 +30,7 @@ class IAVFrameSinkBuffer
   virtual size_t size() noexcept = 0;
   virtual bool empty() noexcept = 0;
   virtual bool full() noexcept = 0;
+  virtual bool hasEof() noexcept = 0; // true if buffer contains EOF
 
   virtual bool linkable() const = 0;
   virtual void follow(IAVFrameSinkBuffer &master) = 0;
@@ -76,7 +77,6 @@ class IAVFrameSourceBuffer
   virtual bool tryToPop(AVFrame *frame, bool *eof = nullptr) = 0;
 
   virtual bool eof() = 0;
-  virtual bool eof(const std::chrono::milliseconds &rel_time) = 0;
 };
 
 class IAVFrameBuffer : public IAVFrameSourceBuffer, public IAVFrameSinkBuffer

@@ -38,6 +38,7 @@ class AVFrameDoubleBuffer : public IAVFrameBuffer
   size_t size() noexcept;
   bool empty() noexcept;
   bool full() noexcept;
+  bool hasEof() noexcept; // true if buffer contains EOF
 
   bool linkable() const { return true; }
   void follow(IAVFrameSinkBuffer &master);
@@ -63,7 +64,6 @@ class AVFrameDoubleBuffer : public IAVFrameBuffer
   bool tryToPop(AVFrame *frame, bool *eof = nullptr);
 
   bool eof();
-  bool eof(const std::chrono::milliseconds &rel_time);
 
   /**
    * \brief swaps rcvr & sndr buffers
@@ -433,21 +433,18 @@ template <typename MutexType, typename CondVarType, typename MutexLockType>
 inline bool AVFrameDoubleBuffer<MutexType, CondVarType, MutexLockType>::eof()
 {
   MutexLockType lock(mutex);
-  cv_tx.wait(lock, [this] { return readyToPop_threadunsafe(); });
-  if (sndr->empty()) swap_threadunsafe(); // gets here only if swappable is true
+  if (sndr->empty())
+    return rcvr->eof();
+  else
   return sndr->eof();
 }
 
 template <typename MutexType, typename CondVarType, typename MutexLockType>
-inline bool AVFrameDoubleBuffer<MutexType, CondVarType, MutexLockType>::eof(
-    const std::chrono::milliseconds &rel_time)
+inline bool
+AVFrameDoubleBuffer<MutexType, CondVarType, MutexLockType>::hasEof() noexcept
 {
   MutexLockType lock(mutex);
-  if (!cv_tx.wait_for(lock, rel_time,
-                      [this] { return readyToPop_threadunsafe(); }))
-    throw Exception("Timed out while waiting to check for eof.");
-  if (sndr->empty()) swap_threadunsafe(); // gets here only if swappable is true
-  return sndr->eof();
+  return rcvr->hasEof() || sndr->hasEof();
 }
 
 template <typename MutexType, typename CondVarType, typename MutexLockType>

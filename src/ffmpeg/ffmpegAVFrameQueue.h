@@ -266,18 +266,14 @@ class AVFrameQueue : public IAVFrameBuffer
   {
     if (empty()) return false;
     MutexLockType lock(mutex);
-    cv_tx.wait(lock, [this] { return readyToPop_threadunsafe(); });
     return rd->eof;
   }
 
-  bool eof(const std::chrono::milliseconds &rel_time)
+  bool hasEof() noexcept // true if buffer contains EOF
   {
     if (empty()) return false;
     MutexLockType lock(mutex);
-    if (!cv_tx.wait_for(lock, rel_time,
-                        [this] { return readyToPop_threadunsafe(); }))
-      throw Exception("Timed out while waiting to check for eof.");
-    return rd->eof; // true if no more frames in the buffer
+    return wr->eof; // true if no more frames in the buffer
   }
 
   bool tryToPop(AVFrame *frame, bool *eof)
