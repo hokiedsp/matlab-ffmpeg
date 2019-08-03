@@ -3,6 +3,7 @@
 #include "ffmpegAVFrameBufferInterfaces.h"
 #include "syncpolicies.h"
 
+#include <atomic>
 #include <numeric> // for std::reduce
 #include <vector>
 
@@ -14,7 +15,8 @@ template <typename MutexType, typename CondVarType, typename MutexLockType>
 class AVFrameQueue : public IAVFrameBuffer
 {
   public:
-  AVFrameQueue(size_t N = 0) : dynamic(N <= 1), src(nullptr), dst(nullptr)
+  AVFrameQueue(size_t N = 0)
+      : killnow(false), dynamic(N <= 1), src(nullptr), dst(nullptr)
   {
     // set read/write pointers to the beginning
     wr = rd = que.begin();
@@ -110,7 +112,13 @@ class AVFrameQueue : public IAVFrameBuffer
 
   bool autoexpand() const { return dynamic; }
 
-  bool ready() const { return true; };
+  bool ready() const { return !killnow; };
+  void kill()
+  {
+    killnow = true;
+    cv_rx.notify_all();
+    cv_tx.notify_all();
+  }
 
   void clear()
   {
@@ -125,6 +133,7 @@ class AVFrameQueue : public IAVFrameBuffer
       }
     }
     wr = rd = que.begin();
+    killnow = false;
   }
 
   size_t size() noexcept
@@ -166,20 +175,23 @@ class AVFrameQueue : public IAVFrameBuffer
   void blockTillReadyToPush()
   {
     MutexLockType lock(mutex);
-    cv_rx.wait(lock, [this] { return readyToPush_threadunsafe(); });
+    cv_rx.wait(lock,
+               [this]() { return killnow || readyToPush_threadunsafe(); });
   }
 
   bool blockTillReadyToPush(const std::chrono::milliseconds &rel_time)
   {
     MutexLockType lock(mutex);
-    return cv_rx.wait_for(lock, rel_time,
-                          [this] { return readyToPush_threadunsafe(); });
+    return cv_rx.wait_for(lock, rel_time, [this] {
+      return killnow || readyToPush_threadunsafe();
+    }) && !killnow;
   }
 
   AVFrame *peekToPush()
   {
     MutexLockType lock(mutex);
-    cv_rx.wait(lock, [this] { return readyToPush_threadunsafe(); });
+    cv_rx.wait(lock, [this] { return killnow || readyToPush_threadunsafe(); });
+    if (killnow) return nullptr;
     if (wr->populated)
       throw_or_expand(); // expand if allowed or throws overflow exception
     return wr->frame;
@@ -188,23 +200,24 @@ class AVFrameQueue : public IAVFrameBuffer
   void push()
   {
     MutexLockType lock(mutex);
-    cv_rx.wait(lock, [this] { return readyToPush_threadunsafe(); });
-    mark_populated_threadunsafe();
+    cv_rx.wait(lock, [this] { return killnow || readyToPush_threadunsafe(); });
+    if (!killnow) mark_populated_threadunsafe();
   }
 
   void push(AVFrame *frame)
   {
     MutexLockType lock(mutex);
-    cv_rx.wait(lock, [this] { return readyToPush_threadunsafe(); });
-    push_threadunsafe(frame);
+    cv_rx.wait(lock, [this] { return killnow || readyToPush_threadunsafe(); });
+    if (!killnow) push_threadunsafe(frame);
   }
 
   bool push(AVFrame *frame, const std::chrono::milliseconds &rel_time)
   {
     MutexLockType lock(mutex);
-    bool success = cv_rx.wait_for(
-        lock, rel_time, [this] { return readyToPush_threadunsafe(); });
-    if (success) push_threadunsafe(frame);
+    bool success = cv_rx.wait_for(lock, rel_time, [this] {
+      return killnow || readyToPush_threadunsafe();
+    });
+    if (success && !killnow) push_threadunsafe(frame);
     return success;
   }
 
@@ -233,32 +246,33 @@ class AVFrameQueue : public IAVFrameBuffer
   void blockTillReadyToPop()
   {
     MutexLockType lock(mutex);
-    cv_tx.wait(lock, [this] { return readyToPop_threadunsafe(); });
+    cv_tx.wait(lock, [this] { return killnow || readyToPop_threadunsafe(); });
   }
 
   bool blockTillReadyToPop(const std::chrono::milliseconds &rel_time)
   {
     MutexLockType lock(mutex);
-    return cv_tx.wait_for(lock, rel_time,
-                          [this] { return readyToPop_threadunsafe(); });
+    return cv_tx.wait_for(lock, rel_time, [this] {
+      return killnow || readyToPop_threadunsafe();
+    });
   }
 
   void pop(AVFrame *frame, bool *eof = nullptr)
   {
     if (!frame) throw Exception("frame must be non-null pointer.");
     MutexLockType lock(mutex);
-    cv_tx.wait(lock, [this] { return readyToPop_threadunsafe(); });
-    pop_threadunsafe(frame, eof);
+    cv_tx.wait(lock, [this] { return killnow || readyToPop_threadunsafe(); });
+    if (!killnow) pop_threadunsafe(frame, eof);
   }
 
   bool pop(AVFrame *frame, bool *eof, const std::chrono::milliseconds &rel_time)
   {
     if (!frame) throw Exception("frame must be non-null pointer.");
     MutexLockType lock(mutex);
-    cv_tx.wait(lock, [this] { return readyToPop_threadunsafe(); });
-    bool success = cv_tx.wait_for(lock, rel_time,
-                                  [this] { return readyToPop_threadunsafe(); });
-    if (success) pop_threadunsafe(frame, eof);
+    bool success = cv_tx.wait_for(lock, rel_time, [this] {
+      return killnow || readyToPop_threadunsafe();
+    });
+    if (success && !killnow) pop_threadunsafe(frame, eof);
     return success;
   }
 
@@ -293,9 +307,9 @@ class AVFrameQueue : public IAVFrameBuffer
   AVFrame *peekToPop()
   {
     MutexLockType lock(mutex);
-    cv_tx.wait(lock, [this] { return readyToPop_threadunsafe(); });
+    cv_tx.wait(lock, [this] { return killnow || readyToPop_threadunsafe(); });
 
-    if (rd->eof)
+    if (rd->eof || killnow)
       return nullptr;
     else
       return rd->frame;
@@ -303,8 +317,8 @@ class AVFrameQueue : public IAVFrameBuffer
   void pop()
   {
     MutexLockType lock(mutex);
-    cv_tx.wait(lock);
-    pop_threadunsafe(nullptr, nullptr);
+    cv_tx.wait(lock, [this]() -> bool { return killnow; });
+    if (!killnow) pop_threadunsafe(nullptr, nullptr);
   }
 
   private:
@@ -410,6 +424,7 @@ class AVFrameQueue : public IAVFrameBuffer
   MutexType mutex;
   CondVarType cv_tx;
   CondVarType cv_rx;
+  std::atomic_bool killnow;
 
   bool dynamic; // true=>dynamically-sized buffer
 

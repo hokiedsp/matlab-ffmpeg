@@ -3,6 +3,7 @@
 #include "ffmpegAVFrameQueue.h"
 
 #include <algorithm>
+#include <atomic>
 
 namespace ffmpeg
 {
@@ -20,7 +21,8 @@ class AVFrameDoubleBuffer : public IAVFrameBuffer
 
   AVFrameDoubleBuffer &operator=(const AVFrameDoubleBuffer &src) = delete;
 
-  bool ready() const { return true; }
+  bool ready() const { return !killnow; }
+  void kill();
 
   bool autoexpand() const { return rcvr->autoexpand(); }
 
@@ -96,6 +98,7 @@ class AVFrameDoubleBuffer : public IAVFrameBuffer
   CondVarType cv_tx;
   CondVarType cv_rx;
   CondVarType cv_swap;
+  std::atomic_bool killnow;
   bool swappable; // true to block buffer swappage
 };
 
@@ -108,7 +111,7 @@ typedef AVFrameDoubleBuffer<Cpp11Mutex, Cpp11ConditionVariable,
 template <typename MutexType, typename CondVarType, typename MutexLockType>
 AVFrameDoubleBuffer<MutexType, CondVarType, MutexLockType>::AVFrameDoubleBuffer(
     size_t N)
-    : swappable(true)
+    : swappable(true), killnow(false)
 {
   // set up a double buffer
   buffers.reserve(2);
@@ -118,6 +121,16 @@ AVFrameDoubleBuffer<MutexType, CondVarType, MutexLockType>::AVFrameDoubleBuffer(
   // assign writer & reader
   rcvr = buffers.begin();
   sndr = rcvr + 1;
+}
+
+template <typename MutexType, typename CondVarType, typename MutexLockType>
+void AVFrameDoubleBuffer<MutexType, CondVarType, MutexLockType>::kill()
+{
+  killnow = true;
+  for (auto &buf : buffers) buf.kill();
+  cv_tx.notify_all();
+  cv_rx.notify_all();
+  cv_swap.notify_all();
 }
 
 template <typename MutexType, typename CondVarType, typename MutexLockType>
@@ -159,6 +172,7 @@ inline void AVFrameDoubleBuffer<MutexType, CondVarType, MutexLockType>::clear()
 {
   MutexLockType lock(mutex);
   for (auto &buf : buffers) buf.clear();
+  killnow = false;
 }
 
 template <typename MutexType, typename CondVarType, typename MutexLockType>
@@ -223,7 +237,7 @@ inline void AVFrameDoubleBuffer<MutexType, CondVarType,
                                 MutexLockType>::blockTillReadyToPush()
 {
   MutexLockType lock(mutex);
-  cv_rx.wait(lock, [this] { return readyToPush_threadunsafe(); });
+  cv_rx.wait(lock, [this] { return killnow || readyToPush_threadunsafe(); });
   return;
 }
 
@@ -232,8 +246,9 @@ inline bool AVFrameDoubleBuffer<MutexType, CondVarType, MutexLockType>::
     blockTillReadyToPush(const std::chrono::milliseconds &timeout_duration)
 {
   MutexLockType lock(mutex);
-  return cv_rx.wait_for(lock, timeout_duration,
-                        [this] { return readyToPush_threadunsafe(); });
+  return cv_rx.wait_for(lock, timeout_duration, [this] {
+    return killnow || readyToPush_threadunsafe();
+  });
 }
 
 template <typename MutexType, typename CondVarType, typename MutexLockType>
@@ -248,8 +263,15 @@ inline AVFrame *
 AVFrameDoubleBuffer<MutexType, CondVarType, MutexLockType>::peekToPush()
 {
   MutexLockType lock(mutex);
-  cv_rx.wait(lock, [this] { return readyToPush_threadunsafe(); });
-  if (rcvr->full()) swap_threadunsafe(); // gets here only if swappable is true
+  cv_rx.wait(lock, [this] { return killnow || readyToPush_threadunsafe(); });
+  if (killnow) return nullptr;
+
+  if (rcvr->full()) // gets here only if swappable is true
+  {
+    cv_swap.wait(lock, [this]() { return killnow || sndr->empty(); });
+    if (killnow) return nullptr;
+    swap_threadunsafe();
+  }
   swappable = false;
   lock.unlock();
   auto frame = rcvr->peekToPush();
@@ -260,9 +282,10 @@ template <typename MutexType, typename CondVarType, typename MutexLockType>
 inline void AVFrameDoubleBuffer<MutexType, CondVarType, MutexLockType>::push()
 {
   MutexLockType lock(mutex);
-  cv_rx.wait(lock, [this] { return readyToPush_threadunsafe(); });
-  push_threadunsafe(lock, nullptr,
-                    [](auto &rcvr, AVFrame *frame) { rcvr->push(); });
+  cv_rx.wait(lock, [this] { return killnow || readyToPush_threadunsafe(); });
+  if (!killnow)
+    push_threadunsafe(lock, nullptr,
+                      [](auto &rcvr, AVFrame *frame) { rcvr->push(); });
 }
 
 template <typename MutexType, typename CondVarType, typename MutexLockType>
@@ -270,9 +293,10 @@ inline void
 AVFrameDoubleBuffer<MutexType, CondVarType, MutexLockType>::push(AVFrame *frame)
 {
   MutexLockType lock(mutex);
-  cv_rx.wait(lock, [this] { return readyToPush_threadunsafe(); });
-  push_threadunsafe(lock, frame,
-                    [](auto &rcvr, AVFrame *frame) { rcvr->push(frame); });
+  cv_rx.wait(lock, [this] { return killnow || readyToPush_threadunsafe(); });
+  if (!killnow)
+    push_threadunsafe(lock, frame,
+                      [](auto &rcvr, AVFrame *frame) { rcvr->push(frame); });
 }
 
 template <typename MutexType, typename CondVarType, typename MutexLockType>
@@ -280,8 +304,9 @@ inline bool AVFrameDoubleBuffer<MutexType, CondVarType, MutexLockType>::push(
     AVFrame *frame, const std::chrono::milliseconds &timeout_duration)
 {
   MutexLockType lock(mutex);
-  bool success = cv_rx.wait_for(lock, timeout_duration,
-                                [this] { return readyToPush_threadunsafe(); });
+  bool success = cv_rx.wait_for(lock, timeout_duration, [this] {
+    return killnow || readyToPush_threadunsafe();
+  });
   if (success)
     push_threadunsafe(lock, frame,
                       [](auto &rcvr, AVFrame *frame) { rcvr->push(frame); });
@@ -294,7 +319,13 @@ inline void
 AVFrameDoubleBuffer<MutexType, CondVarType, MutexLockType>::push_threadunsafe(
     MutexLockType &lock, AVFrame *frame, Action push)
 {
-  if (rcvr->full()) swap_threadunsafe(); // gets here only if swappable is true
+  if (rcvr->full()) // gets here only if swappable is true
+  {
+    cv_swap.wait(lock, [this]() { return killnow || sndr->empty(); });
+    if (killnow) return;
+    swap_threadunsafe();
+  }
+
   swappable = false;
   lock.unlock(); // momentarily release mutex to allow other thread to pop
   push(rcvr, frame);
@@ -329,7 +360,7 @@ template <typename MutexType, typename CondVarType, typename MutexLockType>
 inline bool AVFrameDoubleBuffer<MutexType, CondVarType,
                                 MutexLockType>::readyToPop_threadunsafe()
 {
-  return sndr->size() || (swappable && (rcvr->full() || rcvr->eof() ||
+  return sndr->size() || (swappable && (rcvr->full() || rcvr->hasEof() ||
                                         (rcvr->autoexpand() && rcvr->size())));
 }
 
@@ -338,7 +369,7 @@ inline void AVFrameDoubleBuffer<MutexType, CondVarType,
                                 MutexLockType>::blockTillReadyToPop()
 {
   MutexLockType lock(mutex);
-  cv_tx.wait(lock, [this] { return readyToPop_threadunsafe(); });
+  cv_tx.wait(lock, [this] { return killnow || readyToPop_threadunsafe(); });
 }
 
 template <typename MutexType, typename CondVarType, typename MutexLockType>
@@ -347,8 +378,9 @@ AVFrameDoubleBuffer<MutexType, CondVarType, MutexLockType>::blockTillReadyToPop(
     const std::chrono::milliseconds &timeout_duration)
 {
   MutexLockType lock(mutex);
-  return cv_tx.wait_for(lock, timeout_duration,
-                        [this] { return readyToPop_threadunsafe(); });
+  return cv_tx.wait_for(lock, timeout_duration, [this] {
+    return killnow || readyToPop_threadunsafe();
+  });
 }
 
 template <typename MutexType, typename CondVarType, typename MutexLockType>
@@ -356,18 +388,27 @@ inline AVFrame *
 AVFrameDoubleBuffer<MutexType, CondVarType, MutexLockType>::peekToPop()
 {
   MutexLockType lock(mutex);
-  cv_tx.wait(lock, [this] { return readyToPop_threadunsafe(); });
-  if (sndr->empty()) swap_threadunsafe();
+  cv_tx.wait(lock, [this] { return killnow || readyToPop_threadunsafe(); });
+  if (sndr->empty())
+  {
+    cv_swap.wait(
+        lock, [this]() { return killnow || rcvr->full() || rcvr->hasEof(); });
+    if (killnow) return nullptr;
+    swap_threadunsafe();
+  }
+
   return sndr->peekToPop();
-}
+} // namespace ffmpeg
 
 template <typename MutexType, typename CondVarType, typename MutexLockType>
 inline void AVFrameDoubleBuffer<MutexType, CondVarType, MutexLockType>::pop()
 {
   MutexLockType lock(mutex);
-  cv_tx.wait(lock);
-  pop_threadunsafe(lock, nullptr, nullptr,
-                   [](auto &sndr, AVFrame *frame, bool *eof) { sndr->pop(); });
+  cv_tx.wait(lock, [this]() -> bool { return killnow; });
+  if (!killnow)
+    pop_threadunsafe(
+        lock, nullptr, nullptr,
+        [](auto &sndr, AVFrame *frame, bool *eof) { sndr->pop(); });
 }
 
 template <typename MutexType, typename CondVarType, typename MutexLockType>
@@ -376,10 +417,12 @@ AVFrameDoubleBuffer<MutexType, CondVarType, MutexLockType>::pop(AVFrame *frame,
                                                                 bool *eof)
 {
   MutexLockType lock(mutex);
-  cv_tx.wait(lock);
-  pop_threadunsafe(lock, frame, eof, [](auto &sndr, AVFrame *frame, bool *eof) {
-    return sndr->pop(frame, eof);
-  });
+  cv_tx.wait(lock, [this]() -> bool { return killnow; });
+  if (!killnow)
+    pop_threadunsafe(lock, frame, eof,
+                     [](auto &sndr, AVFrame *frame, bool *eof) {
+                       return sndr->pop(frame, eof);
+                     });
 }
 
 template <typename MutexType, typename CondVarType, typename MutexLockType>
@@ -389,10 +432,10 @@ inline bool AVFrameDoubleBuffer<MutexType, CondVarType, MutexLockType>::pop(
 {
   if (!frame) throw Exception("frame must be non-null pointer.");
   MutexLockType lock(mutex);
-  cv_tx.wait(lock, [this] { return readyToPop_threadunsafe(); });
+  cv_tx.wait(lock, [this] { return killnow || readyToPop_threadunsafe(); });
   bool success = cv_tx.wait_for(lock, timeout_duration,
                                 [this] { return readyToPop_threadunsafe(); });
-  if (success)
+  if (success && !killnow)
     pop_threadunsafe(
         lock, frame, eof,
         [](auto &sndr, AVFrame *frame, bool *eof) { sndr->pop(frame, eof); });
@@ -405,7 +448,14 @@ inline void
 AVFrameDoubleBuffer<MutexType, CondVarType, MutexLockType>::pop_threadunsafe(
     MutexLockType &lock, AVFrame *frame, bool *eof, Action pop)
 {
-  if (sndr->empty()) swap_threadunsafe(); // gets here only if swappable is true
+  if (sndr->empty()) // gets here only if swappable is true
+  {
+    cv_swap.wait(
+        lock, [this]() { return killnow || rcvr->full() || rcvr->hasEof(); });
+    if (killnow) return;
+    swap_threadunsafe();
+  }
+
   swappable = false;
   lock.unlock(); // momentarily release mutex to allow other thread to pop
   pop(sndr, frame, eof);
@@ -436,7 +486,7 @@ inline bool AVFrameDoubleBuffer<MutexType, CondVarType, MutexLockType>::eof()
   if (sndr->empty())
     return rcvr->eof();
   else
-  return sndr->eof();
+    return sndr->eof();
 }
 
 template <typename MutexType, typename CondVarType, typename MutexLockType>

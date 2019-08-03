@@ -21,6 +21,7 @@ class IAVFrameSinkBuffer
 {
   public:
   virtual bool ready() const = 0;
+  virtual void kill() = 0;
 
   virtual IAVFrameSource &getSrc() const = 0;
   virtual void setSrc(IAVFrameSource &src) = 0;
@@ -53,6 +54,7 @@ class IAVFrameSourceBuffer
 {
   public:
   virtual bool ready() const = 0;
+  virtual void kill() = 0;
 
   virtual IAVFrameSink &getDst() const = 0;
   virtual void setDst(IAVFrameSink &dst) = 0;
