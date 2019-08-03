@@ -1,10 +1,10 @@
 #pragma once
 
+#include <atomic>
 #include <condition_variable>
 #include <mutex>
 #include <stdexcept>
 #include <thread>
-// #include <atomic>
 
 class ThreadBase
 {
@@ -13,11 +13,13 @@ class ThreadBase
   virtual ~ThreadBase() { stop(); }
 
   bool isRunning() const { return thread.joinable(); }
+  bool isPaused() const { return status == PAUSED; }
   bool isInitializing(); // returns true if worker thread is still initializing
-  void waitTillInitialized(); // blocks until the thread is out of initialization phase
+  void waitTillInitialized(); // blocks until the thread is out of
+                              // initialization phase
   void start() { start(&ThreadBase::thread_fcn); }
-  void pause();
-  void resume();
+  virtual void pause();
+  virtual void resume();
   void stop();
 
   protected:
@@ -49,7 +51,7 @@ class ThreadBase
               // PAUSE_RQ)
     REINIT_RQ // request to re-initialize (from derived class functions)
   };
-  THREAD_STATUS status; // see THREAD_STATUS definition above for
+  std::atomic<THREAD_STATUS> status; // see THREAD_STATUS definition above for
 
   std::exception_ptr eptr;
 };
@@ -78,14 +80,13 @@ inline bool ThreadBase::isInitializing()
   return status == INIT;
 }
 
-inline void ThreadBase::waitTillInitialized() 
+inline void ThreadBase::waitTillInitialized()
 {
-// blocks until the thread is out of initialization phase
+  // blocks until the thread is out of initialization phase
   std::unique_lock<std::mutex> thread_guard(thread_lock);
   // cannot pause until thread has been initialized
   if (status == INIT)
     thread_ready.wait(thread_guard, [this]() { return status != INIT; });
-
 }
 
 inline void ThreadBase::pause()
@@ -137,7 +138,7 @@ inline void ThreadBase::stop()
     killnow = true;
     thread_ready.notify_one();
   }
-  
+
   // wait till the thread has joined (if joinable)
   if (thread.joinable()) thread.join();
 }

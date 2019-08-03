@@ -12,7 +12,7 @@ class ReaderMT : public Reader<AVFrameDoubleBufferMT>, private ThreadBase
 {
   public:
   ReaderMT(const std::string &url = "") : Reader<AVFrameDoubleBufferMT>(url) {}
-  ~ReaderMT() {} // may need to clean up filtergraphs
+  ~ReaderMT() { kill(); } // may need to clean up filtergraphs
 
   void closeFile();
 
@@ -28,14 +28,20 @@ class ReaderMT : public Reader<AVFrameDoubleBufferMT>, private ThreadBase
 
   protected:
   /**
-   * \brief Worker thread function to read frames and stuff buffers
-   */
-  void thread_fcn();
-
-  /**
    * \brief Blocks until at least one previously empty read buffer becomes ready
    */
   void read_next_packet();
+
+  private:
+  // kill buffers
+  void kill();
+
+  /**
+   * \brief Worker thread function to read frames and stuff buffers
+   */
+  void thread_fcn() override;
+  void pause() override;
+  void resume() override;
 };
 
 template <class Chrono_t>
