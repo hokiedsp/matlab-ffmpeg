@@ -191,6 +191,9 @@ template <typename AVFrameQue> class Reader
   template <class PostOp, typename... Args>
   void setPostOp(const int id, Args... args);
 
+
+  size_t getNumBufferedFrames(const std::string &spec);
+
   protected:
   /**
    * \brief Read next packet
@@ -776,6 +779,14 @@ inline void Reader<AVFrameQue>::emplace_postop(AVFrameQue &buf, Args... args)
     postops[&buf] = nullptr;
   }
   postops[&buf] = new PostOp(buf, args...);
+}
+
+template <typename AVFrameQue>
+inline size_t Reader<AVFrameQue>::getNumBufferedFrames(const std::string &spec)
+{
+  if (!active || file.atEndOfFile()) return 0;
+  auto &buf = get_buf(spec);
+  return buf.size();
 }
 
 } // namespace ffmpeg
