@@ -404,7 +404,7 @@ template <typename MutexType, typename CondVarType, typename MutexLockType>
 inline void AVFrameDoubleBuffer<MutexType, CondVarType, MutexLockType>::pop()
 {
   MutexLockType lock(mutex);
-  cv_tx.wait(lock, [this]() -> bool { return killnow; });
+  cv_tx.wait(lock, [this]() -> bool { return killnow || readyToPop_threadunsafe(); });
   if (!killnow)
     pop_threadunsafe(
         lock, nullptr, nullptr,
@@ -417,7 +417,7 @@ AVFrameDoubleBuffer<MutexType, CondVarType, MutexLockType>::pop(AVFrame *frame,
                                                                 bool *eof)
 {
   MutexLockType lock(mutex);
-  cv_tx.wait(lock, [this]() -> bool { return killnow; });
+  cv_tx.wait(lock, [this]() -> bool { return killnow || readyToPop_threadunsafe(); });
   if (!killnow)
     pop_threadunsafe(lock, frame, eof,
                      [](auto &sndr, AVFrame *frame, bool *eof) {

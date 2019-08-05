@@ -317,7 +317,7 @@ class AVFrameQueue : public IAVFrameBuffer
   void pop()
   {
     MutexLockType lock(mutex);
-    cv_tx.wait(lock, [this]() -> bool { return killnow; });
+    cv_tx.wait(lock, [this]() -> bool { return killnow || readyToPop_threadunsafe(); });
     if (!killnow) pop_threadunsafe(nullptr, nullptr);
   }
 
