@@ -116,9 +116,9 @@ inline void ThreadBase::resume()
   std::unique_lock<std::mutex> thread_guard(thread_lock);
 
   // thread is still initializing or idling (i.e., already running)
-  if (status == INIT || status == IDLE) return;
+  if (status == INIT || status == IDLE || status ==ACTIVE) return;
 
-  if (status != ACTIVE || status != PAUSED)
+  if (status != PAUSED)
     throw std::runtime_error("Cannot resume. Thread is not in paused state.");
   status = ACTIVE;
   thread_ready.notify_one();
