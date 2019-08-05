@@ -76,6 +76,9 @@ void ReaderMT::thread_fcn()
  */
 void ReaderMT::read_next_packet()
 {
+  // cannot read unless thread is active
+  if (status != ACTIVE) return;
+
   std::unique_lock<std::mutex> thread_guard(thread_lock);
 
   // gather the list of empty stream and filter output buffers that are not
