@@ -150,16 +150,6 @@ class InputFormat : public Base
                       std::to_string(seek_timestamp));
   }
 
-  template <typename Chrono_t = av_duration>
-  Chrono_t getNextTimeStamp(const std::string &spec)
-  {
-    AVFrame *frame;
-    auto &buf = get_buf(spec);
-    if (get_frame(buf) && !(frame = buf.peekToPop())) return getDuration();
-    return get_timestampbuf<Chrono_t>(getSrc().getTimeBase(),
-                                      frame->best_effort_timestamp);
-  }
-
   int getStreamId(const int stream_id, const int related_stream_id = -1) const;
   int getStreamId(const AVMediaType type,
                   const int related_stream_id = -1) const;
