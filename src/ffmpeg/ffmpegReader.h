@@ -101,6 +101,9 @@ template <typename AVFrameQue> class Reader
   int addStream(const AVMediaType type, int related_stream_id = -1,
                 Args... args);
 
+  void setPrimaryStream(const std::string &spec);
+  void setPrimaryStream(const int stream_id);
+
   InputStream &getStream(int stream_id, int related_stream_id = -1);
   InputStream &getStream(AVMediaType type, int related_stream_id = -1);
   IAVFrameSource &getStream(std::string spec, int related_stream_id = -1);
@@ -191,16 +194,14 @@ template <typename AVFrameQue> class Reader
   template <class PostOp, typename... Args>
   void setPostOp(const int id, Args... args);
 
-
   size_t getNumBufferedFrames(const std::string &spec);
 
   protected:
   /**
    * \brief Read next packet
-   * \returns the pointer to the stream which frame the packet contained. If
-   *          EOF, returns null.
+   * \returns true if at least one buffer is already full.
    */
-  virtual void read_next_packet();
+  virtual bool read_next_packet();
 
   // activate and adds buffer to an input stream by its id
   template <typename... Args> int add_stream(const int stream_id, Args... args);
@@ -210,8 +211,23 @@ template <typename AVFrameQue> class Reader
    */
   template <class Chrono_t> void purge_until(Chrono_t t);
 
+  // returns the AVFrame buffer given stream spec
+  AVFrameQue &get_buf(const std::string &spec);
+
+  // thread-unsafe check for
+  bool ready_to_read()
+  {
+    return std::all_of(bufs.begin(), bufs.end(),
+                       [](auto &buf) { return buf.second.readyToPush(); }) &&
+           std::all_of(filter_outbufs.begin(), filter_outbufs.end(),
+                       [this](auto &buf) { return buf.second.readyToPush(); });
+  }
+
   // input media file
   InputFormat file;
+
+  // filter graphs if set
+  filter::Graph *filter_graph;
 
   bool active; // true to lock down the configuring interface, set by
                // activate() function
@@ -223,23 +239,18 @@ template <typename AVFrameQue> class Reader
       filter_outbufs; // filter output frame buffers (one for each active
                       // stream)
 
-  private:
-  AVFrameQue &get_buf(const std::string &spec);
+  std::string
+      prim_buf; // pointer to the primary buffer, used to link secondary buffers
 
+  private:
   // reads next set of packets from file/stream and push the decoded frame
   // to the stream's sink
   bool get_frame(AVFrame *frame, AVFrameQue &buf, const bool getmore);
-
-  /**
-   * \brief Read file until buf has a frame
-   */
-  bool get_frame(AVFrameQue &buf);
 
   template <class Chrono_t> Chrono_t get_time_stamp(AVFrameQue &buf);
 
   bool at_end_of_stream(AVFrameQue &buf);
 
-  filter::Graph *filter_graph; // filter graphs
   std::unordered_map<std::string, AVFrameQueueST>
       filter_inbufs; // filter output frame buffers (one for each active
                      // stream)
@@ -337,6 +348,23 @@ int Reader<AVFrameQue>::addStream(const std::string &spec,
       throw Exception("The specified filter sink has already been activated.");
 
     auto &buf = emplace_returned.first->second;
+
+    // check for dynamically sized buffer compatibility
+    if (buf.linkable() && buf.isDynamic())
+    {
+      if (prim_buf.empty())
+      {
+        filter_outbufs.erase(spec);
+        throw Exception(
+            "Secondary stream buffer cannot be dynamically sized if "
+            "primary buffer is not set.");
+      }
+      else
+      {
+        get_buf(prim_buf).lead(buf);
+      }
+    }
+
     filter_graph->assignSink(buf, spec);
     emplace_postop<PostOpPassThru>(buf);
     return -1;
@@ -349,18 +377,47 @@ int Reader<AVFrameQue>::addStream(const std::string &spec,
   return add_stream(id);
 }
 
-template <typename AVFrameQue> void Reader<AVFrameQue>::read_next_packet()
+template <typename AVFrameQue>
+inline void Reader<AVFrameQue>::setPrimaryStream(const std::string &spec)
 {
-  file.readNextPacket();
-  if (filter_graph) filter_graph->processFrame();
+  // if filter graph is defined, check its output link labels first
+  if (filter_graph)
+  {
+    auto it = filter_outbufs.find(spec);
+    if (it != filter_outbufs.end())
+    {
+      auto &buf = it->second;
+      if (buf.linkable() && buf.isDynamic())
+        throw Exception("Specified stream buffer cannot be set as the primary "
+                        "buffer. Primary buffer must have a fixed size.");
+      prim_buf = spec;
+      return; // success
+    }
+  }
+
+  // else search the input streams
+  setPrimaryStream(file.getStreamId(spec));
 }
 
 template <typename AVFrameQue>
-bool Reader<AVFrameQue>::get_frame(AVFrameQue &buf)
+inline void Reader<AVFrameQue>::setPrimaryStream(const int stream_id)
 {
-  // read file until the target stream is reached
-  while (buf.empty()) read_next_packet();
-  return buf.eof();
+  auto it = bufs.find(stream_id);
+  if (it == bufs.end()) throw InvalidStreamSpecifier(stream_id);
+  auto &buf = it->second;
+  if (buf.linkable() && buf.isDynamic())
+    throw Exception("Specified stream buffer cannot be set as the primary "
+                    "buffer because it is dynamically sized.");
+  prim_buf = std::to_string(stream_id);
+}
+
+template <typename AVFrameQue> bool Reader<AVFrameQue>::read_next_packet()
+{
+  // if primary buffer is set, only read if primary buffer is not full
+  if (!ready_to_read()) return false;
+  file.readNextPacket();
+  if (filter_graph) filter_graph->processFrame();
+  return true;
 }
 
 template <typename AVFrameQue>
@@ -370,9 +427,19 @@ bool Reader<AVFrameQue>::get_frame(AVFrame *frame, AVFrameQue &buf,
   // if reached eof, nothing to do
   if (atEndOfFile()) return true;
 
-  // read the next frame (read multile packets until the target buffer is
-  // filled)
-  if ((getmore && get_frame(buf)) || buf.empty()) return true;
+  // if buffer is empty
+  if (!buf.readyToPop())
+  {
+    // no frame without getting more packets
+    if (!getmore) return true;
+
+    // read file until buffer gets data or primary is full
+    while (!buf.readyToPop() && read_next_packet())
+      ;
+
+    // nodata if buffer empty or reached EOF
+    if (!buf.readyToPop() || buf.eof()) return true;
+  }
 
   // pop the new frame from the buffer if available; return the eof flag
   return postops.at(&buf)->filter(frame);
@@ -540,12 +607,8 @@ inline bool Reader<AVFrameQue>::at_end_of_stream(AVFrameQue &buf)
 {
   // if file is at eof, eos if spec's buffer is exhausted
   // else, read one more packet from file
-  if (buf.size() && buf.eof()) { return true; }
-  else
-  {
-    if (buf.empty()) read_next_packet();
-    return buf.size() && buf.eof();
-  }
+  return ((buf.readyToPop() || (read_next_packet() && buf.readyToPop())) &&
+          buf.eof());
 }
 
 template <typename AVFrameQue>
@@ -671,7 +734,13 @@ template <typename AVFrameQue>
 template <class Chrono_t>
 inline Chrono_t Reader<AVFrameQue>::get_time_stamp(AVFrameQue &buf)
 {
-  while (buf.empty()) read_next_packet();
+  // if no frame avail at this time, then it's due to the primary buffer full
+  if (!(buf.readyToPop() || (read_next_packet() && buf.readyToPop())))
+  {
+    if (ready_to_read()) throw Exception("Failed to read current time stamp.");
+    return get_time_stamp<Chrono_t>(get_buf(prim_buf));
+  }
+
   AVFrame *frame = buf.peekToPop();
   return (frame) ? get_timestamp<Chrono_t>(frame->best_effort_timestamp >= 0
                                                ? frame->best_effort_timestamp
@@ -705,23 +774,33 @@ template <typename AVFrameQue>
 template <class Chrono_t>
 void Reader<AVFrameQue>::purge_until(Chrono_t t0)
 {
-  // purge all premature frames from all the output buffers. Read more
-  // packets as needed to verify the time
-  auto purge = [this, t0](AVFrameQue &que) {
+  // helper function for seek: expects all the buffers to be empty
+
+  auto checkNextTimeStamp = [t0](AVFrameQue &que) {
+    if (!que.readyToPop()) return false; // no frame arrived yet
+
     AVFrame *frame;
-    while (que.empty() ||
-           (frame = que.peekToPop()) &&
-               get_timestamp<Chrono_t>(frame->best_effort_timestamp,
-                                       que.getSrc().getTimeBase()) < t0)
-    {
-      if (que.size())
-        que.pop();
-      else
-        read_next_packet();
-    }
+    frame = que.peekToPop();
+    if (!frame) return true; // EOF, good to go
+
+    if (get_timestamp<Chrono_t>(frame->best_effort_timestamp,
+                                que.getSrc().getTimeBase()) >= t0)
+      return true;
+    que.pop();
+    return false;
   };
-  for (auto &buf : bufs) purge(buf.second);
-  for (auto &buf : filter_outbufs) purge(buf.second);
+
+  // keep reading packet until all buffers next timestamp is t0 or later
+  while (read_next_packet() &&
+         !(std::all_of(bufs.begin(), bufs.end(),
+                       [checkNextTimeStamp](auto &buf) {
+                         return checkNextTimeStamp(buf.second);
+                       }) &&
+           std::all_of(filter_outbufs.begin(), filter_outbufs.end(),
+                       [checkNextTimeStamp](auto &buf) {
+                         return checkNextTimeStamp(buf.second);
+                       })))
+    ;
 }
 
 template <typename AVFrameQue>
@@ -758,6 +837,21 @@ inline int Reader<AVFrameQue>::add_stream(const int stream_id, Args... args)
 
   // create a new buffer
   auto &buf = emplace_returned.first->second;
+
+  // check for dynamically sized buffer compatibility
+  if (buf.linkable() && buf.isDynamic())
+  {
+    if (prim_buf.empty())
+    {
+      bufs.erase(stream_id);
+      throw Exception("Secondary stream buffer cannot be dynamically sized if "
+                      "primary buffer is not set.");
+    }
+    else
+    {
+      get_buf(prim_buf).lead(buf);
+    }
+  }
 
   // activate the stream with the new buffer
   auto ret = file.addStream(stream_id, buf).getId();
