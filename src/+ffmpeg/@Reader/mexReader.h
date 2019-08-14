@@ -60,8 +60,9 @@ class mexFFmpegReader
     if (streams.empty())
     {
       int N = (int)mxGetScalar(mxGetProperty(mxObj, 0, "BufferSize"));
-      av_log(nullptr, AV_LOG_INFO, "N = %d\n", N);
-      return reader.addStream(spec, -1, N);
+      auto ret = reader.addStream(spec, -1, N);
+      reader.setPrimaryStream(spec);
+      return ret;
     }
     else
       return reader.addStream(spec);

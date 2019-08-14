@@ -217,7 +217,7 @@ mxArray *mexFFmpegReader::read_frame()
 // returns mxArray containing the specified secondary stream data
 mxArray *mexFFmpegReader::read_frame(const std::string &spec)
 {
-  // first, get the time stamp of hte next primary stream frame
+  // first, get the time stamp of the next primary stream frame
   auto ts = reader.getTimeStamp<mex_duration_t>(streams[0]);
 
   // automatically unreference frame when exiting this function
@@ -225,12 +225,24 @@ mxArray *mexFFmpegReader::read_frame(const std::string &spec)
 
   // read frames with ts less than the next primary stream frame
   bool eof = false;
-  while (!eof && ((reader.getTimeStamp<mex_duration_t>(spec)) < ts))
+  while (!eof)
   {
+    // secondary frame may not be available
+    mex_duration_t t;
+    try
+    {
+      t = reader.getTimeStamp<mex_duration_t>(spec);
+    }
+    catch (ffmpeg::Exception &) // no frame avail.
+    {
+      return mxCreateDoubleMatrix(0, 0, mxREAL);
+    }
+    if (t >= ts) break;
+
     if (frames.size() <= purger.nfrms) add_frame();
-    AVFrame *frame = frames[purger.nfrms];
-    eof = reader.readNextFrame(frame, spec);
-    if (!eof) ++purger.nfrms;
+     AVFrame *frame = frames[purger.nfrms];
+     eof = reader.readNextFrame(frame, spec);
+     if (!eof) ++purger.nfrms;
   }
 
   ffmpeg::IAVFrameSource &src = reader.getStream(spec);
@@ -437,7 +449,8 @@ void mexFFmpegReader::set_streams(const mxArray *mxObj)
     // * Filtergraph: pick all the filter outputs
     if (filt_desc.empty())
     {
-      auto add = [this, mxObj](const AVMediaType type, const std::string &prefix) {
+      auto add = [this, mxObj](const AVMediaType type,
+                               const std::string &prefix) {
         // add the best stream (throws InvalidStreamSpecifier if invalid)
         int id = add_stream(mxObj, type);
 
@@ -484,11 +497,10 @@ void mexFFmpegReader::set_streams(const mxArray *mxObj)
     {
       // add all the filtered streams
       while ((spec = reader.getNextInactiveStream(
-                  "", AVMEDIA_TYPE_UNKNOWN,
-                  ffmpeg::StreamSource::FilterSink))
+                  "", AVMEDIA_TYPE_UNKNOWN, ffmpeg::StreamSource::FilterSink))
                  .size())
       {
-        add_stream(mxObj,spec);
+        add_stream(mxObj, spec);
         streams.push_back(spec);
       }
     }
@@ -502,7 +514,7 @@ void mexFFmpegReader::set_streams(const mxArray *mxObj)
       {
         try // to get the best audio stream
         {
-          add_stream(mxObj,mexGetString(mxStream));
+          add_stream(mxObj, mexGetString(mxStream));
         }
         catch (ffmpeg::InvalidStreamSpecifier &)
         {
@@ -522,7 +534,7 @@ void mexFFmpegReader::set_streams(const mxArray *mxObj)
           int id = (int)ids[j];
           try
           {
-            add_stream(mxObj,id);
+            add_stream(mxObj, id);
           }
           catch (ffmpeg::InvalidStreamSpecifier &)
           {
