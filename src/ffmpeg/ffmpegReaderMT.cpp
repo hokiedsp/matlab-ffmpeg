@@ -62,7 +62,8 @@ void ReaderMT::thread_fcn()
       else
       {
         thread_guard.unlock();
-        Reader<AVFrameDoubleBufferMT>::read_next_packet();
+        file.readNextPacket();
+        if (filter_graph) filter_graph->processFrame();
         thread_ready.notify_one();
         thread_guard.lock();
       }
@@ -74,38 +75,18 @@ void ReaderMT::thread_fcn()
 /**
  * \brief Blocks until at least one previously empty read buffer becomes ready
  */
-void ReaderMT::read_next_packet()
+bool ReaderMT::read_next_packet()
 {
   // cannot read unless thread is active
-  if (status != ACTIVE) return;
+  if (status != ACTIVE) return false;
 
   std::unique_lock<std::mutex> thread_guard(thread_lock);
 
-  // gather the list of empty stream and filter output buffers that are not
-  // ready to pop
-  std::vector<int> empty_bufs;
-  std::vector<std::string> empty_fouts;
-  for (auto &buf : bufs)
-  {
-    if (!buf.second.readyToPop()) empty_bufs.push_back(buf.first);
-  }
-  for (auto &buf : filter_outbufs)
-  {
-    if (!buf.second.readyToPop()) empty_fouts.push_back(buf.first);
-  }
+  // wait till a frame becomes available on any of the buffers
+  bool pbuf_chk = ready_to_read();
+  if (pbuf_chk) thread_ready.wait(thread_guard);
 
-  // if all buffers are occupied, good to go!
-  if (empty_bufs.empty() && empty_fouts.empty()) return;
-
-  // otherwise wait till a frame becomes available on any of the buffers
-  thread_ready.wait(thread_guard, [this, empty_bufs, empty_fouts]() {
-    return std::any_of(empty_bufs.begin(), empty_bufs.end(),
-                       [this](auto id) { return bufs.at(id).readyToPop(); }) ||
-           std::any_of(empty_fouts.begin(), empty_fouts.end(),
-                       [this](const auto &spec) {
-                         return filter_outbufs.at(spec).readyToPop();
-                       });
-  });
+  return !pbuf_chk;
 }
 
 void ReaderMT::activate()

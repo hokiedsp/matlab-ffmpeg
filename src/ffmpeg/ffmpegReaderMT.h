@@ -30,7 +30,7 @@ class ReaderMT : public Reader<AVFrameDoubleBufferMT>, private ThreadBase
   /**
    * \brief Blocks until at least one previously empty read buffer becomes ready
    */
-  void read_next_packet();
+  bool read_next_packet();
 
   private:
   // kill buffers
