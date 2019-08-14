@@ -33,6 +33,7 @@ class IAVFrameSinkBuffer
   virtual bool full() noexcept = 0;
   virtual bool hasEof() noexcept = 0; // true if buffer contains EOF
 
+  virtual bool isDynamic() const = 0; // true if buffer size is dynamically set
   virtual bool linkable() const = 0;
   virtual void follow(IAVFrameSinkBuffer &master) = 0;
   virtual void lead(IAVFrameSinkBuffer &slave) = 0;
