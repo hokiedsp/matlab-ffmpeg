@@ -1,4 +1,8 @@
 [submodule "mexutils"]
 	path = mexutils
-	url = https://github.com/hokiedsp/matlab-mexutils.git
+	url = ../matlab-mexutils.git
+	branch = master
+[submodule "libffmpegio"]
+	path = libffmpegio
+	url = ../libffmpegio
 	branch = master

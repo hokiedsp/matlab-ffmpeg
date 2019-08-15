@@ -3,9 +3,7 @@ cmake_minimum_required(VERSION 3.14)
 
 project (matlab-ffmpeg)
 
-list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_LIST_DIR}/cmake")
-
-set(FFMPEG_VERSION "latest" CACHE STRING "FFmpeg version (only relevant for Win32 and Apple)")
+list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_LIST_DIR}/libffmpegio/cmake")
 
 # Set the default installation directory
 if (WIN32)
@@ -23,9 +21,8 @@ endif()
 # set(MATLAB_FFMPEG_TOOLBOX_DIR "ffmpeg" CACHE PATH "Installation subdirectory for Matlab-FFmpeg package")
 #set(MATLAB_FFMPEG_EXAMPLE_DIR "ffmpeg" CACHE PATH "Installation subdirectory for Matlab-FFmpeg examples")
 
-# download FFmpeg DEV & SHARED
-include("${CMAKE_CURRENT_LIST_DIR}/cmake/FFmpegDownloadDev.cmake")
-FFmpegDownloadDev(${FFMPEG_VERSION})
+# work the libffmpegio first
+add_subdirectory("libffmpegio")
 
 # Find dependent packages
 find_package(MATLAB REQUIRED MX_LIBRARY)
