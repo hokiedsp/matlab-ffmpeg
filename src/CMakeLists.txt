@@ -1,7 +1,8 @@
 set(PROJECT_SRC_DIR ${CMAKE_CURRENT_SOURCE_DIR})
 
 # must build the ffmpeg library first as it is used by all mex files
-add_subdirectory("ffmpeg") # creates LIBFFMPEG target variable
+add_library(ffmpeg-utils OBJECT)
+add_subdirectory("utils") # creates LIBFFMPEG target variable
 
 # build visible mex functions
 matlab_add_mex(NAME ffmpegmediatypes SRC ffmpegmediatypes.cpp LINK_TO $<TARGET_OBJECTS:ffmpeg>)
