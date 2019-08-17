@@ -14,8 +14,8 @@ extern "C"
 #endif
 }
 
-#include "ffmpeg/ffmpegException.h"
-#include "ffmpeg/mxutils.h"
+#include <ffmpegException.h>
+#include "../utils/mxutils.h"
 
 // tf = iscodec(val,type,encoder) (prevalidated)
 // type: 0-video, 1-audio, 2-data, 3-subtitle, 4-attachment

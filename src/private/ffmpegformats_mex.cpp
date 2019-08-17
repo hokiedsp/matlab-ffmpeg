@@ -4,7 +4,7 @@
 #include <string>
 
 #include <mex.h>
-#include "ffmpeg/ffmpegException.h"
+#include <ffmpegException.h>
 
 extern "C"
 {

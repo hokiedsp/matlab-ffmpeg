@@ -10,9 +10,9 @@ extern "C"
 #endif
 }
 
-#include "ffmpeg/ffmpegMxProbe.h"
-#include "ffmpeg/ffmpegException.h"
-#include "ffmpeg/mxutils.h"
+#include "utils/ffmpegMxProbe.h"
+#include <ffmpegException.h>
+#include "utils/mxutils.h"
 
 // types = ffmpegmediatypes(filename)
 void mexFunction(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[])

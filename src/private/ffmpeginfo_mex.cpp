@@ -10,10 +10,10 @@ extern "C"
 #endif
 }
 
-#include "ffmpeg/ffmpegMxProbe.h"
-#include "ffmpeg/ffmpegException.h"
-#include "ffmpeg/ffmpeg_utils.h"
-#include "ffmpeg/mxutils.h"
+#include "../utils/ffmpegMxProbe.h"
+#include <ffmpegException.h>
+#include "../utils/mxutils.h"
+#include "../utils/ffmpeg_utils.h"
 
 // info = ffmpeginfo_mex(filenames)
 void mexFunction(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[])

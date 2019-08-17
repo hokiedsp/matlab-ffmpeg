@@ -5,6 +5,14 @@ project (matlab-ffmpeg)
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_LIST_DIR}/libffmpegio/cmake")
 
+# get matlab & mexutils
+if(NOT EXISTS mexutils)
+  execute_process(COMMAND git submodule update --init -- matlab-mexutils mexutils
+                  WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
+endif()
+set(MatlabMexutils_BuildExamples OFF)
+add_subdirectory("mexutils")
+
 # Set the default installation directory
 if (WIN32)
     file(TO_CMAKE_PATH $ENV{USERPROFILE} MATLAB_USER_DIR)
@@ -22,11 +30,13 @@ endif()
 #set(MATLAB_FFMPEG_EXAMPLE_DIR "ffmpeg" CACHE PATH "Installation subdirectory for Matlab-FFmpeg examples")
 
 # work the libffmpegio first
-add_subdirectory("libffmpegio")
+if(NOT EXISTS libffmpegio)
+  execute_process(COMMAND git submodule update --init -- libffmpegio
+                  WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
+endif()
 
-# Find dependent packages
-find_package(MATLAB REQUIRED MX_LIBRARY)
-find_package(FFMPEG REQUIRED COMPONENTS AVUTIL AVFILTER OPTIONAL_COMPONENTS AVDEVICE SWSCALE)
+add_subdirectory("libffmpegio")
+set(libffmpegio libffmpegio_static)
 
 # Set C++ options
 set(CMAKE_CXX_STANDARD 17)
@@ -35,19 +45,6 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 if (FFMPEG_AVDEVICE_FOUND)
   add_compile_definitions(CONFIG_AVDEVICE)
 endif()
-
-get_filename_component(Matlab_RELEASE ${Matlab_ROOT_DIR} NAME)
-matlab_get_version_from_release_name(${Matlab_RELEASE} Matlab_VERSION)
-if (Matlab_VERSION AND Matlab_VERSION VERSION_LESS "8.5")
-  add_compile_definitions(MATLAB_PRE_R2015A)
-endif()
-
-# turn off new Matlab class support
-set(Matlab_HAS_CPP_API 0)
-
-# common include & libraries
-include_directories(${FFMPEG_INCLUDE_DIR} ${Matlab_INCLUDE_DIRS} "mexutils/include")
-link_libraries(${FFMPEG_LIBRARIES})
 
 # must build the ffmpeg library first as it is used by all mex files
 add_subdirectory("src")

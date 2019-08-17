@@ -1,9 +1,10 @@
 #include <mex.h>
 
-#include "../ffmpeg/ffmpegReader.h"
+#include <ffmpegReader.h>
 
-#include "../ffmpeg/ffmpegTimeUtil.h"
-#include "../ffmpeg/mxutils.h"
+#include <ffmpegTimeUtil.h>
+#include <ffmpegException.h>
+#include "../utils/mxutils.h"
 
 #include <mexGetString.h>
 

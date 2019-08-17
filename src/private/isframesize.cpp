@@ -10,8 +10,8 @@ extern "C"
 #include <libavutil/parseutils.h>
 }
 
-#include "ffmpeg/ffmpegException.h"
-#include "ffmpeg/mxutils.h"
+#include <ffmpegException.h>
+#include "../utils/mxutils.h"
 
 // tf = isframesize(val) (prevalidated)
 void mexFunction(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[])

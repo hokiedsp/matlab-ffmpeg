@@ -13,11 +13,11 @@ extern "C"
 #include <libavutil/samplefmt.h>
 }
 
-#include "../../ffmpeg/ffmpegAVFrameQueue.h"
-#include "../../ffmpeg/syncpolicies.h"
+#include <ffmpegAVFrameQueue.h>
+#include <syncpolicies.h>
 
-#include "../../ffmpeg/ffmpegPostOp.h"
-#include "../../ffmpeg/filter/ffmpegFilterGraph.h"
+#include <ffmpegPostOp.h>
+#include <filter/ffmpegFilterGraph.h>
 
 /**
  * \brief a FFmpeg video filter to convert a video AVFrame to desired format &

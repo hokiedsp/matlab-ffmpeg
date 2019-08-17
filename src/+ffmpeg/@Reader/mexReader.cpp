@@ -1,7 +1,7 @@
 #include "mexReader.h"
 
-#include "../../ffmpeg/ffmpegImageUtils.h"
-#include "../../ffmpeg/mxutils.h"
+#include <ffmpegImageUtils.h>
+#include "../../utils/mxutils.h"
 
 #include <mexGetString.h>
 

@@ -10,8 +10,8 @@ extern "C"
 #include <libswscale/swscale.h>
 }
 
-#include "ffmpeg/ffmpegException.h"
-#include "ffmpeg/mxutils.h"
+#include <ffmpegException.h>
+#include "utils/mxutils.h"
 
 // function colors = ffmpegpixfmts()
 // function colors = ffmpegpixfmts("onlynames")

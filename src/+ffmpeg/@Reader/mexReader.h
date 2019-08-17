@@ -3,9 +3,9 @@
 #include <mexAllocator.h>
 #include <mexObjectHandler.h>
 
-#include "../../ffmpeg/ffmpegAVFrameQueue.h"
-#include "../../ffmpeg/ffmpegReaderMT.h"
-// #include "../../ffmpeg/filter/ffmpegFilterGraph.h"
+#include <ffmpegAVFrameQueue.h>
+#include <ffmpegReaderMT.h>
+// #include <filter/ffmpegFilterGraph.h"
 #include "mexReaderPostOps.h"
 
 #include <chrono>

@@ -1,28 +1,26 @@
 # BUILD mex files
 
-include_directories(..)
-
 file(RELATIVE_PATH DstRelativePath ${PROJECT_SRC_DIR} ${CMAKE_CURRENT_SOURCE_DIR})
 
-matlab_add_mex(NAME ffmpeginfo_mex SRC ffmpeginfo_mex.cpp LINK_TO $<TARGET_OBJECTS:ffmpeg>)
+matlab_add_mex(NAME ffmpeginfo_mex SRC ffmpeginfo_mex.cpp LINK_TO sharedlibs)
 install(TARGETS ffmpeginfo_mex RUNTIME DESTINATION "${DstRelativePath}")
 
-matlab_add_mex(NAME ffmpegformats_mex SRC ffmpegformats_mex.cpp LINK_TO $<TARGET_OBJECTS:ffmpeg>)
+matlab_add_mex(NAME ffmpegformats_mex SRC ffmpegformats_mex.cpp LINK_TO sharedlibs)
 install(TARGETS ffmpegformats_mex RUNTIME DESTINATION "${DstRelativePath}")
 
-matlab_add_mex(NAME ffmpegcodecs_mex SRC ffmpegcodecs_mex.cpp LINK_TO $<TARGET_OBJECTS:ffmpeg>)
+matlab_add_mex(NAME ffmpegcodecs_mex SRC ffmpegcodecs_mex.cpp LINK_TO sharedlibs)
 install(TARGETS ffmpegcodecs_mex RUNTIME DESTINATION "${DstRelativePath}")
 
-matlab_add_mex(NAME iscodec SRC iscodec.cpp LINK_TO $<TARGET_OBJECTS:ffmpeg>)
+matlab_add_mex(NAME iscodec SRC iscodec.cpp LINK_TO sharedlibs)
 install(TARGETS iscodec RUNTIME DESTINATION "${DstRelativePath}")
 
-matlab_add_mex(NAME isframerate SRC isframerate.cpp LINK_TO $<TARGET_OBJECTS:ffmpeg>)
+matlab_add_mex(NAME isframerate SRC isframerate.cpp LINK_TO sharedlibs)
 install(TARGETS isframerate RUNTIME DESTINATION "${DstRelativePath}")
 
-matlab_add_mex(NAME isframesize SRC isframesize.cpp LINK_TO $<TARGET_OBJECTS:ffmpeg>)
+matlab_add_mex(NAME isframesize SRC isframesize.cpp LINK_TO sharedlibs)
 install(TARGETS isframesize RUNTIME DESTINATION "${DstRelativePath}")
 
-matlab_add_mex(NAME ispixfmt SRC ispixfmt.cpp LINK_TO $<TARGET_OBJECTS:ffmpeg>)
+matlab_add_mex(NAME ispixfmt SRC ispixfmt.cpp LINK_TO sharedlibs)
 install(TARGETS ispixfmt RUNTIME DESTINATION "${DstRelativePath}")
 
 if (WIN32 OR APPLE)
