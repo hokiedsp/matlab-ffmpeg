@@ -75,6 +75,6 @@
     },
     "cmake.configureArgs": [
         "-DFFMPEG_VERSION:STRING=4.2",
-        "-DLIBFFMPEGIO_SHARED:BOOL=FALSE"
+        "-DCMAKE_INSTALL_PREFIX:PATH=toolbox/ffmpeg"
     ]
 }

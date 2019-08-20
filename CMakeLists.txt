@@ -3,8 +3,6 @@ cmake_minimum_required(VERSION 3.14)
 
 project (matlab-ffmpeg)
 
-list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_LIST_DIR}/libffmpegio/cmake")
-
 # get matlab & mexutils
 if(NOT EXISTS mexutils)
   execute_process(COMMAND git submodule update --init -- matlab-mexutils mexutils
@@ -14,17 +12,14 @@ set(MatlabMexutils_BuildExamples OFF)
 add_subdirectory("mexutils")
 
 # Set the default installation directory
-if (WIN32)
-    file(TO_CMAKE_PATH $ENV{USERPROFILE} MATLAB_USER_DIR)
-    set(MATLAB_USER_DIR "${MATLAB_USER_DIR}/Documents/MATLAB")
-else()
-  set(MATLAB_USER_DIR "$ENV{home}/Documents/MATLAB")
-endif()
 if (NOT EXISTS ${MATLAB_USER_DIR})
   # if not found, show message and use the default CMake install directory
   message("Matlab user directory not found at ${MATLAB_USER_DIR}. It will be created if intallation directory not changed.")
 elseif (CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
   set (CMAKE_INSTALL_PREFIX "${MATLAB_USER_DIR}/ffmpeg" CACHE PATH "Installation directory" FORCE)
+elseif (NOT IS_ABSOLUTE ${CMAKE_INSTALL_PREFIX})
+  get_filename_component(NEW_CMAKE_INSTALL_PREFIX "${CMAKE_INSTALL_PREFIX}" REALPATH BASE_DIR "${MATLAB_USER_DIR}")
+  set (CMAKE_INSTALL_PREFIX "${NEW_CMAKE_INSTALL_PREFIX}" CACHE PATH "Installation directory" FORCE)
 endif()
 # set(MATLAB_FFMPEG_TOOLBOX_DIR "ffmpeg" CACHE PATH "Installation subdirectory for Matlab-FFmpeg package")
 #set(MATLAB_FFMPEG_EXAMPLE_DIR "ffmpeg" CACHE PATH "Installation subdirectory for Matlab-FFmpeg examples")
@@ -35,6 +30,12 @@ if(NOT EXISTS libffmpegio)
                   WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
 endif()
 
+set(LIBFFMPEGIO_SHARED OFF CACHE BOOL "True to build libffmpegio shared library")
+set(LIBFFMPEGIO_STATIC ON CACHE BOOL "True to build libffmpegio static library")
+set(LIBFFMPEGIO_INSTALL_FFMPEG ON CACHE BOOL "ON to install FFmpeg files (Windoes & OSX only)")
+set(LIBFFMPEGIO_INSTALL_DEV OFF CACHE BOOL "ON to install lib & header files")
+set(LIBFFMPEGIO_INSTALL_FFMPEG_BUILD_DEST "" CACHE STRING "Specify the install destination for FFMPEG build files")
+# set(LIBFFMPEGIO_INSTALL_RUNTIME_DEST "" CACHE STRING "Specify the install destination for runtime files")
 add_subdirectory("libffmpegio")
 set(libffmpegio libffmpegio_static)
 
