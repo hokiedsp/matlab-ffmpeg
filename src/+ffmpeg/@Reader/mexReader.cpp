@@ -512,9 +512,10 @@ void mexFFmpegReader::set_streams(const mxArray *mxObj)
       mxArray *mxStream = mxGetCell(mxStreams, i);
       if (mxIsChar(mxStream))
       {
+        spec = mexGetString(mxStream);
         try // to get the best audio stream
         {
-          add_stream(mxObj, mexGetString(mxStream));
+          add_stream(mxObj, spec);
         }
         catch (ffmpeg::InvalidStreamSpecifier &)
         {
