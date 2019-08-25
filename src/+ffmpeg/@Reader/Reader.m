@@ -179,7 +179,7 @@ classdef Reader < matlab.mixin.SetGet & matlab.mixin.CustomDisplay
       %       inspect(obj)
       
       varargout = readFrame(obj, varargin)
-      % varargout = readBuffer(obj)
+      varargout = readBuffer(obj)
       eof = hasFrame(obj)
       
       %------------------------------------------------------------------

@@ -1,7 +1,7 @@
 #include "mexReader.h"
 
-#include <ffmpegImageUtils.h>
 #include "../../utils/mxutils.h"
+#include <ffmpegImageUtils.h>
 
 #include <mexGetString.h>
 
@@ -73,6 +73,8 @@ bool mexFFmpegReader::action_handler(const mxArray *mxObj,
     activate((mxArray *)mxObj);
   else if (command == "readFrame")
     readFrame(nlhs, plhs, nrhs, prhs);
+  else if (command == "readBuffer")
+    readBuffer(nlhs, plhs, nrhs, prhs);
   else if (command == "read")
     read(nlhs, plhs, nrhs, prhs);
   else if (command == "hasFrame")
@@ -166,56 +168,51 @@ mxArray *mexFFmpegReader::hasMediaType(const AVMediaType type)
 void mexFFmpegReader::readFrame(int nlhs, mxArray *plhs[], int nrhs,
                                 const mxArray *prhs[])
 {
+  if (nlhs > streams.size())
+    mexErrMsgIdAndTxt("ffmpeg:Reader:TooManyOutputs",
+                      "Too many output arguments.");
+
   if (!hasFrame())
     mexErrMsgIdAndTxt("ffmpeg:Reader:EndOfFile",
                       "No more frames available to read from file.");
 
   // read the next frame of primary stream
-  plhs[0] = read_frame();
+  plhs[0] = read_frames();
 
   // for each stream outputs, read the next frame(s) until
-  for (int i = 1; i < std::min<size_t>(nlhs, streams.size()); ++i)
-    plhs[i] = read_frame(streams[i]);
-
-  // std::unique_lock<std::mutex> buffer_guard(buffer_lock);
-  // if (!rd_buf->available()) buffer_ready.wait(buffer_guard);
-  // rd_buf->read_frame(dst, (nlhs > 1) ? &t : NULL);
-  // buffer_ready.notify_one();
-  // buffer_guard.unlock();
-
-  // if (nlhs > 1) plhs[1] = mxCreateDoubleScalar(t);
+  for (int i = 1; i < nlhs; ++i) plhs[i] = read_frames(streams[i]);
 }
 
 // read frame from the primary stream
-mxArray *mexFFmpegReader::read_frame()
+mxArray *mexFFmpegReader::read_frames(const size_t N)
 {
   // get primary stream specifier string
   const std::string &spec = streams[0];
 
-  // temp frame storage
-  AVFrame *frame = frames[0];
-
-  // read next frame for the primary stream (this effectively populates frames
-  // buffer)
-  bool eof = reader.readNextFrame(frame, spec);
-
-  // if the stream has already reached the end, return an empty matrix
-  if (eof) return mxCreateNumericMatrix(0, 0, mxUINT8_CLASS, mxREAL);
-
   // automatically unreference frame when exiting this function
-  purge_frames purger(frames);
+  purge_frames purger(frames, 0);
+
+  // read frames with ts less than the next primary stream frame
+  bool eof = false;
+  for (int i = 0; i<N && !eof; ++i)
+  {
+    if (frames.size() <= purger.nfrms) add_frame();
+    AVFrame *frame = frames[purger.nfrms];
+    eof = reader.readNextFrame(frame, spec);
+    if (!eof) ++purger.nfrms;
+  }
 
   ffmpeg::IAVFrameSource &src = reader.getStream(spec);
   if (src.getMediaType() == AVMEDIA_TYPE_VIDEO)
-    return read_video_frame(1);
+    return read_video_frame(purger.nfrms);
   else if (src.getMediaType() == AVMEDIA_TYPE_AUDIO)
-    return read_audio_frame(1);
+    return read_audio_frame(purger.nfrms);
   else
     throw ffmpeg::Exception("Encountered data from an unexpected stream.");
 }
 
 // returns mxArray containing the specified secondary stream data
-mxArray *mexFFmpegReader::read_frame(const std::string &spec)
+mxArray *mexFFmpegReader::read_frames(const std::string &spec)
 {
   // first, get the time stamp of the next primary stream frame
   auto ts = reader.getTimeStamp<mex_duration_t>(streams[0]);
@@ -240,9 +237,54 @@ mxArray *mexFFmpegReader::read_frame(const std::string &spec)
     if (t >= ts) break;
 
     if (frames.size() <= purger.nfrms) add_frame();
-     AVFrame *frame = frames[purger.nfrms];
-     eof = reader.readNextFrame(frame, spec);
-     if (!eof) ++purger.nfrms;
+    AVFrame *frame = frames[purger.nfrms];
+    eof = reader.readNextFrame(frame, spec);
+    if (!eof) ++purger.nfrms;
+  }
+
+  ffmpeg::IAVFrameSource &src = reader.getStream(spec);
+  if (src.getMediaType() == AVMEDIA_TYPE_VIDEO)
+    return read_video_frame(purger.nfrms);
+  else if (src.getMediaType() == AVMEDIA_TYPE_AUDIO)
+    return read_audio_frame(purger.nfrms);
+  else
+    throw ffmpeg::Exception("Encountered data from an unexpected stream.");
+}
+
+//[frame1,frame2,...] = readBuffer(obj, varargin);
+void mexFFmpegReader::readBuffer(int nlhs, mxArray *plhs[], int nrhs,
+                                 const mxArray *prhs[])
+{
+  if (nlhs > streams.size())
+    mexErrMsgIdAndTxt("ffmpeg:Reader:TooManyOutputs",
+                      "Too many output arguments.");
+
+  if (!hasFrame())
+    mexErrMsgIdAndTxt("ffmpeg:Reader:EndOfFile",
+                      "No more frames available to read from file.");
+
+  // must get the secondary buffer first (automatically discarded when primary
+  // buffer is empty)
+  for (int i = 1; i < nlhs; ++i) plhs[i] = read_buffer(streams[i]);
+
+  // read the next frame of primary stream
+  plhs[0] = read_frames(reader.getNumBufferedFrames(streams[0]));
+}
+
+// returns mxArray containing the specified secondary stream data
+mxArray *mexFFmpegReader::read_buffer(const std::string &spec)
+{
+  // automatically unreference frame when exiting this function
+  purge_frames purger(frames, 0);
+
+  // read frames with ts less than the next primary stream frame
+  bool eof = false;
+  while (reader.getNumBufferedFrames(spec) && !eof)
+  {
+    if (frames.size() <= purger.nfrms) add_frame();
+    AVFrame *frame = frames[purger.nfrms];
+    eof = reader.readNextFrame(frame, spec);
+    if (!eof) ++purger.nfrms;
   }
 
   ffmpeg::IAVFrameSource &src = reader.getStream(spec);
@@ -272,11 +314,12 @@ mxArray *mexFFmpegReader::read_video_frame(size_t nframes)
 
   mwSize dims[4] = {(mwSize)width, (mwSize)height,
                     (mwSize)frame_data_sz / (width * height), nframes};
-  mxArray *mxData = mxCreateNumericArray(3, dims, mxUINT8_CLASS, mxREAL);
+  mxArray *mxData = mxCreateNumericArray(4, dims, mxUINT8_CLASS, mxREAL);
   uint8_t *data = (uint8_t *)mxGetData(mxData);
 
   for (size_t i = 0; i < nframes; ++i)
   {
+    frame = frames[i];
     ffmpeg::imageCopyToComponentBuffer(data, frame_data_sz, frame->data,
                                        frame->linesize, format, frame->width,
                                        frame->height);

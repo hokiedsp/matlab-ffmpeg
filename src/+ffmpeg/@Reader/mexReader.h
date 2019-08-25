@@ -73,6 +73,7 @@ class mexFFmpegReader
 
   //    varargout = readFrame(obj, varargin);
   void readFrame(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[]);
+  void readBuffer(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[]);
   void read(int nlhs, mxArray *plhs[], int nrhs,
             const mxArray *prhs[]); // varargout = read(obj, varargin);
   void setCurrentTime(const mxArray *mxTime);
@@ -109,7 +110,7 @@ class mexFFmpegReader
    *
    * \returns mxArray containing the received frame
    */
-  mxArray *read_frame();
+  mxArray *read_frames(const size_t N = 1);
 
   /**
    * \brief Read the next frame(s) of the specified secondary stream
@@ -117,7 +118,15 @@ class mexFFmpegReader
    * \param[in]  spec   Name of the stream to retrieve (must not be the primary
    * spec, unchecked) \returns mxArray containing the received frame(s).
    */
-  mxArray *read_frame(const std::string &spec);
+  mxArray *read_frames(const std::string &spec);
+
+  /**
+   * \brief Read the next frame(s) of the specified secondary stream
+   *
+   * \param[in]  spec   Name of the stream to retrieve (must not be the primary
+   * spec, unchecked) \returns mxArray containing the received frame(s).
+   */
+  mxArray *read_buffer(const std::string &spec);
 
   mxArray *read_video_frame(size_t nframes);
   mxArray *read_audio_frame(size_t nframes);

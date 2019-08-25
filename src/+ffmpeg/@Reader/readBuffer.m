@@ -73,46 +73,4 @@ function varargout = readBuffer(obj)
 %
 %   See also AUDIOVIDEO, MOVIE, VIDEOREADER,VIDEOREADER/HASFRAME, MMFILEINFO.
 
-[varargout{1:nargout}] = obj.mex_backend(obj.backend,'readBuffer');
-
-% if length(obj) > 1
-%     error(message('ffmpeg:Reader:nonscalar'));
-% end
-% 
-% % ensure that we pass in 1 or 2 arguments only
-% narginchk(1, 2);
-% 
-% % ensure that we pass out only 1 output argument
-% nargoutchk(0, 1);
-% 
-% if nargin < 2
-%     outputformat = 'default';
-% end
-% 
-% try
-%     outputformat = VideoReader.validateOutputFormat(outputformat, 'VideoReader.readFrame');
-% catch ME
-%     throwAsCaller(ME);
-% end
-% 
-% if obj.IsFrameBased
-%     error( message('ffmpeg:Reader:NotSupportedFramesCounted', 'READBUFFER', 'READBUFFER') );
-% end
-% 
-% readFrameOC = onCleanup( @() set(obj, 'IsStreamingBased', 'true') );
-% 
-% if ~hasFrame(obj)
-%     error(message('ffmpeg:Reader:EndOfFile'));
-% end
-% 
-% try
-%     videoFrame = readFrame( getImpl(obj) );
-% catch exception
-%     VideoReader.handleImplException(exception);
-% end
-% 
-% varargout{1} = VideoReader.convertToOutputFormat( videoFrame, ...
-%                                                   get(obj, 'VideoFormat'), ...
-%                                                   outputformat, ...
-%                                                   get(getImpl(obj), 'colormap') );
-%                                               
+[varargout{1:nargout}] = obj.mex_backend(obj,mfilename);
