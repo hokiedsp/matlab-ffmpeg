@@ -65,7 +65,7 @@ classdef Reader < matlab.mixin.SetGet & matlab.mixin.CustomDisplay
    %           pause(1/vidObj.FrameRate);
    %       end
    %
-   %   See also AUDIOVIDEO, VIDEOREADER/READFRAME, VIDEOREADER/HASFRAME, MMFILEINFO.
+   %   See also FFMPEG.READER/READFRAME, FFMPEG.READER/READBUFFER, FFMPEG.READER/HASFRAME.
    %
    
    properties(GetAccess='public', SetAccess='private')
@@ -322,6 +322,7 @@ classdef Reader < matlab.mixin.SetGet & matlab.mixin.CustomDisplay
          end
          obj.AudioFormat = value;
       end
+
       function set.FilterGraph(obj,value)
          validateattributes(value,{'char'},{'row'});
          obj.FilterGraph = value;
@@ -371,7 +372,7 @@ classdef Reader < matlab.mixin.SetGet & matlab.mixin.CustomDisplay
          propGroups(1) = PropertyGroup( {'Name', 'Path', 'FilterGraph','Streams','Duration', 'CurrentTime'});
          propGroups(2) = PropertyGroup( {'Width', 'Height', 'PixelAspectRatio','FrameRate', 'VideoFormat'});
          propGroups(3) = PropertyGroup( {'NumberOfAudioChannels', 'ChannelLayout', 'SampleRate','AudioFormat'});
-         propGroups(4) = PropertyGroup( {'Metadata','Tag', 'UserData'});
+         propGroups(4) = PropertyGroup( {'BufferSize','Metadata','Tag', 'UserData'});
          
          %          propGroups(1) = PropertyGroup( {'Name', 'Path', 'Duration', 'CurrentTime', 'Tag', 'UserData'}, ...
          %             getString( message('ffmpeg:Reader:GeneralProperties') ) );
