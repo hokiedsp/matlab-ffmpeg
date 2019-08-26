@@ -23,12 +23,6 @@ install(TARGETS isframesize RUNTIME DESTINATION "${DstRelativePath}")
 matlab_add_mex(NAME ispixfmt SRC ispixfmt.cpp LINK_TO sharedlibs)
 install(TARGETS ispixfmt RUNTIME DESTINATION "${DstRelativePath}")
 
-if (WIN32 OR APPLE)
-    # copy all the downloaded binary files as well
-    file(GLOB BINFILES LIST_DIRECTORIES false "${FFMPEG_BIN_DIRECTORY}/bin/*")
-    install(FILES ${BINFILES} DESTINATION ${DstRelativePath})
-endif()
-
 # copy all the m-files in the directory
 file(GLOB MFILES LIST_DIRECTORIES false RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} "*.m")
 install(FILES ${MFILES} DESTINATION ${DstRelativePath}) # copy all the package m-files
