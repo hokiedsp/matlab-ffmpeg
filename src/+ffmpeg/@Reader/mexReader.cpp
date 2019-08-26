@@ -384,6 +384,7 @@ mxArray *mexFFmpegReader::read_audio_frame(size_t nframes)
 
   for (int j = 0; j < nframes; ++j)
   {
+    frame = frames[j];
     av_samples_copy(dst, frame->data, 0, 0, frame->nb_samples, frame->channels,
                     fmt);
     dst[0] += av_samples_get_buffer_size(nullptr, frame->channels,
