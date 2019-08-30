@@ -29,7 +29,7 @@ typedef ffmpeg::AVFrameDoubleBufferMT AVFrameBuffer;
 //     AVFrameBuffer;
 
 // typedef ffmpeg::Reader<AVFrameQueue> ffmpegReader;
-typedef ffmpeg::ReaderMT ffmpegReader;
+typedef ffmpeg::ReaderMT<ffmpeg::AVFrameDoubleBufferMT> ffmpegReader;
 
 class mexFFmpegReader
 {
