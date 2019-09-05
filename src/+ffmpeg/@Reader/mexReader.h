@@ -3,33 +3,21 @@
 #include <mexAllocator.h>
 #include <mexObjectHandler.h>
 
-#include <ffmpegAVFrameQueue.h>
-#include <ffmpegReaderMT.h>
-// #include <filter/ffmpegFilterGraph.h"
 #include "mexReaderPostOps.h"
+#include <ffmpegAVFrameDoubleBuffer.h>
+#include <ffmpegReaderMT.h>
+#include <ffmpegReaderRev.h>
 
 #include <chrono>
 #include <string>
 #include <unordered_map>
+#include <variant>
 #include <vector>
-// #include <thread>
-// #include <mutex>
-// #include <condition_variable>
 
 typedef std::vector<uint8_t> uint8_vector;
-// typedef ffmpeg::AVFrameQueue<NullMutex, NullConditionVariable<NullMutex>,
-//                              NullUniqueLock<NullMutex>>
-//     AVFrameBuffer;
-typedef ffmpeg::AVFrameDoubleBufferMT AVFrameBuffer;
-
-// typedef ffmpeg::AVFrameQueue<Cpp11Mutex,
-//                              Cpp11ConditionVariable<Cpp11Mutex,
-//                              Cpp11UniqueLock<Cpp11Mutex>>,
-//                              Cpp11UniqueLock<Cpp11Mutex>>
-//     AVFrameBuffer;
-
-// typedef ffmpeg::Reader<AVFrameQueue> ffmpegReader;
 typedef ffmpeg::ReaderMT<ffmpeg::AVFrameDoubleBufferMT> ffmpegReader;
+typedef ffmpeg::ReaderReverse<ffmpeg::AVFrameDoubleBufferLIFOMT>
+    ffmpegRevReader;
 
 class mexFFmpegReader
 {
@@ -59,13 +47,18 @@ class mexFFmpegReader
     // are dynamically buffered
     if (streams.empty())
     {
-      int N = (int)mxGetScalar(mxGetProperty(mxObj, 0, "BufferSize"));
-      auto ret = reader.addStream(spec, -1, N);
-      reader.setPrimaryStream(spec);
-      return ret;
+      return std::visit(
+          [mxObj, spec](auto &reader) {
+            int N = (int)mxGetScalar(mxGetProperty(mxObj, 0, "BufferSize"));
+            auto ret = reader.addStream(spec, -1, N);
+            reader.setPrimaryStream(spec);
+            return ret;
+          },
+          reader);
     }
     else
-      return reader.addStream(spec);
+      return std::visit([spec](auto &reader) { return reader.addStream(spec); },
+                        reader);
   }
 
   mxArray *hasFrame();
@@ -85,7 +78,7 @@ class mexFFmpegReader
   static mxArray *getFileFormats();  // formats = getFileFormats();
   static mxArray *getVideoFormats(); // formats = getVideoFormats();
 
-  ffmpegReader reader;
+  std::variant<ffmpegReader, ffmpegRevReader> reader;
 
   std::string filt_desc; // actual filter graph description
 
@@ -104,6 +97,11 @@ class mexFFmpegReader
    * exported to MATLAB
    */
   void set_postops(mxArray *mxObj);
+
+  /**
+   * \brief Returns true if not eof
+   */
+  bool has_frame();
 
   /**
    * \brief Read the next primary stream
