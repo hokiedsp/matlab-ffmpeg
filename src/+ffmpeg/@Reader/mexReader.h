@@ -43,22 +43,20 @@ class mexFFmpegReader
   template <typename Spec>
   int add_stream(const mxArray *mxObj, const Spec &spec)
   {
-    // the first stream gets the finite buffer size while the secondary streams
-    // are dynamically buffered
-    if (streams.empty())
-    {
-      return std::visit(
-          [mxObj, spec](auto &reader) {
+    return std::visit(
+        [mxObj, spec](auto &reader) {
+          // the first stream gets the finite buffer size while the secondary
+          // streams are dynamically buffered
+          if (reader.getActiveStreamCount() > 0)
+          { return reader.addStream(spec); } else
+          {
             int N = (int)mxGetScalar(mxGetProperty(mxObj, 0, "BufferSize"));
             auto ret = reader.addStream(spec, -1, N);
             reader.setPrimaryStream(spec);
             return ret;
-          },
-          reader);
-    }
-    else
-      return std::visit([spec](auto &reader) { return reader.addStream(spec); },
-                        reader);
+          }
+        },
+        reader);
   }
 
   mxArray *hasFrame();
