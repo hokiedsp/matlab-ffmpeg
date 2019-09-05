@@ -582,15 +582,20 @@ void mexFFmpegReader::set_streams(const mxArray *mxObj)
           }
           else
           {
-            // add all the filtered streams
+            // get all the filtered streams (video first)
             while ((spec = reader.getNextInactiveStream(
-                        "", AVMEDIA_TYPE_UNKNOWN,
+                        spec, AVMEDIA_TYPE_VIDEO,
                         ffmpeg::StreamSource::FilterSink))
                        .size())
-            {
-              add_stream(mxObj, spec);
               streams.push_back(spec);
-            }
+            while ((spec = reader.getNextInactiveStream(
+                        spec, AVMEDIA_TYPE_AUDIO,
+                        ffmpeg::StreamSource::FilterSink))
+                       .size())
+              streams.push_back(spec);
+
+            // add streamsmat
+            for (auto &sp : streams) add_stream(mxObj, sp);
           }
         }
         else // user specified streams
