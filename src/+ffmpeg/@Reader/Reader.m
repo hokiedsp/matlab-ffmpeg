@@ -74,7 +74,7 @@ classdef Reader < matlab.mixin.SetGet & matlab.mixin.CustomDisplay
       Streams         % Activated streams (excluding those consumed by filters)
       Duration        % Total length of file in seconds.
       BufferSize = 4  % Underlying frame buffer size
-      % Direction = 'forward'
+      Direction = 'forward'
    end
    
    properties(Access='public', Dependent)
@@ -144,15 +144,15 @@ classdef Reader < matlab.mixin.SetGet & matlab.mixin.CustomDisplay
          % instantiate the MEX backend
          ffmpeg.Reader.mex_backend(obj,url);
          
-         % set all the arguments: Streams, VideoFormat, AudioFormat,
-         % FilterGraph
-         if nargin>1
-            set(obj,varargin{:});
-         end
-
-         % complete configuration & activate the engine
-         % -> this sets all the properties if success
          try
+            % set all the arguments: Streams, VideoFormat, AudioFormat,
+            % FilterGraph
+            if nargin>1
+               set(obj,varargin{:});
+            end
+
+            % complete configuration & activate the engine
+            % -> this sets all the properties if success
             ffmpeg.Reader.mex_backend(obj,'activate');
          catch ME % if fails, clean up
             ffmpeg.Reader.mex_backend(obj, 'delete');
@@ -332,9 +332,9 @@ classdef Reader < matlab.mixin.SetGet & matlab.mixin.CustomDisplay
          validateattributes(value,{'double'},{'scalar','real','positive','integer'});
          obj.BufferSize = value;
       end
-%       function set.Direction(obj,value)
-%          obj.Direction = validatestring(value,{'forward','backward'},mfilename,'Direction');
-%       end
+      function set.Direction(obj,value)
+         obj.Direction = validatestring(value,{'forward','backward'},mfilename,'Direction');
+      end
 
       %%%%%%%%%%%%%%%%%%%%%%%%%%
       
