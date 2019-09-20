@@ -445,6 +445,14 @@ void mexFFmpegReader::read(
 // finalize the configuration and activate the reader
 void mexFFmpegReader::activate(mxArray *mxObj)
 {
+  // if set to reverse direction, swap out the reader
+  backward = mexGetString(mxGetProperty(mxObj, 0, "Direction")) == "backward";
+  if (backward)
+  {
+    std::string url = std::get<0>(reader).getFilePath();
+    reader.emplace<ffmpegRevReader>(url);
+  }
+
   std::visit(
       [this, mxObj](auto &reader) {
         // set filter graph if specified

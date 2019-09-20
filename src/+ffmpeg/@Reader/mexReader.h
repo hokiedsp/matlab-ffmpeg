@@ -77,6 +77,7 @@ class mexFFmpegReader
   static mxArray *getVideoFormats(); // formats = getVideoFormats();
 
   std::variant<ffmpegReader, ffmpegRevReader> reader;
+  bool backward; // true to read frames backward from the end of the file
 
   std::string filt_desc; // actual filter graph description
 
