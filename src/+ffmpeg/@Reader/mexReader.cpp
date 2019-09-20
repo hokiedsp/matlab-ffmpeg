@@ -13,6 +13,7 @@ extern "C"
 }
 
 #include <algorithm>
+#include <numeric>
 
 bool ini = true;
 
@@ -374,54 +375,71 @@ mxArray *mexFFmpegReader::read_audio_frame(size_t nframes)
   AVSampleFormat fmt = (AVSampleFormat)frame->format;
 
   // just in case...
-  if ((bool)av_sample_fmt_is_planar(fmt))
-    throw ffmpeg::Exception("Audio frame format is not as expected.");
+  if (!(bool)av_sample_fmt_is_planar(fmt))
+    throw ffmpeg::Exception(
+        "FFmpeg reader must output audio streams in planar format.");
 
   mxClassID mx_class;
   switch (fmt)
   {
-  case AV_SAMPLE_FMT_U8: ///< unsigned 8 bits
+  case AV_SAMPLE_FMT_U8P: ///< unsigned 8 bits
     mx_class = mxUINT8_CLASS;
     break;
-  case AV_SAMPLE_FMT_S16: ///< signed 16 bits
+  case AV_SAMPLE_FMT_S16P: ///< signed 16 bits
     mx_class = mxINT16_CLASS;
     break;
-  case AV_SAMPLE_FMT_S32: ///< signed 32 bits
+  case AV_SAMPLE_FMT_S32P: ///< signed 32 bits
     mx_class = mxINT32_CLASS;
     break;
-  case AV_SAMPLE_FMT_FLT: ///< float
+  case AV_SAMPLE_FMT_FLTP: ///< float
     mx_class = mxSINGLE_CLASS;
     break;
-  case AV_SAMPLE_FMT_DBL: ///< double
+  case AV_SAMPLE_FMT_DBLP: ///< double
     mx_class = mxDOUBLE_CLASS;
     break;
-  case AV_SAMPLE_FMT_S64: ///< signed 64 bits
+  case AV_SAMPLE_FMT_S64P: ///< signed 64 bits
     mx_class = mxINT64_CLASS;
     break;
   default: throw ffmpeg::Exception("Unknown audio sample format.");
   }
 
-  size_t total_nb_samples = std::reduce(
-      frames.begin(), frames.begin() + nframes, 0ull,
-      [](size_t N, AVFrame *frame) { return N + frame->nb_samples; });
+  int max_nb_samples = std::reduce(
+      frames.begin(), frames.begin() + nframes, 0,
+      [](int N, AVFrame *frame) { return std::max(N, frame->nb_samples); });
 
-  mxArray *mxData = mxCreateNumericMatrix(frame->channels, total_nb_samples,
-                                          mx_class, mxREAL);
+  mwSize dims[3] = {(mwSize)max_nb_samples, (mwSize)frame->channels, nframes};
+  mxArray *mxData = mxCreateNumericArray(3, dims, mx_class, mxREAL);
   uint8_t *data = (uint8_t *)mxGetData(mxData);
 
   auto elsz = mxGetElementSize(mxData);
 
   uint8_t *dst[AV_NUM_DATA_POINTERS];
-  dst[0] = data;
-  dst[1] = nullptr;
+  for (int i = 0; i < frame->channels; ++i) dst[i] = data + i * max_nb_samples;
+  dst[frame->channels] = nullptr;
+
+  // output data size in bytes
+  int nbuf = frame->channels *
+             av_samples_get_buffer_size(nullptr, frame->channels,
+                                        frame->nb_samples, fmt, false);
 
   for (int j = 0; j < nframes; ++j)
   {
     frame = frames[j];
+
+    // copy the data
     av_samples_copy(dst, frame->data, 0, 0, frame->nb_samples, frame->channels,
                     fmt);
-    dst[0] += av_samples_get_buffer_size(nullptr, frame->channels,
-                                         frame->nb_samples, fmt, false);
+
+    // if frame contains less # of samples, fill the remainder with zeros
+    if (frame->nb_samples < max_nb_samples)
+    {
+      size_t nrem = max_nb_samples - frame->nb_samples;
+      for (int i = 0; i < frame->channels; ++i)
+        std::fill_n(dst[i] + frame->nb_samples, nrem, 0);
+    }
+
+    // increment the
+    for (int i = 0; i < frame->channels; ++i) dst[i] += nbuf;
   }
 
   // call MATLAB transpose function to finalize combined-audio output
@@ -684,7 +702,7 @@ void mexFFmpegReader::set_postops(mxArray *mxObj)
         {
           std::string sampledesc = mexGetString(mxFormat);
           if (sampledesc != "native")
-            samplefmt = av_get_sample_fmt(sampledesc.c_str());
+            samplefmt = av_get_sample_fmt((sampledesc + "p").c_str());
         }
 
         for (auto &spec : streams)
@@ -734,7 +752,7 @@ void mexFFmpegReader::set_postops(mxArray *mxObj)
             }
             // pick planer/packed data format depending on whether to combine
             // frames
-            samplefmt = av_get_packed_sample_fmt(samplefmt);
+            samplefmt = av_get_planar_sample_fmt(samplefmt);
 
             // if requested format is different from the stream format, set
             // postop
