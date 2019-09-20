@@ -71,7 +71,8 @@
         "unordered_map": "cpp",
         "xhash": "cpp",
         "iostream": "cpp",
-        "numeric": "cpp"
+        "numeric": "cpp",
+        "variant": "cpp"
     },
     "cmake.configureArgs": [
         "-DFFMPEG_VERSION:STRING=4.2",
