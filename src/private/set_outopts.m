@@ -8,6 +8,7 @@ function outopts = set_outopts(opts)
 % rev. - : (04-06-2015) original release
 % rev. 1 : (06-22-2015) fixed a bug in processing PixelFormat option
 % rev. 2 : (07-22-2015) fixed a bug with empty Range option
+% rev. 3 : (09-09-2019) changed AudioSampleRate to OutputSampleRate
 
 % if OutputFrameRate is not given or FastSearch is on, Range is given in
 % input time scale
@@ -78,7 +79,7 @@ for n = 1:numel(fnames)
             otherwise
                outopts(1).c{Irow,[1 2]} = {'a' val};
          end
-      case 'AudioSampleRate' % Positive scalar
+      case 'OutputSampleRate' % Positive scalar
          if isfield(outopts,'r')
             outopts(1).r{end+1,1} = 'a';
          else
