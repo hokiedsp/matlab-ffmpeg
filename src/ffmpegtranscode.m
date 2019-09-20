@@ -45,9 +45,6 @@ function varargout = ffmpegtranscode(varargin)
 %      AudioCodec       [none|{copy}|wav|mp3|aac]
 %                       Audio codec. If 'none', audio data would not be
 %                       transcoded.
-%      AudioSampleRate  Positive scalar
-%                       Output audio sampling rate in samples/second.
-%                       Only specify if needed to be changed.
 %      Mp3Quality       Integer scalar between 0 and 9 {[]}
 %                       MP3 encoder quality setting. Lower the higher
 %                       quality. Empty uses the FFmpeg default.
@@ -59,6 +56,9 @@ function varargout = ffmpegtranscode(varargin)
 %                       transcoded.
 %      OutputFrameRate  Positive scalar
 %                       Output video frame rate in frames/second.
+%      OutputSampleRate Positive scalar
+%                       Output audio sampling rate in samples/second.
+%                       Only specify if needed to be changed.
 %      PixelFormat      One of format string returned by FFMPEGPIXFMTS
 %                       Pixel format. Default to 'yuv420p' for Apple
 %                       QuickTime compatibility if VideoCodec = 'mpeg4' or
