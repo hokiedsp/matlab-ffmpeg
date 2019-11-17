@@ -1,3 +1,0 @@
-[submodule "mexutils"]
-	path = mexutils
-	url = https://github.com/hokiedsp/matlab-mexutils.git
